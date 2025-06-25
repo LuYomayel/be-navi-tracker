@@ -1,0 +1,125 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  plan      String   @default("free") // free, basic, premium
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  time        String?
+  days        Json     // Array de 7 booleans [L, M, X, J, V, S, D]
+  color       String
+  category    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  completions DailyCompletion[]
+
+  @@map("activities")
+}
+
+model DailyCompletion {
+  id         String   @id @default(cuid())
+  activityId String
+  date       String   // YYYY-MM-DD format
+  completed  Boolean  @default(false)
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  // Relaciones
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, date])
+  @@map("daily_completions")
+}
+
+model NutritionAnalysis {
+  id                String   @id @default(cuid())
+  userId            String   @default("default")
+  date              String   // YYYY-MM-DD format
+  mealType          String   // breakfast, lunch, dinner, snack, other
+  foods             Json     // Array de DetectedFood
+  totalCalories     Int
+  macronutrients    Json     // Macronutrients object
+  imageUrl          String?
+  aiConfidence      Float    @default(0.0)
+  userAdjustments   Json?    // UserNutritionAdjustments object
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("nutrition_analyses")
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String   @default("default")
+  role      String   // user, assistant
+  content   String   @db.Text
+  timestamp DateTime @default(now())
+
+  @@map("chat_messages")
+}
+
+model BodyAnalysis {
+  id              String   @id @default(cuid())
+  userId          String   @default("default")
+  bodyType        String
+  measurements    Json?    // BodyMeasurements object
+  bodyComposition Json?    // BodyComposition object
+  recommendations Json?    // NutritionRecommendations object
+  imageUrl        String?
+  aiConfidence    Float    @default(0.0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("body_analyses")
+}
+
+model AISuggestion {
+  id          String    @id @default(cuid())
+  type        String
+  title       String
+  description String    @db.Text
+  priority    String
+  basedOn     Json      // Array de strings
+  actions     Json?     // Array de objetos
+  dismissedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@map("ai_suggestions")
+}
+
+model Analysis {
+  id               String   @id @default(cuid())
+  userId           String   @default("default")
+  date             String   // YYYY-MM-DD format
+  detectedPatterns Json     // Array de strings: ["sleep_issues", "stress_pattern", etc.]
+  mood             Int      // 1-5 scale
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("analyses")
+}
