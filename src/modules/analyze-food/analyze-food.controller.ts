@@ -5,33 +5,54 @@ import {
   Body,
   HttpException,
   HttpStatus,
-} from "@nestjs/common";
-import { AnalyzeFoodService } from "./analyze-food.service";
-import { ApiResponse } from "../../common/types";
+} from '@nestjs/common';
+import { AnalyzeFoodService } from './analyze-food.service';
+import { ApiResponse } from '../../common/types';
 
-interface FoodAnalysisRequest {
-  image: string;
-  mealType?: string;
+export enum MealType {
+  BREAKFAST = 'breakfast',
+  LUNCH = 'lunch',
+  DINNER = 'dinner',
+  SNACK = 'snack',
+  OTHER = 'other',
 }
 
-@Controller("analyze-food")
+interface FoodAnalysisImageRequest {
+  image: string;
+  mealType?: MealType;
+}
+
+interface FoodAnalysisManualRequest {
+  mealType: MealType;
+  name: string;
+  servings: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+}
+
+@Controller('analyze-food')
 export class AnalyzeFoodController {
   constructor(private readonly analyzeFoodService: AnalyzeFoodService) {}
 
-  @Post()
+  @Post('image')
   async analyzeFood(
-    @Body() request: FoodAnalysisRequest
+    @Body() request: FoodAnalysisImageRequest,
   ): Promise<ApiResponse<any>> {
     try {
       const { image, mealType } = request;
 
       if (!image) {
-        throw new HttpException("Imagen requerida", HttpStatus.BAD_REQUEST);
+        throw new HttpException('Imagen requerida', HttpStatus.BAD_REQUEST);
       }
 
-      const analysis = await this.analyzeFoodService.analyzeFood(
+      const analysis = await this.analyzeFoodService.analyzeImageFood(
         image,
-        mealType
+        mealType,
       );
 
       return {
@@ -39,10 +60,58 @@ export class AnalyzeFoodController {
         data: analysis,
       };
     } catch (error) {
-      console.error("Error analyzing food:", error);
+      console.error('Error analyzing food:', error);
       throw new HttpException(
-        "Error analizando la comida",
-        HttpStatus.INTERNAL_SERVER_ERROR
+        'Error analizando la comida',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('manual')
+  async analyzeFoodManual(
+    @Body() request: FoodAnalysisManualRequest,
+  ): Promise<ApiResponse<any>> {
+    try {
+      const {
+        name,
+        servings,
+        calories,
+        protein,
+        carbs,
+        fat,
+        fiber,
+        sugar,
+        sodium,
+        mealType,
+      } = request;
+
+      if (!name) {
+        throw new HttpException('Imagen requerida', HttpStatus.BAD_REQUEST);
+      }
+
+      const analysis = await this.analyzeFoodService.analyzeManualFood(
+        name,
+        servings,
+        calories,
+        protein,
+        carbs,
+        fat,
+        fiber,
+        sugar,
+        sodium,
+        mealType,
+      );
+
+      return {
+        success: true,
+        data: analysis,
+      };
+    } catch (error) {
+      console.error('Error analyzing food:', error);
+      throw new HttpException(
+        'Error analizando la comida',
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -54,7 +123,7 @@ export class AnalyzeFoodController {
     return {
       success: true,
       data: {
-        status: "Servicio de análisis de comida disponible",
+        status: 'Servicio de análisis de comida disponible',
         openaiAvailable: !!process.env.OPENAI_API_KEY,
       },
     };

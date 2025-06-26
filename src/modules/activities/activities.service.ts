@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../../config/prisma.service";
-import { Activity, ApiResponse } from "../../common/types";
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../../config/prisma.service';
+import { Activity, ApiResponse } from '../../common/types';
 
 @Injectable()
 export class ActivitiesService {
@@ -9,7 +9,7 @@ export class ActivitiesService {
   async getAll(): Promise<Activity[]> {
     try {
       const activities = await this.prisma.activity.findMany({
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: 'asc' },
       });
 
       return activities.map((activity: any) => ({
@@ -17,13 +17,13 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       }));
     } catch (error) {
-      console.error("Error fetching activities:", error);
+      console.error('Error fetching activities:', error);
       return [];
     }
   }
 
   async create(
-    data: Omit<Activity, "id" | "createdAt" | "updatedAt">
+    data: Omit<Activity, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<Activity> {
     try {
       const activity = await this.prisma.activity.create({
@@ -38,8 +38,8 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error("Error creating activity:", error);
-      throw new Error("Failed to create activity");
+      console.error('Error creating activity:', error);
+      throw new Error('Failed to create activity');
     }
   }
 
@@ -58,7 +58,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error("Error updating activity:", error);
+      console.error('Error updating activity:', error);
       return null;
     }
   }
@@ -70,7 +70,7 @@ export class ActivitiesService {
       });
       return true;
     } catch (error) {
-      console.error("Error deleting activity:", error);
+      console.error('Error deleting activity:', error);
       return false;
     }
   }

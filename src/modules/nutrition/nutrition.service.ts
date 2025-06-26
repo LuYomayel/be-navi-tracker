@@ -50,6 +50,27 @@ export class NutritionService {
     }
   }
 
+  async update(
+    id: string,
+    data: NutritionAnalysis,
+  ): Promise<NutritionAnalysis> {
+    try {
+      const analysis = await this.prisma.nutritionAnalysis.update({
+        where: { id },
+        data: {
+          ...data,
+          foods: data.foods as any,
+          macronutrients: data.macronutrients as any,
+          userAdjustments: data.userAdjustments as any,
+        },
+      });
+      return analysis as any;
+    } catch (error) {
+      console.error('Error updating nutrition analysis:', error);
+      throw new Error('Failed to update nutrition analysis');
+    }
+  }
+
   async delete(id: string): Promise<boolean> {
     try {
       await this.prisma.nutritionAnalysis.delete({
