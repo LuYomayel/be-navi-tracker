@@ -10,6 +10,7 @@ import { BodyAnalysisModule } from './modules/body-analysis/body-analysis.module
 import { AiSuggestionsModule } from './modules/ai-suggestions/ai-suggestions.module';
 import { AnalysisModule } from './modules/analysis/analysis.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { PreferencesModule } from './modules/preferences/preferences.module';
 import { PrismaService } from './config/prisma.service';
 
 @Module({
@@ -23,6 +24,7 @@ import { PrismaService } from './config/prisma.service';
     AiSuggestionsModule,
     AnalysisModule,
     AuthModule,
+    PreferencesModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

@@ -298,6 +298,7 @@ export class BodyAnalysisService {
       // Generar prompt especializado para análisis corporal
       const prompt = this.generateBodyAnalysisPrompt(userData);
 
+      /*
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
@@ -333,38 +334,41 @@ REGLAS IMPORTANTES:
         max_tokens: 2000,
         temperature: 0.3, // Más conservador para análisis médico/fitness
       });
+      */
 
-      // 2. SUSTITUYE el bloque inmediatamente después de obtener `response` en analyzeBodyImage()
-      const raw = completion.choices[0]?.message?.content?.trim();
-      const response = completion.choices[0]?.message?.content;
-      console.log('Respuesta original recibida:', response);
+      const response = await fetch('http://127.0.0.1:11434/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'llava:7b-v1.6-mistral-q4_K_M',
+          prompt,
+          images: [imageBase64.replace(/^data:image\/[^;]+;base64,/, '')],
+          stream: false,
+        }),
+      });
 
-      if (!raw || !this.isJson(raw)) {
-        console.warn('OpenAI refusal o respuesta no-JSON:', raw);
-        return null; // ⬅️  fallback técnico
+      const data = await response.json();
+      const raw = data.response?.trim();
+      const cleaned = raw
+        .replace(/```json\\s*/gi, '')
+        .replace(/```/g, '')
+        .replace('json', '')
+        .trim();
+
+      if (!cleaned || !this.isJson(cleaned)) {
+        console.warn('Respuesta de LLaVA no JSON válida:', cleaned);
+        return null;
       }
+      const fixed = cleaned.replace(
+        /"recomendaciones":/g,
+        '"recommendations":',
+      );
+      const parsed = JSON.parse(fixed);
 
-      // Limpiar y parsear la respuesta JSON
-      const cleanedResponse = this.cleanOpenAIResponse(response);
-      let parsed;
-      try {
-        parsed = JSON.parse(cleanedResponse);
-      } catch (parseError) {
-        console.error(
-          'Error parseando respuesta de OpenAI Vision:',
-          parseError,
-        );
-        console.log('Respuesta original recibida:', response);
-        console.log('Respuesta limpiada:', cleanedResponse);
-        throw new Error('Respuesta de OpenAI Vision no válida');
-      }
-
-      // Validar y limpiar la respuesta
       const validatedAnalysis = this.validateAndCleanBodyAnalysis(
         parsed,
         userData,
       );
-      // A partir del analisis de la imagen, se llama a la API de OpenAI para realizar una recomendacion nutricional mas especifica
       const nutritionRecommendation =
         await this.generateNutritionRecommendation(validatedAnalysis);
 
@@ -646,7 +650,18 @@ OBJETIVO: MANTENIMIENTO Y SALUD GENERAL
       activityLevel || 'moderate',
     );
 
-    return `Actúa como un entrenador personal certificado y especialista en composición corporal con experiencia clínica. Realiza un análisis técnico detallado de esta imagen corporal. IDIOMA: responde en español neutro y evita frases genéricas o motivacionales vacías.
+    return `
+    Eres un asistente de fitness y wellness que ayuda a las personas a mejorar su forma física de manera general. Tu tarea es proporcionar consejos generales de fitness basados en información visual, siempre de forma educativa y motivacional.
+
+REGLAS IMPORTANTES:
+1. Proporciona solo consejos generales de fitness y wellness
+2. No hagas diagnósticos médicos ni evaluaciones clínicas
+3. Enfócate en aspectos generales de forma física y estilo de vida saludable
+4. Sé motivacional y constructivo en tus comentarios
+5. Incluye disclaimers sobre la naturaleza general de los consejos
+6. Recomienda consultar profesionales cuando sea apropiado
+
+    Actúa como un entrenador personal certificado y especialista en composición corporal con experiencia clínica. Realiza un análisis técnico detallado de esta imagen corporal. IDIOMA: responde en español neutro y evita frases genéricas o motivacionales vacías.
 
 DATOS DEL CLIENTE:
 - Edad: ${age || 'No especificada'} años

@@ -34,6 +34,17 @@ interface UpdateBodyAnalysisRequest {
   notes?: string;
 }
 
+interface PersonalDataRequest {
+  height: number;
+  currentWeight: number;
+  targetWeight: number;
+  age: number;
+  gender: 'male' | 'female' | 'other';
+  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  fitnessGoal: string;
+  bodyAnalysisId?: string; // ID del análisis corporal para basar los cálculos
+}
+
 @Controller('body-analysis')
 export class BodyAnalysisController {
   constructor(private readonly bodyAnalysisService: BodyAnalysisService) {}
@@ -56,34 +67,21 @@ export class BodyAnalysisController {
         userData,
       );
       console.log('Análisis generado:', analysis);
-      // Guardar el análisis en la base de datos
+      // Guardar el análisis COMPLETO de la AI en la base de datos como JSON
       const savedAnalysis = await this.bodyAnalysisService.create({
         userId: 'default',
         bodyType: analysis.bodyType,
-        measurements: {
-          height: userData.height || 170,
-          weight: userData.currentWeight || 70,
-          age: userData.age || 25,
-          gender: userData.gender || 'male',
-        },
-        bodyComposition: {
-          bodyFatPercentage: analysis.measurements.estimatedBodyFat || 15,
-          muscleMass: 0, // Calculamos después
-          bmr: 0, // Calculamos después
-        },
-        recommendations: {
-          dailyCalories: 2200, // Valor por defecto, se puede calcular
-          macronutrients: {
-            protein: 150,
-            carbs: 250,
-            fat: 67,
-            fiber: 25,
-          },
-          mealPlan: analysis.recommendations.nutrition,
-        },
+        measurements: analysis.measurements as any, // Guardar como JSON
+        bodyComposition: analysis.bodyComposition as any, // Guardar como JSON
+        recommendations: analysis.recommendations as any, // Guardar como JSON
         imageUrl: null, // Por seguridad, no guardamos la imagen
         aiConfidence: analysis.confidence,
-      });
+        // Campos adicionales del análisis completo
+        progress: analysis.progress || null,
+        insights: analysis.insights || null,
+        disclaimer: analysis.disclaimer || null,
+        rawAnalysis: analysis as any, // Guardar TODO el análisis completo
+      } as any); // Cast temporal hasta que se actualicen los tipos
 
       console.log('✅ Análisis corporal completado y guardado en BD');
 
@@ -321,6 +319,134 @@ export class BodyAnalysisController {
     }
   }
 
+  @Post('calculate-goals')
+  async calculateGoals(
+    @Body() request: PersonalDataRequest,
+  ): Promise<ApiResponse<any>> {
+    try {
+      console.log('🎯 Calculando objetivos nutricionales...');
+
+      // Obtener análisis corporal si se proporciona ID
+      let bodyAnalysis = null;
+      if (request.bodyAnalysisId) {
+        bodyAnalysis = await this.bodyAnalysisService.getById(
+          request.bodyAnalysisId,
+        );
+      } else {
+        // Usar el último análisis disponible
+        bodyAnalysis = await this.bodyAnalysisService.getLatest();
+      }
+
+      // Calcular BMR (Basal Metabolic Rate) usando la fórmula de Mifflin-St Jeor
+      let bmr: number;
+      if (request.gender === 'male') {
+        bmr =
+          88.362 +
+          13.397 * request.currentWeight +
+          4.799 * request.height -
+          5.677 * request.age;
+      } else {
+        bmr =
+          447.593 +
+          9.247 * request.currentWeight +
+          3.098 * request.height -
+          4.33 * request.age;
+      }
+
+      // Aplicar factor de actividad
+      const activityFactors = {
+        sedentary: 1.2,
+        light: 1.375,
+        moderate: 1.55,
+        active: 1.725,
+        very_active: 1.9,
+      };
+
+      const tdee = bmr * activityFactors[request.activityLevel];
+
+      // Ajustar calorías según objetivo
+      let dailyCalories = tdee;
+      let macroSplit = { protein: 25, carbs: 45, fat: 30 }; // Por defecto
+
+      if (bodyAnalysis?.recommendations?.macroSplit) {
+        // Usar las macros recomendadas por la AI
+        macroSplit = {
+          protein: bodyAnalysis.recommendations.macroSplit.protein || 25,
+          carbs: bodyAnalysis.recommendations.macroSplit.carbs || 45,
+          fat: bodyAnalysis.recommendations.macroSplit.fat || 30,
+        };
+        dailyCalories = bodyAnalysis.recommendations.dailyCalories || tdee;
+      } else {
+        // Calcular según objetivo si no hay recomendaciones de AI
+        switch (request.fitnessGoal) {
+          case 'define':
+            dailyCalories = tdee - 400; // Déficit para definición
+            macroSplit = { protein: 40, carbs: 25, fat: 35 };
+            break;
+          case 'bulk':
+            dailyCalories = tdee + 300; // Superávit para volumen
+            macroSplit = { protein: 25, carbs: 50, fat: 25 };
+            break;
+          case 'lose_weight':
+            dailyCalories = tdee - 500; // Déficit para pérdida
+            macroSplit = { protein: 35, carbs: 30, fat: 35 };
+            break;
+          case 'gain_muscle':
+            dailyCalories = tdee + 200; // Superávit ligero
+            macroSplit = { protein: 30, carbs: 40, fat: 30 };
+            break;
+          default:
+            dailyCalories = tdee; // Mantenimiento
+        }
+      }
+
+      // Calcular gramos de macronutrientes
+      const proteinGrams = Math.round(
+        (dailyCalories * macroSplit.protein) / 100 / 4,
+      );
+      const carbsGrams = Math.round(
+        (dailyCalories * macroSplit.carbs) / 100 / 4,
+      );
+      const fatGrams = Math.round((dailyCalories * macroSplit.fat) / 100 / 9);
+
+      const result = {
+        personalData: request,
+        calculatedGoals: {
+          bmr: Math.round(bmr),
+          tdee: Math.round(tdee),
+          dailyCalories: Math.round(dailyCalories),
+          macroSplit: macroSplit,
+          macroGrams: {
+            protein: proteinGrams,
+            carbs: carbsGrams,
+            fat: fatGrams,
+          },
+        },
+        basedOnBodyAnalysis: !!bodyAnalysis,
+        bodyAnalysisUsed: bodyAnalysis
+          ? {
+              id: bodyAnalysis.id,
+              createdAt: bodyAnalysis.createdAt,
+              aiRecommendations: bodyAnalysis.recommendations,
+            }
+          : null,
+      };
+
+      console.log('✅ Objetivos nutricionales calculados');
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      console.error('❌ Error calculating goals:', error);
+      throw new HttpException(
+        'Error calculando objetivos nutricionales',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Get('status/health')
   async getServiceStatus(): Promise<ApiResponse<any>> {
     try {
@@ -338,6 +464,7 @@ export class BodyAnalysisController {
             'PUT /body-analysis/:id',
             'DELETE /body-analysis/:id',
             'POST /body-analysis/analyze-only',
+            'POST /body-analysis/calculate-goals',
             'GET /body-analysis/stats/summary',
             'GET /body-analysis/status/health',
           ],

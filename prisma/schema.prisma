@@ -89,6 +89,10 @@ model BodyAnalysis {
   measurements    Json?    // BodyMeasurements object
   bodyComposition Json?    // BodyComposition object
   recommendations Json?    // NutritionRecommendations object
+  progress        Json?    // Progress object con strengths, areasToImprove, generalAdvice
+  insights        Json?    // Array de insights de la AI
+  disclaimer      String?  // Disclaimer del análisis
+  rawAnalysis     Json?    // TODO el JSON completo de la AI
   imageUrl        String?
   aiConfidence    Float    @default(0.0)
   createdAt       DateTime @default(now())
@@ -122,4 +126,41 @@ model Analysis {
   updatedAt        DateTime @updatedAt
 
   @@map("analyses")
+}
+
+model UserPreferences {
+  id                String   @id @default(cuid())
+  userId            String   @unique @default("default")
+  
+  // Datos personales
+  height            Int?     // cm
+  currentWeight     Float?   // kg
+  targetWeight      Float?   // kg
+  age               Int?
+  gender            String?  // male, female, other
+  activityLevel     String?  // sedentary, light, moderate, active, very_active
+  
+  // Objetivos de fitness
+  fitnessGoals      Json?    // Array de strings: ["define", "bulk", "lose_weight", etc.]
+  
+  // Objetivos nutricionales (calculados/ajustados)
+  dailyCalorieGoal  Int?
+  proteinGoal       Float?   // gramos
+  carbsGoal         Float?   // gramos
+  fatGoal           Float?   // gramos
+  fiberGoal         Float?   // gramos
+  
+  // Metadatos
+  lastBodyAnalysisId String? // ID del último body analysis usado para calcular
+  bmr               Float?   // Metabolismo basal calculado
+  tdee              Float?   // Gasto energético total calculado
+  
+  // Configuraciones adicionales
+  preferredUnits    String   @default("metric") // metric, imperial
+  notifications     Json?    // Configuraciones de notificaciones
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("user_preferences")
 }
