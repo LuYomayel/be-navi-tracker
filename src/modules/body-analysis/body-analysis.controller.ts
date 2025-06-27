@@ -60,43 +60,29 @@ export class BodyAnalysisController {
         throw new HttpException('Imagen requerida', HttpStatus.BAD_REQUEST);
       }
 
-      console.log('🔍 Analizando imagen corporal con IA...');
+      console.log('🔍 Creando trabajo de análisis corporal...');
 
-      const analysis = await this.bodyAnalysisService.analyzeBodyImage(
+      // Crear trabajo en la cola en lugar de procesar directamente
+      const task = await this.bodyAnalysisService.analyzeBodyImage(
         image,
         userData,
       );
-      console.log('Análisis generado:', analysis);
-      // Guardar el análisis COMPLETO de la AI en la base de datos como JSON
-      const savedAnalysis = await this.bodyAnalysisService.create({
-        userId: 'default',
-        bodyType: analysis.bodyType,
-        measurements: analysis.measurements as any, // Guardar como JSON
-        bodyComposition: analysis.bodyComposition as any, // Guardar como JSON
-        recommendations: analysis.recommendations as any, // Guardar como JSON
-        imageUrl: null, // Por seguridad, no guardamos la imagen
-        aiConfidence: analysis.confidence,
-        // Campos adicionales del análisis completo
-        progress: analysis.progress || null,
-        insights: analysis.insights || null,
-        disclaimer: analysis.disclaimer || null,
-        rawAnalysis: analysis as any, // Guardar TODO el análisis completo
-      } as any); // Cast temporal hasta que se actualicen los tipos
 
-      console.log('✅ Análisis corporal completado y guardado en BD');
+      console.log(`✅ Trabajo de análisis creado: ${task.taskId}`);
 
       return {
         success: true,
         data: {
-          ...analysis,
-          id: savedAnalysis.id,
-          createdAt: savedAnalysis.createdAt,
+          taskId: task.taskId,
+          status: task.status,
+          message:
+            'Análisis en progreso. Usa el taskId para consultar el estado.',
         },
       };
     } catch (error) {
-      console.error('❌ Error analyzing body:', error);
+      console.error('❌ Error creating analysis task:', error);
       throw new HttpException(
-        'Error analizando la imagen corporal',
+        'Error creando trabajo de análisis corporal',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

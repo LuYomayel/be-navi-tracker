@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { BodyAnalysis } from '../../common/types';
 import OpenAI from 'openai';
+import { Queue } from 'bullmq';
 
 interface BodyAnalysisRequest {
   image: string; // Base64 encoded image
@@ -130,7 +131,11 @@ export interface BodyAnalysisApiResponse {
 export class BodyAnalysisService {
   private openai: OpenAI | null = null;
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    @Inject('BODY_ANALYSIS_QUEUE')
+    private readonly analysisQueue: Queue,
+  ) {
     // Inicializar OpenAI solo si hay API key
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
@@ -288,108 +293,38 @@ export class BodyAnalysisService {
   async analyzeBodyImage(
     imageBase64: string,
     userData: Omit<BodyAnalysisRequest, 'image'>,
-  ): Promise<BodyAnalysisApiResponse> {
-    if (!this.openai) {
-      console.log('OpenAI no disponible, usando análisis de fallback');
-      return null;
-    }
-
+  ): Promise<{ taskId: string; status: string }> {
     try {
-      // Generar prompt especializado para análisis corporal
-      const prompt = this.generateBodyAnalysisPrompt(userData);
+      console.log('🚀 Creando trabajo de análisis corporal...');
 
-      /*
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: `Eres un asistente de fitness y wellness que ayuda a las personas a mejorar su forma física de manera general. Tu tarea es proporcionar consejos generales de fitness basados en información visual, siempre de forma educativa y motivacional.
-
-REGLAS IMPORTANTES:
-1. Proporciona solo consejos generales de fitness y wellness
-2. No hagas diagnósticos médicos ni evaluaciones clínicas
-3. Enfócate en aspectos generales de forma física y estilo de vida saludable
-4. Sé motivacional y constructivo en tus comentarios
-5. Incluye disclaimers sobre la naturaleza general de los consejos
-6. Recomienda consultar profesionales cuando sea apropiado`,
+      // Crear un trabajo en la cola
+      const job = await this.analysisQueue.add(
+        'analyze',
+        {
+          image: imageBase64,
+          userData,
+        },
+        {
+          // Configuraciones del trabajo
+          removeOnComplete: 10, // Mantener solo los últimos 10 trabajos completados
+          removeOnFail: 50, // Mantener los últimos 50 trabajos fallidos para debugging
+          attempts: 3, // Reintentar hasta 3 veces si falla
+          backoff: {
+            type: 'exponential',
+            delay: 10000, // Esperar 10s, 20s, 40s entre reintentos
           },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: prompt,
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageBase64,
-                  detail: 'high',
-                },
-              },
-            ],
-          },
-        ],
-        max_tokens: 2000,
-        temperature: 0.3, // Más conservador para análisis médico/fitness
-      });
-      */
-
-      const response = await fetch('http://127.0.0.1:11434/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'llava:7b-v1.6-mistral-q4_K_M',
-          prompt,
-          images: [imageBase64.replace(/^data:image\/[^;]+;base64,/, '')],
-          stream: false,
-        }),
-      });
-
-      const data = await response.json();
-      const raw = data.response?.trim();
-      const cleaned = raw
-        .replace(/```json\\s*/gi, '')
-        .replace(/```/g, '')
-        .replace('json', '')
-        .trim();
-
-      if (!cleaned || !this.isJson(cleaned)) {
-        console.warn('Respuesta de LLaVA no JSON válida:', cleaned);
-        return null;
-      }
-      const fixed = cleaned.replace(
-        /"recomendaciones":/g,
-        '"recommendations":',
+        },
       );
-      const parsed = JSON.parse(fixed);
 
-      const validatedAnalysis = this.validateAndCleanBodyAnalysis(
-        parsed,
-        userData,
-      );
-      const nutritionRecommendation =
-        await this.generateNutritionRecommendation(validatedAnalysis);
+      console.log(`✅ Trabajo de análisis creado con ID: ${job.id}`);
 
-      if (!nutritionRecommendation) {
-        throw new Error(
-          'No se recibió respuesta de OpenAI para recomendaciones nutricionales',
-        );
-      }
-      console.log(
-        '✅ Análisis corporal generado con OpenAI Vision',
-        nutritionRecommendation,
-      );
-      const analysis = {
-        ...validatedAnalysis,
-        recommendations: nutritionRecommendation,
+      return {
+        taskId: job.id as string,
+        status: 'processing',
       };
-      return analysis;
     } catch (error) {
-      console.error('Error analizando imagen corporal con OpenAI:', error);
-      // Fallback a análisis predefinido
-      return null;
+      console.error('Error creando trabajo de análisis:', error);
+      throw new Error('No se pudo crear el trabajo de análisis');
     }
   }
 

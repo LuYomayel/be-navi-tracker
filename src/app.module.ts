@@ -11,10 +11,13 @@ import { AiSuggestionsModule } from './modules/ai-suggestions/ai-suggestions.mod
 import { AnalysisModule } from './modules/analysis/analysis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
+import { TasksModule } from './modules/tasks/tasks.module';
 import { PrismaService } from './config/prisma.service';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
+    QueueModule,
     ActivitiesModule,
     ChatModule,
     NutritionModule,
@@ -25,6 +28,7 @@ import { PrismaService } from './config/prisma.service';
     AnalysisModule,
     AuthModule,
     PreferencesModule,
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],
