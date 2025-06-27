@@ -34,4 +34,23 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# Environment variables
 .env
+.env.local
+.env.production
+.env.staging
+
+# Deployment
+.ssh/
+*.pem
+*.key
+deployment-config.json
+
+# PM2
+ecosystem.config.js
+.pm2/
+
+# Backup files
+*.backup
+*.bak
+*.tmp

@@ -23,16 +23,9 @@ interface FoodAnalysisImageRequest {
 }
 
 interface FoodAnalysisManualRequest {
+  ingredients: string; // Descripción libre de ingredientes
+  servings?: number; // Número de porciones (opcional, default 1)
   mealType: MealType;
-  name: string;
-  servings: number;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  fiber: number;
-  sugar: number;
-  sodium: number;
 }
 
 @Controller('analyze-food')
@@ -73,33 +66,18 @@ export class AnalyzeFoodController {
     @Body() request: FoodAnalysisManualRequest,
   ): Promise<ApiResponse<any>> {
     try {
-      const {
-        name,
-        servings,
-        calories,
-        protein,
-        carbs,
-        fat,
-        fiber,
-        sugar,
-        sodium,
-        mealType,
-      } = request;
+      const { ingredients, servings = 1, mealType } = request;
 
-      if (!name) {
-        throw new HttpException('Imagen requerida', HttpStatus.BAD_REQUEST);
+      if (!ingredients || ingredients.trim() === '') {
+        throw new HttpException(
+          'Descripción de ingredientes requerida',
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       const analysis = await this.analyzeFoodService.analyzeManualFood(
-        name,
+        ingredients,
         servings,
-        calories,
-        protein,
-        carbs,
-        fat,
-        fiber,
-        sugar,
-        sodium,
         mealType,
       );
 
@@ -108,9 +86,9 @@ export class AnalyzeFoodController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error analyzing food:', error);
+      console.error('Error analyzing manual food:', error);
       throw new HttpException(
-        'Error analizando la comida',
+        'Error analizando la comida manual',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

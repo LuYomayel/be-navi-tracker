@@ -208,15 +208,8 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
   }
 
   async analyzeManualFood(
-    name: string,
-    servings: number,
-    calories: number,
-    protein: number,
-    carbs: number,
-    fat: number,
-    fiber: number,
-    sugar: number,
-    sodium: number,
+    ingredients: string, // Descripción libre de ingredientes
+    servings: number = 1, // Número de porciones
     mealType: MealType,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
@@ -230,21 +223,28 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
         messages: [
           {
             role: 'system',
-            content: `Eres un nutricionista experto especializado en análisis de alimentos a través de imágenes. Tu tarea es identificar alimentos, estimar cantidades, y calcular información nutricional de manera precisa.
+            content: `Eres un nutricionista experto especializado en análisis nutricional de alimentos basado en descripciones de ingredientes.
+
+Tu tarea es:
+1. Analizar la descripción de ingredientes proporcionada
+2. Estimar cantidades razonables si no se especifican
+3. Calcular calorías y macronutrientes usando bases de datos nutricionales estándar
+4. Proporcionar un nivel de confianza realista para cada estimación
+5. Incluir recomendaciones nutricionales específicas
+
 REGLAS IMPORTANTES:
-1. Analiza cuidadosamente el alimento que se te proporciona.
-2. Estima cantidades basándote en referencias visuales (tamaño de platos, cubiertos, etc.)
-3. Calcula calorías y macronutrientes usando bases de datos nutricionales estándar
-4. Proporciona un nivel de confianza realista para cada estimación.
-5. Incluye recomendaciones nutricionales generales.
-6. Si no puedes identificar algo claramente, sé honesto sobre el nivel de confianza.
-7. Usa categorías estándar: protein, carbs, vegetables, fruits, dairy, fats, grains.
-8. Las cantidades deben ser realistas (ej: "150g", "1 taza", "1 unidad mediana").
-IMPORTANTE: Responde ÚNICAMENTE con un JSON válido, sin bloques de código markdown, sin explicaciones adicionales. Solo el JSON puro:
+- Si no se especifican cantidades, estima porciones normales (ej: "pollo" = 120-150g)
+- Usa categorías estándar: protein, carbs, vegetables, fruits, dairy, fats, grains
+- Sé realista con las calorías (no subestimar ni sobrestimar)
+- Considera métodos de cocción (plancha vs frito afecta calorías)
+- Si hay aceites/condimentos, inclúyelos en el cálculo
+
+IMPORTANTE: Responde ÚNICAMENTE con un JSON válido, sin bloques de código markdown:
+
 {
   "foods": [
     {
-      "name": "nombre_del_alimento",
+      "name": "nombre_del_alimento_procesado",
       "quantity": "cantidad_estimada (ej: 150g, 1 taza, 1 unidad)",
       "calories": número_calorías,
       "confidence": número_entre_0.1_y_1.0,
@@ -271,44 +271,32 @@ IMPORTANTE: Responde ÚNICAMENTE con un JSON válido, sin bloques de código mar
   "confidence": promedio_confianza_general,
   "mealType": "${mealType || 'comida'}",
   "recommendations": [
-    "recomendación_nutricional_1",
-    "recomendación_nutricional_2",
-    "recomendación_nutricional_3"
+    "recomendación_nutricional_específica_1",
+    "recomendación_nutricional_específica_2",
+    "recomendación_nutricional_específica_3"
   ]
 }
 
-IMPORTANTE: Asegúrate de que los totales sean la suma exacta de los valores individuales.`,
+IMPORTANTE: Los totales deben ser exactamente la suma de los valores individuales multiplicados por el número de porciones.`,
           },
           {
             role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Receta: ${name}
-                Cantidades: ${servings}
-                Calorías: ${calories}
-                Proteína: ${protein}
-                Carbohidratos: ${carbs}
-                Grasa: ${fat}
-                Fibra: ${fiber}
-                Azúcar: ${sugar}
-                Sodio: ${sodium}`,
-              },
-              {
-                type: 'text',
-                text: `
-                `,
-              },
-            ],
+            content: `Analiza estos ingredientes y calcula su información nutricional:
+
+Ingredientes: ${ingredients}
+Número de porciones: ${servings}
+Tipo de comida: ${mealType}
+
+Por favor, estima las cantidades si no están especificadas y calcula las calorías y macronutrientes totales considerando ${servings} porción(es).`,
           },
         ],
         max_tokens: 2000,
-        temperature: 0.2, // Muy conservador para análisis nutricional preciso
+        temperature: 0.2, // Conservador para análisis nutricional preciso
       });
 
       const response = completion.choices[0]?.message?.content;
       if (!response) {
-        throw new Error('No se recibió respuesta de OpenAI Vision');
+        throw new Error('No se recibió respuesta de OpenAI');
       }
 
       // Limpiar y parsear la respuesta JSON
@@ -317,13 +305,10 @@ IMPORTANTE: Asegúrate de que los totales sean la suma exacta de los valores ind
       try {
         parsed = JSON.parse(cleanedResponse);
       } catch (parseError) {
-        console.error(
-          'Error parseando respuesta de OpenAI Vision:',
-          parseError,
-        );
+        console.error('Error parseando respuesta de OpenAI:', parseError);
         console.log('Respuesta original recibida:', response);
         console.log('Respuesta limpiada:', cleanedResponse);
-        throw new Error('Respuesta de OpenAI Vision no válida');
+        throw new Error('Respuesta de OpenAI no válida');
       }
 
       // Validar y limpiar la respuesta
@@ -332,10 +317,13 @@ IMPORTANTE: Asegúrate de que los totales sean la suma exacta de los valores ind
         mealType,
       );
 
-      console.log('✅ Análisis de comida generado con OpenAI Vision');
+      console.log('✅ Análisis manual de comida generado con OpenAI');
       return validatedAnalysis;
     } catch (error) {
-      console.error('Error analizando imagen de comida con OpenAI:', error);
+      console.error(
+        'Error analizando ingredientes manuales con OpenAI:',
+        error,
+      );
       // Fallback a análisis predefinido
       return this.getMockFoodAnalysis(mealType);
     }
