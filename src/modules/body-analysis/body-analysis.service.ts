@@ -182,6 +182,16 @@ export class BodyAnalysisService {
     }
   }
 
+  async save(data: BodyAnalysis): Promise<BodyAnalysis> {
+    try {
+      const analysis = await this.create(data);
+      return analysis;
+    } catch (error) {
+      console.error('Error saving body analysis:', error);
+      throw new Error('Failed to save body analysis');
+    }
+  }
+
   async create(
     data: Omit<BodyAnalysis, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<BodyAnalysis> {

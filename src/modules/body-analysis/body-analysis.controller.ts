@@ -11,7 +11,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { BodyAnalysisService } from './body-analysis.service';
-import { ApiResponse } from '../../common/types';
+import { ApiResponse, BodyAnalysis } from '../../common/types';
 
 interface BodyAnalysisRequest {
   image: string;
@@ -83,6 +83,21 @@ export class BodyAnalysisController {
       console.error('❌ Error creating analysis task:', error);
       throw new HttpException(
         'Error creando trabajo de análisis corporal',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('save')
+  async save(@Body() request: BodyAnalysis): Promise<ApiResponse<any>> {
+    try {
+      const analysis = await this.bodyAnalysisService.save(request);
+      return { success: true, data: analysis };
+    } catch (error) {
+      console.error('Error saving body analysis:', error);
+
+      throw new HttpException(
+        'Error guardando análisis corporal',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
