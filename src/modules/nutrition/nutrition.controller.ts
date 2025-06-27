@@ -43,6 +43,7 @@ export class NutritionController {
   ): Promise<ApiResponse<NutritionAnalysis>> {
     try {
       const analysis = await this.nutritionService.create(analysisData);
+      console.log('Análisis de nutrición creado:', analysis);
       return { success: true, data: analysis };
     } catch (error) {
       console.error('Error creating nutrition analysis:', error);

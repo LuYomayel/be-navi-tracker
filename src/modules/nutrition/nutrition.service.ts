@@ -35,15 +35,29 @@ export class NutritionService {
     data: Omit<NutritionAnalysis, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<NutritionAnalysis> {
     try {
-      const analysis = await this.prisma.nutritionAnalysis.create({
-        data: {
-          ...data,
-          foods: data.foods as any,
-          macronutrients: data.macronutrients as any,
-          userAdjustments: data.userAdjustments as any,
-        },
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _id, ...payload } = data as any;
+      const prismaData: any = {
+        ...payload,
+        userId: payload.userId ?? 'default',
+        foods: JSON.parse(JSON.stringify(payload.foods)),
+        macronutrients: JSON.parse(JSON.stringify(payload.macronutrients)),
+        userAdjustments: payload.userAdjustments
+          ? JSON.parse(JSON.stringify(payload.userAdjustments))
+          : undefined,
+      };
+
+      const created = await this.prisma.nutritionAnalysis.create({
+        data: prismaData,
       });
-      return analysis as any;
+      // Reconstituir tipos
+      const analysis: NutritionAnalysis = {
+        ...created,
+        foods: payload.foods,
+        macronutrients: payload.macronutrients,
+        userAdjustments: payload.userAdjustments,
+      };
+      return analysis;
     } catch (error) {
       console.error('Error creating nutrition analysis:', error);
       throw new Error('Failed to create nutrition analysis');
@@ -55,16 +69,24 @@ export class NutritionService {
     data: NutritionAnalysis,
   ): Promise<NutritionAnalysis> {
     try {
-      const analysis = await this.prisma.nutritionAnalysis.update({
+      const updated = await this.prisma.nutritionAnalysis.update({
         where: { id },
         data: {
           ...data,
-          foods: data.foods as any,
-          macronutrients: data.macronutrients as any,
-          userAdjustments: data.userAdjustments as any,
+          foods: JSON.parse(JSON.stringify(data.foods)),
+          macronutrients: JSON.parse(JSON.stringify(data.macronutrients)),
+          userAdjustments: data.userAdjustments
+            ? JSON.parse(JSON.stringify(data.userAdjustments))
+            : undefined,
         },
       });
-      return analysis as any;
+      const analysis: NutritionAnalysis = {
+        ...updated,
+        foods: data.foods,
+        macronutrients: data.macronutrients,
+        userAdjustments: data.userAdjustments,
+      };
+      return analysis;
     } catch (error) {
       console.error('Error updating nutrition analysis:', error);
       throw new Error('Failed to update nutrition analysis');
