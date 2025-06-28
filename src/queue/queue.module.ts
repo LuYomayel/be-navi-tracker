@@ -10,6 +10,10 @@ import IORedis from 'ioredis';
       useFactory: () => {
         const connection = new IORedis(
           process.env.REDIS_URL || 'redis://localhost:6379',
+          {
+            maxRetriesPerRequest: null,
+            lazyConnect: true,
+          },
         );
         connection.on('connect', () => console.log('✅ Conectado a Redis'));
         connection.on('error', (err) =>

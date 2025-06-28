@@ -11,7 +11,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { BodyAnalysisService } from './body-analysis.service';
-import { ApiResponse, BodyAnalysis } from '../../common/types';
+import { ApiResponse } from '../../common/types';
+import { SaveBodyAnalysisDto, SaveDTO } from './dto/save-body-analysis.dto';
 
 interface BodyAnalysisRequest {
   image: string;
@@ -23,6 +24,7 @@ interface BodyAnalysisRequest {
   activityLevel?: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
   goals?: string[];
   allowGeneric?: boolean;
+  analysisType?: string;
 }
 
 interface UpdateBodyAnalysisRequest {
@@ -89,8 +91,10 @@ export class BodyAnalysisController {
   }
 
   @Post('save')
-  async save(@Body() request: BodyAnalysis): Promise<ApiResponse<any>> {
+  async save(@Body() request: SaveDTO): Promise<ApiResponse<any>> {
     try {
+      console.log('🔍 Guardando análisis corporal...');
+      console.log(request);
       const analysis = await this.bodyAnalysisService.save(request);
       return { success: true, data: analysis };
     } catch (error) {
@@ -485,6 +489,55 @@ export class BodyAnalysisController {
         data: {},
         error: 'Error obteniendo estado del servicio',
       };
+    }
+  }
+
+  @Post('skinfold')
+  async analyzeSkinFold(
+    @Body()
+    request: {
+      imageBase64: string;
+      user: { age: number; height: number; weight: number; gender: string };
+    },
+  ): Promise<ApiResponse<any>> {
+    try {
+      if (!request.imageBase64) {
+        throw new HttpException(
+          'Imagen requerida para análisis',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      console.log('🔍 Creando trabajo de análisis de pliegues cutáneos...');
+
+      // Crear trabajo en la cola para análisis de pliegues cutáneos
+      const task = await this.bodyAnalysisService.analyzeBodyImage(
+        `data:image/jpeg;base64,${request.imageBase64}`,
+        {
+          ...request.user,
+          analysisType: 'skinfold',
+        } as any,
+      );
+
+      console.log(
+        `✅ Trabajo de análisis de pliegues cutáneos creado: ${task.taskId}`,
+      );
+
+      return {
+        success: true,
+        data: {
+          taskId: task.taskId,
+          status: task.status,
+          message:
+            'Análisis de pliegues cutáneos en progreso. Usa el taskId para consultar el estado.',
+        },
+      };
+    } catch (error) {
+      console.error('❌ Error creating skinfold analysis task:', error);
+      throw new HttpException(
+        'Error creando trabajo de análisis de pliegues cutáneos',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

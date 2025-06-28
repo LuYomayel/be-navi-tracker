@@ -164,3 +164,17 @@ model UserPreferences {
 
   @@map("user_preferences")
 }
+
+model SkinFoldRecord {
+  id           String   @id @default(cuid())
+  userId       String   @default("default")
+  date         String   // YYYY-MM-DD format
+  technician   String?  // Nombre del profesional o "AI"
+  notes        String?  @db.Text
+  values       Json     // Partial<Record<SkinFoldSite, number>> - valores en mm
+  aiConfidence Float?   // 0-1 cuando es extraído por IA
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("skin_fold_records")
+}

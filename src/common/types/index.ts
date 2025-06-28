@@ -61,7 +61,15 @@ export interface BodyAnalysis {
   bodyType: string;
   measurements?: BodyMeasurements;
   bodyComposition?: BodyComposition;
-  recommendations?: NutritionRecommendations;
+  recommendations?: NutritionRecommendations | string[];
+  progress?: {
+    strengths: string[];
+    areasToImprove: string[];
+    generalAdvice: string;
+  };
+  insights?: string[];
+  disclaimer?: string;
+  rawAnalysis?: any;
   imageUrl?: string;
   aiConfidence: number;
   createdAt: Date;
@@ -102,7 +110,7 @@ export interface AISuggestion {
 export interface ChatMessage {
   id: string;
   userId: string;
-  role: "user" | "assistant";
+  role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
 }

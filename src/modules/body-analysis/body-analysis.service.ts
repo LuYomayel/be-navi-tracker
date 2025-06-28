@@ -3,6 +3,7 @@ import { PrismaService } from '../../config/prisma.service';
 import { BodyAnalysis } from '../../common/types';
 import OpenAI from 'openai';
 import { Queue } from 'bullmq';
+import { SaveDTO } from './dto/save-body-analysis.dto';
 
 interface BodyAnalysisRequest {
   image: string; // Base64 encoded image
@@ -182,9 +183,27 @@ export class BodyAnalysisService {
     }
   }
 
-  async save(data: BodyAnalysis): Promise<BodyAnalysis> {
+  async save(dto: SaveDTO): Promise<BodyAnalysis> {
     try {
-      const analysis = await this.create(data);
+      // Preparar datos para persistir
+      const analysisToSave: Omit<
+        BodyAnalysis,
+        'id' | 'createdAt' | 'updatedAt'
+      > = {
+        userId: 'default',
+        bodyType: dto.bodyType,
+        measurements:
+          dto.fullAnalysisData?.measurements || (dto.measurements as any),
+        bodyComposition: dto.fullAnalysisData?.bodyComposition || {},
+        recommendations:
+          dto.fullAnalysisData?.recommendations || dto.recommendations || {},
+        progress: dto.fullAnalysisData?.progress || {},
+        insights: dto.fullAnalysisData?.insights || [],
+        disclaimer: dto.fullAnalysisData?.disclaimer || '',
+        aiConfidence: dto.confidence || 0,
+      } as any;
+
+      const analysis = await this.create(analysisToSave);
       return analysis;
     } catch (error) {
       console.error('Error saving body analysis:', error);
@@ -211,6 +230,10 @@ export class BodyAnalysisService {
             : {},
           imageUrl: data.imageUrl || null,
           aiConfidence: data.aiConfidence || 0.0,
+          insights: data.insights || [],
+          disclaimer: data.disclaimer || '',
+          progress: data.progress || {},
+          rawAnalysis: data.rawAnalysis || {},
         },
       });
       return analysis as any;
@@ -303,37 +326,51 @@ export class BodyAnalysisService {
   async analyzeBodyImage(
     imageBase64: string,
     userData: Omit<BodyAnalysisRequest, 'image'>,
-  ): Promise<{ taskId: string; status: string }> {
+    //): Promise<{ taskId: string; status: string }> {
+  ): Promise<any> {
     try {
       console.log('🚀 Creando trabajo de análisis corporal...');
+      // Validar imagen
+      if (!imageBase64 || imageBase64.length === 0) {
+        throw new Error('Imagen requerida para análisis');
+      }
 
-      // Crear un trabajo en la cola
+      // Verificar tamaño de imagen y comprimir si es necesario
+      const imageSizeKB = (imageBase64.length * 3) / 4 / 1024; // Aproximado
+      console.log(`📏 Tamaño de imagen: ${imageSizeKB.toFixed(2)} KB`);
+
+      if (imageSizeKB > 2048) {
+        // Si es mayor a 2MB
+        console.log(
+          '⚠️ Imagen muy grande, considera reducir el tamaño en el frontend',
+        );
+        // Por ahora continuamos, pero en producción deberíamos rechazarla
+      }
+
+      // Crear trabajo en la cola
       const job = await this.analysisQueue.add(
-        'analyze',
+        'bodyAnalysis',
         {
           image: imageBase64,
           userData,
         },
         {
-          // Configuraciones del trabajo
-          removeOnComplete: 10, // Mantener solo los últimos 10 trabajos completados
-          removeOnFail: 50, // Mantener los últimos 50 trabajos fallidos para debugging
-          attempts: 3, // Reintentar hasta 3 veces si falla
+          attempts: 3,
           backoff: {
             type: 'exponential',
-            delay: 10000, // Esperar 10s, 20s, 40s entre reintentos
+            delay: 2000,
           },
+          removeOnComplete: 5, // Mantener solo 5 trabajos completados
+          removeOnFail: 5, // Mantener solo 5 trabajos fallidos
         },
       );
 
-      console.log(`✅ Trabajo de análisis creado con ID: ${job.id}`);
-
       return {
         taskId: job.id as string,
-        status: 'processing',
+        status: 'queued',
       };
     } catch (error) {
-      console.error('Error creando trabajo de análisis:', error);
+      console.error('❌ Error creando trabajo de análisis:', error);
       throw new Error('No se pudo crear el trabajo de análisis');
     }
   }

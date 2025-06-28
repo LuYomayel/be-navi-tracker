@@ -12,6 +12,7 @@ import { AnalysisModule } from './modules/analysis/analysis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
 import { TasksModule } from './modules/tasks/tasks.module';
+import { SkinFoldModule } from './modules/skin-fold/skin-fold.module';
 import { PrismaService } from './config/prisma.service';
 import { QueueModule } from './queue/queue.module';
 
@@ -29,6 +30,7 @@ import { QueueModule } from './queue/queue.module';
     AuthModule,
     PreferencesModule,
     TasksModule,
+    SkinFoldModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],
