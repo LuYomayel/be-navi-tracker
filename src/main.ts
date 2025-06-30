@@ -3,6 +3,11 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
 
+import { webcrypto } from 'crypto';
+if (!global.crypto) {
+  // @ts-ignore – añadimos propiedad fuera de typings
+  global.crypto = webcrypto;
+}
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
