@@ -29,9 +29,10 @@ model User {
   updatedAt         DateTime @updatedAt
 
   // Relaciones
-  xpLogs            XpLog[]
-  activities        Activity[]
-  notes             Note[]
+  xpLogs              XpLog[]
+  activities          Activity[]
+  notes               Note[]
+  physical_activities PhysicalActivity[]
 
   @@map("users")
 }
@@ -223,4 +224,25 @@ model XpLog {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("xp_logs")
+}
+
+// 👇 agregar al final
+model PhysicalActivity {
+  id              String   @id @default(cuid())
+  userId          String
+  date            String   // yyyy-MM-dd (UTC 00:00)
+  steps           Int?
+  distanceKm      Float?
+  activeEnergyKcal Int?
+  exerciseMinutes Int?
+  standHours      Int?
+  screenshotUrl   String?
+  source          String   @default("manual") // manual | image
+  aiConfidence    Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("physical_activities")
 }

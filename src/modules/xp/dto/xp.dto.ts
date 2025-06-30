@@ -9,6 +9,7 @@ export enum XpAction {
   LEVEL_UP = 'level_up',
   HABIT_CREATED = 'habit_created',
   HABIT_CREATED_BY_AI = 'habit_created_by_ai',
+  PHYSICAL_ACTIVITY = 'physical_activity',
 }
 
 export class AddXpDto {

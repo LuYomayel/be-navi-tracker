@@ -1,5 +1,22 @@
 import { User } from '@prisma/client';
 
+export interface PhysicalActivity {
+  id: string;
+  userId: string;
+  date: string; // yyyy-MM-dd (UTC 00:00)
+  steps: number;
+  distanceKm: number;
+  activeEnergyKcal: number;
+  exerciseMinutes: number;
+  standHours: number;
+  screenshotUrl: string;
+  source: string;
+  aiConfidence: number;
+  createdAt: Date;
+  updatedAt: Date;
+
+  user?: User;
+}
 export interface Activity {
   id: string;
   name: string;

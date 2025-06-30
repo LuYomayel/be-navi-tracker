@@ -18,6 +18,7 @@ import { PrismaService } from './config/prisma.service';
 import { QueueModule } from './queue/queue.module';
 import { NotesModule } from './modules/notes/notes.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { PhysicalActivitiesModule } from './modules/physical-activities/physical-activities.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -36,6 +37,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     SkinFoldModule,
     XpModule,
     NotesModule,
+    PhysicalActivitiesModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

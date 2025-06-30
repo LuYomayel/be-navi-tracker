@@ -142,6 +142,51 @@ export class NutritionService {
     userId: string,
     date: string,
   ): Promise<{ meetsGoals: boolean; totals: Record<string, number> }> {
+    // Obtener balance nutricional del día (comidas - actividades)
+    const balance = await this.getDailyNutritionBalance(userId, date);
+    const physicalActivities = await this.prisma.physicalActivity.findMany({
+      where: { userId, date },
+    });
+    const totalKcal = physicalActivities.reduce(
+      (acc, activity) => acc + (activity.activeEnergyKcal || 0),
+      0,
+    );
+
+    // Comparar con los objetivos usando las calorías netas
+    const meetsGoals =
+      (balance.goals.dailyCalorieGoal
+        ? balance.netCalories - totalKcal <= balance.goals.dailyCalorieGoal
+        : true) &&
+      (balance.goals.proteinGoal
+        ? balance.consumed.protein <= balance.goals.proteinGoal
+        : true) &&
+      (balance.goals.carbsGoal
+        ? balance.consumed.carbs <= balance.goals.carbsGoal
+        : true) &&
+      (balance.goals.fatGoal
+        ? balance.consumed.fat <= balance.goals.fatGoal
+        : true) &&
+      (balance.goals.fiberGoal
+        ? balance.consumed.fiber <= balance.goals.fiberGoal
+        : true);
+
+    return {
+      meetsGoals,
+      totals: {
+        calories: balance.netCalories,
+        protein: balance.consumed.protein,
+        carbs: balance.consumed.carbs,
+        fat: balance.consumed.fat,
+        fiber: balance.consumed.fiber,
+      },
+    };
+  }
+
+  /**
+   * Obtiene el balance nutricional completo del día (comidas vs actividades)
+   * Para mostrar en el frontend
+   */
+  async getDailyNutritionBalance(userId: string, date: string) {
     // 1. Traer preferencias del usuario
     const preferences = await this.prisma.userPreferences.findUnique({
       where: { userId },
@@ -151,13 +196,18 @@ export class NutritionService {
       throw new Error('User preferences not found');
     }
 
-    // 2. Traer todos los análisis de la fecha indicada
-    const analyses = await this.prisma.nutritionAnalysis.findMany({
+    // 2. Traer análisis nutricionales del día
+    const nutritionAnalyses = await this.prisma.nutritionAnalysis.findMany({
       where: { userId, date },
     });
 
-    // 3. Sumar totales consumidos
-    const totals = analyses.reduce(
+    // 3. Traer actividades físicas del día
+    const physicalActivities = await this.prisma.physicalActivity.findMany({
+      where: { userId, date },
+    });
+
+    // 4. Calcular totales consumidos
+    const consumed = nutritionAnalyses.reduce(
       (acc, analysis) => {
         acc.calories += analysis.totalCalories || 0;
         acc.protein += (analysis.macronutrients as any)?.protein || 0;
@@ -169,18 +219,34 @@ export class NutritionService {
       { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 },
     );
 
-    // 4. Comparar con los objetivos (si están definidos)
-    const meetsGoals =
-      (preferences.dailyCalorieGoal
-        ? totals.calories <= preferences.dailyCalorieGoal
-        : true) &&
-      (preferences.proteinGoal
-        ? totals.protein <= preferences.proteinGoal
-        : true) &&
-      (preferences.carbsGoal ? totals.carbs <= preferences.carbsGoal : true) &&
-      (preferences.fatGoal ? totals.fat <= preferences.fatGoal : true) &&
-      (preferences.fiberGoal ? totals.fiber <= preferences.fiberGoal : true);
+    // 5. Calcular totales quemados
+    const burned = physicalActivities.reduce(
+      (acc, activity) => {
+        acc.calories += activity.activeEnergyKcal || 0;
+        acc.steps += activity.steps || 0;
+        acc.distanceKm += activity.distanceKm || 0;
+        acc.exerciseMinutes += activity.exerciseMinutes || 0;
+        return acc;
+      },
+      { calories: 0, steps: 0, distanceKm: 0, exerciseMinutes: 0 },
+    );
 
-    return { meetsGoals, totals };
+    // 6. Calcular balance neto
+    const netCalories = consumed.calories - burned.calories;
+
+    return {
+      consumed,
+      burned,
+      netCalories,
+      goals: {
+        dailyCalorieGoal: preferences.dailyCalorieGoal || 2000,
+        proteinGoal: preferences.proteinGoal || 120,
+        carbsGoal: preferences.carbsGoal || 200,
+        fatGoal: preferences.fatGoal || 70,
+        fiberGoal: preferences.fiberGoal || 25,
+      },
+      nutritionAnalyses,
+      physicalActivities,
+    };
   }
 }
