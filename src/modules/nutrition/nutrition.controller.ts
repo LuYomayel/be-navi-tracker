@@ -20,7 +20,7 @@ import { XpAction } from '../xp/dto/xp.dto';
 import { XpService } from '../xp/xp.service';
 
 @Controller('nutrition')
-//@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class NutritionController {
   constructor(
     private readonly nutritionService: NutritionService,
@@ -29,12 +29,13 @@ export class NutritionController {
 
   @Get()
   async getAnalyses(
+    @Req() req: any,
     @Query('date') date?: string,
   ): Promise<ApiResponse<NutritionAnalysis[]>> {
     try {
       const analyses = date
-        ? await this.nutritionService.getByDate(date)
-        : await this.nutritionService.getAll();
+        ? await this.nutritionService.getByDate(date, req.user.userId)
+        : await this.nutritionService.getAll(req.user.userId);
 
       return { success: true, data: analyses };
     } catch (error) {

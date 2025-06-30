@@ -7,10 +7,11 @@ import { Cron } from '@nestjs/schedule';
 export class NutritionService {
   constructor(private prisma: PrismaService) {}
 
-  async getAll(): Promise<NutritionAnalysis[]> {
+  async getAll(userId: string): Promise<NutritionAnalysis[]> {
     try {
       const analyses = await this.prisma.nutritionAnalysis.findMany({
         orderBy: { createdAt: 'desc' },
+        where: { userId },
       });
       return analyses as any[];
     } catch (error) {
@@ -19,10 +20,10 @@ export class NutritionService {
     }
   }
 
-  async getByDate(date: string): Promise<NutritionAnalysis[]> {
+  async getByDate(date: string, userId: string): Promise<NutritionAnalysis[]> {
     try {
       const analyses = await this.prisma.nutritionAnalysis.findMany({
-        where: { date },
+        where: { date, userId },
         orderBy: { createdAt: 'desc' },
       });
       return analyses as any[];
