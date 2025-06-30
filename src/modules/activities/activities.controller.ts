@@ -8,80 +8,93 @@ import {
   Query,
   HttpStatus,
   HttpException,
-} from "@nestjs/common";
-import { ActivitiesService } from "./activities.service";
-import { Activity, ApiResponse } from "../../common/types";
+  UseGuards,
+  Req,
+} from '@nestjs/common';
+import { ActivitiesService } from './activities.service';
+import { Activity, ApiResponse } from '../../common/types';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@Controller("activities")
+@Controller('activities')
+@UseGuards(JwtAuthGuard)
 export class ActivitiesController {
   constructor(private readonly activitiesService: ActivitiesService) {}
 
   @Get()
-  async getAll(): Promise<ApiResponse<Activity[]>> {
+  async getAll(@Req() req: any): Promise<ApiResponse<Activity[]>> {
     try {
-      const activities = await this.activitiesService.getAll();
+      const activities = await this.activitiesService.getAll(req.user.userId);
       return { success: true, data: activities };
     } catch (error) {
-      console.error("Error fetching activities:", error);
+      console.error('Error fetching activities:', error);
       return {
         success: false,
-        error: "Failed to fetch activities",
+        error: 'Failed to fetch activities',
       };
     }
   }
 
   @Post()
   async create(
-    @Body() activityData: Omit<Activity, "id" | "createdAt" | "updatedAt">
+    @Body() activityData: Omit<Activity, 'id' | 'createdAt' | 'updatedAt'>,
+    @Req() req: any,
   ): Promise<ApiResponse<Activity>> {
     try {
-      const activity = await this.activitiesService.create(activityData);
+      const activity = await this.activitiesService.create(
+        activityData,
+        req.user.userId,
+      );
       return { success: true, data: activity };
     } catch (error) {
-      console.error("Error creating activity:", error);
+      console.error('Error creating activity:', error);
       throw new HttpException(
-        "Failed to create activity",
-        HttpStatus.INTERNAL_SERVER_ERROR
+        'Failed to create activity',
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   @Put()
   async update(
-    @Body() updateData: Partial<Activity> & { id: string }
+    @Body() updateData: Partial<Activity> & { id: string },
+    @Req() req: any,
   ): Promise<ApiResponse<Activity>> {
     try {
       const { id, ...updates } = updateData;
-      const activity = await this.activitiesService.update(id, updates);
+      const activity = await this.activitiesService.update(
+        id,
+        updates,
+        req.user.userId,
+      );
       return { success: true, data: activity };
     } catch (error) {
-      console.error("Error updating activity:", error);
+      console.error('Error updating activity:', error);
       throw new HttpException(
-        "Failed to update activity",
-        HttpStatus.INTERNAL_SERVER_ERROR
+        'Failed to update activity',
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   @Delete()
   async delete(
-    @Query("id") id: string
+    @Query('id') id: string,
   ): Promise<ApiResponse<{ deleted: boolean }>> {
     try {
       if (!id) {
         throw new HttpException(
-          "Activity ID is required",
-          HttpStatus.BAD_REQUEST
+          'Activity ID is required',
+          HttpStatus.BAD_REQUEST,
         );
       }
 
       const success = await this.activitiesService.delete(id);
       return { success, data: { deleted: success } };
     } catch (error) {
-      console.error("Error deleting activity:", error);
+      console.error('Error deleting activity:', error);
       throw new HttpException(
-        "Failed to delete activity",
-        HttpStatus.INTERNAL_SERVER_ERROR
+        'Failed to delete activity',
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }

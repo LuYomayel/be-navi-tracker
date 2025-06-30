@@ -1,23 +1,31 @@
-import { Injectable } from "@nestjs/common";
-import { PrismaService } from "../../config/prisma.service";
-import { DailyCompletion } from "../../common/types";
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../../config/prisma.service';
+import { DailyCompletion } from '../../common/types';
+import { XpService } from '../xp/xp.service';
 
 @Injectable()
 export class CompletionsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private xpService: XpService,
+  ) {}
 
   async getAll(): Promise<DailyCompletion[]> {
     try {
       return await this.prisma.dailyCompletion.findMany({
-        orderBy: { date: "desc" },
+        orderBy: { date: 'desc' },
       });
     } catch (error) {
-      console.error("Error fetching completions:", error);
+      console.error('Error fetching completions:', error);
       return [];
     }
   }
 
-  async toggle(activityId: string, date: string): Promise<DailyCompletion> {
+  async toggle(
+    activityId: string,
+    date: string,
+    userId: string = 'default',
+  ): Promise<DailyCompletion> {
     try {
       const existing = await this.prisma.dailyCompletion.findUnique({
         where: {
@@ -28,24 +36,46 @@ export class CompletionsService {
         },
       });
 
+      let completion: DailyCompletion;
+
       if (existing) {
-        const updated = await this.prisma.dailyCompletion.update({
+        completion = await this.prisma.dailyCompletion.update({
           where: { id: existing.id },
           data: { completed: !existing.completed },
         });
-        return updated;
       } else {
-        const created = await this.prisma.dailyCompletion.create({
+        completion = await this.prisma.dailyCompletion.create({
           data: {
             activityId,
             date,
             completed: true,
           },
         });
-        return created;
       }
+
+      // 🎮 Si el hábito se completó (no se descompletó), agregar XP
+      if (completion.completed) {
+        try {
+          // Obtener el nombre de la actividad para el log de XP
+          const activity = await this.prisma.activity.findUnique({
+            where: { id: activityId },
+            select: { name: true },
+          });
+
+          const habitName = activity?.name || 'Hábito';
+
+          // Agregar XP por completar hábito
+          await this.xpService.addHabitXp(userId, habitName, date);
+          console.log(`✨ XP agregada por completar hábito: ${habitName}`);
+        } catch (xpError) {
+          console.error('❌ Error agregando XP:', xpError);
+          // No fallar la completación si hay error con XP
+        }
+      }
+
+      return completion;
     } catch (error) {
-      console.error("Error toggling completion:", error);
+      console.error('Error toggling completion:', error);
       // Fallback
       const fallbackId = `${activityId}-${date}-${Date.now()}`;
       return {
@@ -62,7 +92,7 @@ export class CompletionsService {
   async getForActivity(
     activityId: string,
     startDate: string,
-    endDate: string
+    endDate: string,
   ): Promise<DailyCompletion[]> {
     try {
       return await this.prisma.dailyCompletion.findMany({
@@ -75,7 +105,7 @@ export class CompletionsService {
         },
       });
     } catch (error) {
-      console.error("Error fetching activity completions:", error);
+      console.error('Error fetching activity completions:', error);
       return [];
     }
   }

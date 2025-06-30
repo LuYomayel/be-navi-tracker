@@ -6,9 +6,13 @@ import { Activity, ApiResponse } from '../../common/types';
 export class ActivitiesService {
   constructor(private prisma: PrismaService) {}
 
-  async getAll(): Promise<Activity[]> {
+  async getAll(userId: string): Promise<Activity[]> {
     try {
       const activities = await this.prisma.activity.findMany({
+        where: { user: { id: userId } },
+        include: {
+          completions: true,
+        },
         orderBy: { createdAt: 'asc' },
       });
 
@@ -23,13 +27,21 @@ export class ActivitiesService {
   }
 
   async create(
-    data: Omit<Activity, 'id' | 'createdAt' | 'updatedAt'>,
+    data: Omit<Activity, 'id' | 'createdAt' | 'updatedAt' | 'user' | 'userId'>,
+    userId: string,
   ): Promise<Activity> {
     try {
+      const {
+        /* strip relation fields */ user: _u,
+        userId: _uid,
+        ...cleanData
+      } = data as any;
+
       const activity = await this.prisma.activity.create({
         data: {
-          ...data,
-          days: data.days,
+          ...cleanData,
+          days: cleanData.days,
+          userId,
         },
       });
 
@@ -43,13 +55,20 @@ export class ActivitiesService {
     }
   }
 
-  async update(id: string, data: Partial<Activity>): Promise<Activity | null> {
+  async update(
+    id: string,
+    data: Partial<Omit<Activity, 'user' | 'userId'>>,
+    userId: string,
+  ): Promise<Activity | null> {
     try {
+      const { user: _u, userId: _uid, ...cleanData } = data as any;
+
       const activity = await this.prisma.activity.update({
         where: { id },
         data: {
-          ...data,
+          ...cleanData,
           updatedAt: new Date(),
+          userId,
         },
       });
 

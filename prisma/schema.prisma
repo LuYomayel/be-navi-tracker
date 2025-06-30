@@ -17,8 +17,20 @@ model User {
   password  String
   plan      String   @default("free") // free, basic, premium
   isActive  Boolean  @default(true)
+  
+  // Sistema de XP y Niveles
+  level     Int      @default(1)
+  xp        Int      @default(0)
+  totalXp   Int      @default(0) // XP total acumulada histórica
+  streak    Int      @default(0) // Días consecutivos completando hábitos
+  lastStreakDate String? // Fecha de la última actividad para calcular racha
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Relaciones
+  xpLogs    XpLog[]
+  activities Activity[]
 
   @@map("users")
 }
@@ -35,6 +47,8 @@ model Activity {
   updatedAt   DateTime @updatedAt
 
   // Relaciones
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   completions DailyCompletion[]
 
   @@map("activities")
@@ -177,4 +191,20 @@ model SkinFoldRecord {
   updatedAt    DateTime @updatedAt
 
   @@map("skin_fold_records")
+}
+
+model XpLog {
+  id          String   @id @default(cuid())
+  userId      String   @default("default")
+  action      String   // "habit_complete", "nutrition_log", "daily_comment", "streak_bonus", "level_up"
+  xpEarned    Int      // XP ganada en esta acción
+  description String   // Descripción de la acción
+  date        String   // YYYY-MM-DD format
+  metadata    Json?    // Información adicional (streak_count, level_reached, etc.)
+  createdAt   DateTime @default(now())
+
+  // Relaciones
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("xp_logs")
 }

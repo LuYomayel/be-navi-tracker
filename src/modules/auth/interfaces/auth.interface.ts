@@ -5,6 +5,7 @@ export interface JwtPayload {
   plan: string;
   iat?: number;
   exp?: number;
+  userId?: string;
 }
 
 export interface User {

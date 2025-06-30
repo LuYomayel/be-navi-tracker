@@ -266,7 +266,7 @@ export async function generateNutritionRecommendation(
     const prompt = generateNutritionRecommendationPrompt(validatedAnalysis);
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-mini',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 1000,
       temperature: 0.3,
@@ -300,6 +300,21 @@ function generateNutritionRecommendationPrompt(
   const { bodyType, measurements, bodyComposition } = validatedAnalysis;
 
   return `Como nutricionista deportivo experto, genera recomendaciones nutricionales específicas para:
+  # EJEMPLO DE FORMATO Y CRITERIOS (usa como guía, adapta a los datos recibidos):
+
+  For an 83 kg, 165 cm, 24-year-old male who is “active” and wants to lose weight, ~3 000 kcal and ~400 g of carbohydrate per day is likely too high.  
+  A more suitable starting point is ≈2 100 – 2 300 kcal, apportioned roughly as:
+
+  | Macro        | Grams        | % kcal | Rationale                                                                 |
+  |--------------|--------------|--------|---------------------------------------------------------------------------|
+  | Protein      | 155 – 180 g  | 28 – 32| 1.6 – 2.2 g/kg preserves muscle during a caloric deficit                  |
+  | Fat          | 65 – 75 g    | 27 – 30| 0.8 – 1 g/kg supports hormones and satiety                                 |
+  | Carbohydrate | 220 – 250 g  | 38 – 42| 3 – 4 g/kg covers training needs without blocking fat-loss                |
+
+  Why lower calories and carbs?  
+  - Energy balance: maintenance (TDEE) ≈ 2 700 kcal; a 15-20 % deficit (~400-600 kcal) gives steady fat-loss.  
+  - Protein priority: ≥ 1.6 g/kg preserves lean mass in deficit.  
+  - Carbohydrate scaling: 3-5 g/kg is enough for light-to-moderate training; 5 g/kg suits very high volumes, not deficits.  
 
 ANÁLISIS CORPORAL:
 - Tipo de cuerpo: ${bodyType}

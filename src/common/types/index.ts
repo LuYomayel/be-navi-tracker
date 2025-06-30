@@ -1,3 +1,5 @@
+import { User } from '@prisma/client';
+
 export interface Activity {
   id: string;
   name: string;
@@ -8,6 +10,8 @@ export interface Activity {
   category?: string;
   createdAt: Date;
   updatedAt: Date;
+  userId?: string;
+  user?: User;
 }
 
 export interface DailyCompletion {
