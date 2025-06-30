@@ -5,9 +5,12 @@ import {
   Body,
   HttpException,
   HttpStatus,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { AnalyzeFoodService } from './analyze-food.service';
 import { ApiResponse } from '../../common/types';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 export enum MealType {
   BREAKFAST = 'breakfast',
@@ -29,12 +32,14 @@ interface FoodAnalysisManualRequest {
 }
 
 @Controller('analyze-food')
+@UseGuards(JwtAuthGuard)
 export class AnalyzeFoodController {
   constructor(private readonly analyzeFoodService: AnalyzeFoodService) {}
 
   @Post('image')
   async analyzeFood(
     @Body() request: FoodAnalysisImageRequest,
+    @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
       const { image, mealType } = request;

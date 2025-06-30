@@ -11,26 +11,27 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  password  String
-  plan      String   @default("free") // free, basic, premium
-  isActive  Boolean  @default(true)
+  id                String   @id @default(cuid())
+  email             String   @unique
+  name              String
+  password          String
+  plan              String   @default("free") // free, basic, premium
+  isActive          Boolean  @default(true)
   
   // Sistema de XP y Niveles
-  level     Int      @default(1)
-  xp        Int      @default(0)
-  totalXp   Int      @default(0) // XP total acumulada histórica
-  streak    Int      @default(0) // Días consecutivos completando hábitos
-  lastStreakDate String? // Fecha de la última actividad para calcular racha
+  level             Int      @default(1)
+  xp                Int      @default(0)
+  totalXp           Int      @default(0) // XP total acumulada histórica
+  streak            Int      @default(0) // Días consecutivos completando hábitos
+  lastStreakDate    String? // Fecha de la última actividad para calcular racha
   
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   // Relaciones
-  xpLogs    XpLog[]
-  activities Activity[]
+  xpLogs            XpLog[]
+  activities        Activity[]
+  notes             Note[]
 
   @@map("users")
 }
@@ -191,6 +192,21 @@ model SkinFoldRecord {
   updatedAt    DateTime @updatedAt
 
   @@map("skin_fold_records")
+}
+
+model Note {
+  id          String   @id @default(cuid())
+  date        String
+  content     String
+  mood        Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  // Relaciones
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notes")
 }
 
 model XpLog {

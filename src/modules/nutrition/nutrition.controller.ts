@@ -9,13 +9,23 @@ import {
   HttpStatus,
   Param,
   Put,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { NutritionService } from './nutrition.service';
 import { NutritionAnalysis, ApiResponse } from '../../common/types';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { XpAction } from '../xp/dto/xp.dto';
+import { XpService } from '../xp/xp.service';
 
 @Controller('nutrition')
+//@UseGuards(JwtAuthGuard)
 export class NutritionController {
-  constructor(private readonly nutritionService: NutritionService) {}
+  constructor(
+    private readonly nutritionService: NutritionService,
+    private readonly xpService: XpService,
+  ) {}
 
   @Get()
   async getAnalyses(
@@ -40,9 +50,13 @@ export class NutritionController {
   async create(
     @Body()
     analysisData: Omit<NutritionAnalysis, 'id' | 'createdAt' | 'updatedAt'>,
+    @Req() req: any,
   ): Promise<ApiResponse<NutritionAnalysis>> {
     try {
-      const analysis = await this.nutritionService.create(analysisData);
+      const analysis = await this.nutritionService.create(
+        analysisData,
+        req.user.userId,
+      );
       console.log('Análisis de nutrición creado:', analysis);
       return { success: true, data: analysis };
     } catch (error) {
@@ -73,6 +87,7 @@ export class NutritionController {
   @Delete(':id')
   async delete(
     @Param('id') id: string,
+    @Req() req: any,
   ): Promise<ApiResponse<{ deleted: boolean }>> {
     try {
       console.log('Eliminando análisis de nutrición con ID:', id);
@@ -83,7 +98,7 @@ export class NutritionController {
         );
       }
 
-      const success = await this.nutritionService.delete(id);
+      const success = await this.nutritionService.delete(id, req.user.userId);
       console.log('Análisis de nutrición eliminado:', success);
       return { success, data: { deleted: success } };
     } catch (error) {
@@ -92,6 +107,31 @@ export class NutritionController {
         'Failed to delete nutrition analysis',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  @Cron('0 0 * * *', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+  })
+  async evaluateDailyNutritionGoals(@Req() req: any) {
+    // Procesar el día que acaba de terminar (ayer)
+    try {
+      const result = await this.nutritionService.updateNutritionAnalysis();
+      if (result.meetsGoals) {
+        // Agregar experiencia
+        const xp = await this.xpService.addXp('usr_test_id_123', {
+          action: XpAction.NUTRITION_LOG,
+          xpAmount: 40,
+          description: 'Cumplir el objetivo calórico/macros del día',
+        });
+      }
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('Error evaluating daily nutrition goals:', error);
+      return {
+        success: false,
+        error: 'Failed to evaluate daily nutrition goals',
+      };
     }
   }
 }

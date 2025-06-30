@@ -7,6 +7,8 @@ export enum XpAction {
   DAY_COMPLETE = 'day_complete',
   STREAK_BONUS = 'streak_bonus',
   LEVEL_UP = 'level_up',
+  HABIT_CREATED = 'habit_created',
+  HABIT_CREATED_BY_AI = 'habit_created_by_ai',
 }
 
 export class AddXpDto {

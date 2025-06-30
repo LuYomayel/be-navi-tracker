@@ -16,9 +16,11 @@ import { SkinFoldModule } from './modules/skin-fold/skin-fold.module';
 import { XpModule } from './modules/xp/xp.module';
 import { PrismaService } from './config/prisma.service';
 import { QueueModule } from './queue/queue.module';
-
+import { NotesModule } from './modules/notes/notes.module';
+import { ScheduleModule } from '@nestjs/schedule';
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     QueueModule,
     ActivitiesModule,
     ChatModule,
@@ -33,6 +35,7 @@ import { QueueModule } from './queue/queue.module';
     TasksModule,
     SkinFoldModule,
     XpModule,
+    NotesModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

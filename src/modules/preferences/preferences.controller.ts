@@ -6,21 +6,29 @@ import {
   Body,
   HttpException,
   HttpStatus,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import {
   PreferencesService,
+  PreferencesDTO,
   SetPreferencesRequest,
 } from './preferences.service';
 import { ApiResponse } from '../../common/types';
+import { User } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('preferences')
+@UseGuards(JwtAuthGuard)
 export class PreferencesController {
   constructor(private readonly preferencesService: PreferencesService) {}
 
   @Get()
-  async getPreferences(): Promise<ApiResponse<any>> {
+  async getPreferences(@Req() req: any): Promise<ApiResponse<any>> {
     try {
-      const preferences = await this.preferencesService.getPreferences();
+      const preferences = await this.preferencesService.getPreferences(
+        req.user.userId,
+      );
 
       return {
         success: true,
@@ -38,17 +46,20 @@ export class PreferencesController {
 
   @Post()
   async setGoals(
-    @Body() request: SetPreferencesRequest,
+    @Body() request: PreferencesDTO,
+    @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
       console.log('🎯 Guardando preferencias y objetivos del usuario...');
       console.log('📋 Request recibido:', JSON.stringify(request, null, 2));
-
-      const savedPreferences =
-        await this.preferencesService.setPreferences(request);
-
+      console.log('📋 User ID:', req.user.userId);
+      const savedPreferences = await this.preferencesService.setPreferences(
+        request,
+        req.user.userId,
+      );
+      console.log(savedPreferences);
       console.log('✅ Preferencias guardadas exitosamente');
-
+      /*
       return {
         success: true,
         data: {
@@ -75,6 +86,11 @@ export class PreferencesController {
           updatedAt: savedPreferences.updatedAt,
         },
       };
+      */
+      return {
+        success: true,
+        data: savedPreferences,
+      };
     } catch (error) {
       console.error('❌ Error saving preferences:', error);
       throw new HttpException(
@@ -85,9 +101,11 @@ export class PreferencesController {
   }
 
   @Get('goals')
-  async getCurrentGoals(): Promise<ApiResponse<any>> {
+  async getCurrentGoals(@Req() req: any): Promise<ApiResponse<any>> {
     try {
-      const goals = await this.preferencesService.getCurrentGoals();
+      const goals = await this.preferencesService.getCurrentGoals(
+        req.user.userId,
+      );
 
       if (!goals) {
         return {
@@ -112,9 +130,11 @@ export class PreferencesController {
   }
 
   @Get('progress')
-  async getProgressData(): Promise<ApiResponse<any>> {
+  async getProgressData(@Req() req: any): Promise<ApiResponse<any>> {
     try {
-      const progressData = await this.preferencesService.getProgressData();
+      const progressData = await this.preferencesService.getProgressData(
+        req.user.userId,
+      );
 
       if (!progressData) {
         return {
@@ -147,12 +167,16 @@ export class PreferencesController {
       carbsGoal?: number;
       fatGoal?: number;
     },
+    @Req() req: any,
   ): Promise<ApiResponse<any>> {
+    console.log(req.user.userId);
     try {
       console.log('🎯 Actualizando objetivos nutricionales...');
 
-      const updatedPreferences =
-        await this.preferencesService.updateGoals(request);
+      const updatedPreferences = await this.preferencesService.updateGoals(
+        request,
+        req.user.userId,
+      );
 
       console.log('✅ Objetivos actualizados exitosamente');
 
@@ -191,12 +215,16 @@ export class PreferencesController {
         | 'active'
         | 'very_active';
     },
+    @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
       console.log('👤 Actualizando datos personales...');
 
       const updatedPreferences =
-        await this.preferencesService.updatePersonalData(request);
+        await this.preferencesService.updatePersonalData(
+          request,
+          req.user.userId,
+        );
 
       console.log('✅ Datos personales actualizados exitosamente');
 

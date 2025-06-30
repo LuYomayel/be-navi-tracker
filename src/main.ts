@@ -25,6 +25,12 @@ async function bootstrap() {
   // Configurar validación global
   app.useGlobalPipes(new ValidationPipe());
 
+  // Usar filtro global para formatear errores
+  const { HttpExceptionFilter } = await import(
+    './common/filters/http-exception.filter'
+  );
+  app.useGlobalFilters(new HttpExceptionFilter());
+
   // Configurar prefijo global para la API
   app.setGlobalPrefix('api');
 

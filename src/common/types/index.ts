@@ -119,6 +119,52 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
+export interface DailyNote {
+  id: string;
+  date: string; // YYYY-MM-DD
+  content: string;
+  mood?: number; // 1-5
+  predefinedComments?: string[]; // IDs de comentarios predefinidos seleccionados
+  customComment?: string; // Comentario personalizado del usuario
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface UserPreferences {
+  id: string;
+  userId: string;
+
+  // Datos personales
+  height: number;
+  currentWeight: number;
+  targetWeight: number;
+  age: number;
+  gender: string;
+  activityLevel: string;
+
+  // Objetivos de fitness
+  fitnessGoals: string[];
+
+  // Objetivos nutricionales (calculados/ajustados)
+  dailyCalorieGoal: number;
+  proteinGoal: number;
+  carbsGoal: number;
+  fatGoal: number;
+  fiberGoal: number;
+
+  // Metadatos
+  lastBodyAnalysisId: string;
+  bmr: number;
+  tdee: number;
+
+  // Configuraciones adicionales
+  preferredUnits: string;
+  notifications: any;
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;

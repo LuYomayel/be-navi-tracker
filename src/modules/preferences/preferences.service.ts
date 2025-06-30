@@ -1,7 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
-import { UserPreferences } from '@prisma/client';
+import { UserPreferences } from '../../common/types';
 
+export interface PreferencesDTO {
+  height: number;
+  currentWeight: number;
+  targetWeight: number;
+  age: number;
+  gender: 'male' | 'female' | 'other';
+  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  fitnessGoal: string;
+  finalGoals: {
+    dailyCalories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    fiber: number;
+  };
+}
 export interface SetPreferencesRequest {
   // Datos personales
   personalData?: {
@@ -93,70 +109,63 @@ export interface SetPreferencesRequest {
 export class PreferencesService {
   constructor(private prisma: PrismaService) {}
 
-  async getPreferences(
-    userId: string = 'default',
-  ): Promise<UserPreferences | null> {
-    return this.prisma.userPreferences.findUnique({
-      where: { userId },
-    });
+  async getPreferences(userId: string): Promise<UserPreferences | null> {
+    try {
+      const preferences = await this.prisma.userPreferences.findUnique({
+        where: { userId },
+      });
+      return preferences as UserPreferences;
+    } catch (error) {
+      console.error('Error getting preferences:', error);
+      throw new Error('Failed to get preferences');
+    }
   }
 
   async setPreferences(
-    data: SetPreferencesRequest,
-    userId: string = 'default',
+    data: PreferencesDTO,
+    userId: string,
   ): Promise<UserPreferences> {
-    // Extraer datos del request
-    const personalData = data.personalData || {};
-    const nutritionGoals = data.nutritionGoals || {};
-    const bodyAnalysisData = data.bodyAnalysisData || {};
-
-    // Preparar los datos para Prisma
-    const prismaData = {
-      // Datos personales
-      height: personalData.height,
-      currentWeight: personalData.currentWeight,
-      targetWeight: personalData.targetWeight,
-      age: personalData.age,
-      gender: personalData.gender,
-      activityLevel: personalData.activityLevel,
-
-      // Fitness goals
-      fitnessGoals: personalData.fitnessGoal
-        ? [personalData.fitnessGoal]
-        : undefined,
-
-      // Objetivos nutricionales
-      dailyCalorieGoal: nutritionGoals.dailyCalories,
-      proteinGoal: nutritionGoals.protein,
-      carbsGoal: nutritionGoals.carbs,
-      fatGoal: nutritionGoals.fat,
-      fiberGoal: nutritionGoals.fiber,
-
-      // Metadatos del body analysis
-      lastBodyAnalysisId: bodyAnalysisData.bodyAnalysisId,
-
-      // Configuraciones
-      preferredUnits: data.preferredUnits || 'metric',
-      notifications: data.notifications,
-    };
-
-    // Filtrar campos undefined
-    const cleanData = Object.fromEntries(
-      Object.entries(prismaData).filter(([, value]) => value !== undefined),
-    );
-
-    // Usar upsert para crear o actualizar
-    return this.prisma.userPreferences.upsert({
-      where: { userId },
-      create: {
+    try {
+      const userPreferences: Omit<UserPreferences, 'id'> = {
         userId,
-        ...cleanData,
-      },
-      update: {
-        ...cleanData,
+        height: data.height,
+        currentWeight: data.currentWeight,
+        targetWeight: data.targetWeight,
+        age: data.age,
+        gender: data.gender,
+        activityLevel: data.activityLevel,
+        fitnessGoals: data.fitnessGoal ? [data.fitnessGoal] : undefined,
+        dailyCalorieGoal: data.finalGoals.dailyCalories,
+        proteinGoal: data.finalGoals.protein,
+        carbsGoal: data.finalGoals.carbs,
+        fatGoal: data.finalGoals.fat,
+        fiberGoal: 0,
+        lastBodyAnalysisId: '',
+        bmr: 0,
+        tdee: 0,
+        preferredUnits: 'metric',
+        notifications: {},
+        createdAt: new Date(),
         updatedAt: new Date(),
-      },
-    });
+      };
+      console.log('🔍 User preferences:', userPreferences);
+      // Usar upsert para crear o actualizar evitando conflicto de clave única
+      const savedPreferences = await this.prisma.userPreferences.upsert({
+        where: { userId },
+        create: {
+          ...userPreferences,
+        },
+        update: {
+          ...userPreferences,
+          updatedAt: new Date(),
+        },
+      });
+
+      return savedPreferences as UserPreferences;
+    } catch (error) {
+      console.error('Error setting preferences:', error);
+      throw new Error('Failed to set preferences');
+    }
   }
 
   async updateGoals(
@@ -166,19 +175,25 @@ export class PreferencesService {
       carbsGoal?: number;
       fatGoal?: number;
     },
-    userId: string = 'default',
+    userId: string,
   ): Promise<UserPreferences> {
-    return this.prisma.userPreferences.upsert({
-      where: { userId },
-      create: {
-        userId,
-        ...goals,
-      },
-      update: {
-        ...goals,
-        updatedAt: new Date(),
-      },
-    });
+    try {
+      const updatedPreferences = await this.prisma.userPreferences.upsert({
+        where: { userId },
+        create: {
+          userId,
+          ...goals,
+        },
+        update: {
+          ...goals,
+          updatedAt: new Date(),
+        },
+      });
+      return updatedPreferences as UserPreferences;
+    } catch (error) {
+      console.error('Error updating goals:', error);
+      throw new Error('Failed to update goals');
+    }
   }
 
   async updatePersonalData(
@@ -190,22 +205,28 @@ export class PreferencesService {
       gender?: string;
       activityLevel?: string;
     },
-    userId: string = 'default',
+    userId: string,
   ): Promise<UserPreferences> {
-    return this.prisma.userPreferences.upsert({
-      where: { userId },
-      create: {
-        userId,
-        ...personalData,
-      },
-      update: {
-        ...personalData,
-        updatedAt: new Date(),
-      },
-    });
+    try {
+      const updatedPreferences = await this.prisma.userPreferences.upsert({
+        where: { userId },
+        create: {
+          userId,
+          ...personalData,
+        },
+        update: {
+          ...personalData,
+          updatedAt: new Date(),
+        },
+      });
+      return updatedPreferences as UserPreferences;
+    } catch (error) {
+      console.error('Error updating personal data:', error);
+      throw new Error('Failed to update personal data');
+    }
   }
 
-  async getCurrentGoals(userId: string = 'default'): Promise<{
+  async getCurrentGoals(userId: string): Promise<{
     dailyCalorieGoal: number;
     proteinGoal: number;
     carbsGoal: number;
@@ -225,7 +246,7 @@ export class PreferencesService {
     };
   }
 
-  async getProgressData(userId: string = 'default'): Promise<{
+  async getProgressData(userId: string): Promise<{
     currentWeight: number;
     targetWeight: number;
     height: number;
@@ -253,7 +274,7 @@ export class PreferencesService {
     };
   }
 
-  async resetPreferences(userId: string = 'default'): Promise<boolean> {
+  async resetPreferences(userId: string): Promise<boolean> {
     try {
       await this.prisma.userPreferences.delete({
         where: { userId },
