@@ -64,7 +64,7 @@ export class CompletionsService {
 
           const habitName = activity?.name || 'Hábito';
 
-          // Agregar XP por completar hábito
+          // Agregar XP por completar hábito (ahora con sistema de rachas mejorado)
           await this.xpService.addHabitXp(userId, habitName, date);
           console.log(`✨ XP agregada por completar hábito: ${habitName}`);
         } catch (xpError) {

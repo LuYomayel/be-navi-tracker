@@ -5,11 +5,16 @@ import {
   XpAction,
   XpStatsResponse,
   LevelUpResponse,
+  XpLogResponse,
 } from './dto/xp.dto';
+import { StreakService, StreakResult } from './streak.service';
 
 @Injectable()
 export class XpService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private streakService: StreakService,
+  ) {}
 
   /**
    * Calcula la XP requerida para un nivel específico
@@ -103,7 +108,7 @@ export class XpService {
   }
 
   /**
-   * Agrega XP al usuario
+   * Agrega XP al usuario con sistema de rachas mejorado
    */
   async addXp(
     userId: string,
@@ -122,20 +127,58 @@ export class XpService {
       }
 
       let { xpAmount } = addXpDto;
-      let streakBonus = 0;
-      let updatedStreak = user.streak;
+      let streakResult: StreakResult | null = null;
 
-      // Calcular bonus de racha para acciones que lo ameriten
-      if (
-        addXpDto.action === XpAction.HABIT_COMPLETE ||
-        addXpDto.action === XpAction.DAY_COMPLETE
-      ) {
-        const streakResult = await this.updateStreak(userId, currentDate);
-        updatedStreak = streakResult.streak;
-        streakBonus = streakResult.streakBonus;
+      // Determinar qué tipo de racha actualizar según la acción
+      switch (addXpDto.action) {
+        case XpAction.HABIT_COMPLETE:
+          // Verificar si todos los hábitos del día están completos
+          streakResult = await this.streakService.updateHabitStreak(
+            userId,
+            currentDate,
+          );
+          break;
 
-        // Agregar bonus a la XP
-        xpAmount += streakBonus;
+        case XpAction.NUTRITION_LOG:
+          // Verificar si se completaron 3 comidas del día
+          streakResult = await this.streakService.updateNutritionStreak(
+            userId,
+            currentDate,
+          );
+          break;
+
+        case XpAction.PHYSICAL_ACTIVITY:
+          // Actualizar racha de actividad física
+          streakResult = await this.streakService.updateActivityStreak(
+            userId,
+            currentDate,
+          );
+          break;
+
+        case XpAction.DAY_COMPLETE:
+          // Para day complete, verificar todas las rachas
+          const habitStreak = await this.streakService.updateHabitStreak(
+            userId,
+            currentDate,
+          );
+          const nutritionStreak =
+            await this.streakService.updateNutritionStreak(userId, currentDate);
+          const activityStreak = await this.streakService.updateActivityStreak(
+            userId,
+            currentDate,
+          );
+
+          // Usar la racha con mayor bonus
+          const streaks = [habitStreak, nutritionStreak, activityStreak];
+          streakResult = streaks.reduce((max, current) =>
+            current.streakBonus > max.streakBonus ? current : max,
+          );
+          break;
+      }
+
+      // Agregar bonus de racha si existe
+      if (streakResult && streakResult.streakBonus > 0) {
+        xpAmount += streakResult.streakBonus;
       }
 
       const oldLevel = user.level;
@@ -147,18 +190,36 @@ export class XpService {
 
       const leveledUp = newLevel > oldLevel;
 
-      // Actualizar usuario
+      // Actualizar usuario (mantenemos el streak original por compatibilidad)
       await this.prisma.user.update({
         where: { id: userId },
         data: {
           level: newLevel,
           xp: newXp,
           totalXp: newTotalXp,
-          streak: updatedStreak,
+          // Mantener el streak principal como el de hábitos para compatibilidad
+          streak:
+            streakResult?.streakType === 'habits'
+              ? streakResult.streak
+              : user.streak,
+          lastStreakDate:
+            streakResult?.streakType === 'habits'
+              ? currentDate
+              : user.lastStreakDate,
         },
       });
 
-      // Crear log de XP
+      // Crear log de XP con información de rachas
+      const metadata = {
+        ...addXpDto.metadata,
+        streakBonus: streakResult?.streakBonus || 0,
+        streakType: streakResult?.streakType,
+        streak: streakResult?.streak || 0,
+        isNewRecord: streakResult?.isNewRecord || false,
+        levelBefore: oldLevel,
+        levelAfter: newLevel,
+      };
+
       await this.prisma.xpLog.create({
         data: {
           userId: user.id,
@@ -166,13 +227,7 @@ export class XpService {
           xpEarned: xpAmount,
           description: addXpDto.description,
           date: currentDate,
-          metadata: {
-            ...addXpDto.metadata,
-            streakBonus,
-            streak: updatedStreak,
-            levelBefore: oldLevel,
-            levelAfter: newLevel,
-          },
+          metadata,
         },
       });
 
@@ -199,8 +254,8 @@ export class XpService {
         totalXpEarned: newTotalXp,
         leveledUp,
         nextLevelXp: nextLevelXp - currentLevelXp,
-        streak: updatedStreak,
-        streakBonus,
+        streak: streakResult?.streak || user.streak,
+        streakBonus: streakResult?.streakBonus || 0,
       };
     } catch (error) {
       console.error('Error adding XP:', error);
@@ -209,9 +264,17 @@ export class XpService {
   }
 
   /**
-   * Obtiene las estadísticas de XP del usuario
+   * Obtiene las estadísticas de XP del usuario incluyendo todas las rachas
    */
-  async getXpStats(userId: string): Promise<XpStatsResponse> {
+  async getXpStats(userId: string): Promise<
+    XpStatsResponse & {
+      streaks: {
+        habits: { streak: number; lastDate: string | null };
+        nutrition: { streak: number; lastDate: string | null };
+        activity: { streak: number; lastDate: string | null };
+      };
+    }
+  > {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -230,24 +293,9 @@ export class XpService {
     const currentLevelXp = this.calculateXpForLevel(user.level);
     const xpForNextLevel = nextLevelXp - currentLevelXp;
     const xpProgressPercentage = Math.round((user.xp / xpForNextLevel) * 100);
-    const dataReturn = {
-      level: user.level,
-      xp: user.xp,
-      totalXp: user.totalXp,
-      xpForNextLevel,
-      xpProgressPercentage,
-      streak: user.streak,
-      lastStreakDate: user.lastStreakDate,
-      recentLogs: user.xpLogs.map((log) => ({
-        id: log.id,
-        action: log.action,
-        xpEarned: log.xpEarned,
-        description: log.description,
-        date: log.date,
-        metadata: log.metadata as Record<string, any>,
-        createdAt: log.createdAt,
-      })),
-    };
+
+    // Obtener todas las rachas
+    const allStreaks = await this.streakService.getAllStreaks(userId);
 
     return {
       level: user.level,
@@ -255,8 +303,9 @@ export class XpService {
       totalXp: user.totalXp,
       xpForNextLevel,
       xpProgressPercentage,
-      streak: user.streak,
+      streak: user.streak, // Mantener por compatibilidad
       lastStreakDate: user.lastStreakDate,
+      streaks: allStreaks, // Nuevas rachas por categoría
       recentLogs: user.xpLogs.map((log) => ({
         id: log.id,
         action: log.action,

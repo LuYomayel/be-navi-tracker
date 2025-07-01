@@ -2,10 +2,11 @@ import { Module } from '@nestjs/common';
 import { NutritionController } from './nutrition.controller';
 import { NutritionService } from './nutrition.service';
 import { PrismaService } from '../../config/prisma.service';
-import { XpService } from '../xp/xp.service';
+import { XpModule } from '../xp/xp.module';
 
 @Module({
+  imports: [XpModule],
   controllers: [NutritionController],
-  providers: [NutritionService, PrismaService, XpService],
+  providers: [NutritionService, PrismaService],
 })
 export class NutritionModule {}

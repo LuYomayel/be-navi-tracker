@@ -1,19 +1,23 @@
 import { Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { XpService } from './xp.service';
+import { StreakService } from './streak.service';
 import { AddXpDto, XpStatsResponse, LevelUpResponse } from './dto/xp.dto';
 import { ApiResponse } from '../../common/types';
 
 @Controller('xp')
 @UseGuards(JwtAuthGuard)
 export class XpController {
-  constructor(private readonly xpService: XpService) {}
+  constructor(
+    private readonly xpService: XpService,
+    private readonly streakService: StreakService,
+  ) {}
 
   @Get('stats')
   async getXpStats(@Req() req: any): Promise<ApiResponse<XpStatsResponse>> {
     try {
       const data = await this.xpService.getXpStats(req.user.userId);
-
+      console.log('data', data, req.user.userId);
       return {
         success: true,
         data: data,
@@ -114,6 +118,23 @@ export class XpController {
       return {
         success: false,
         error: 'Failed to add daily comment XP',
+      };
+    }
+  }
+
+  @Get('streaks')
+  async getStreaks(@Req() req: any): Promise<ApiResponse<any>> {
+    try {
+      const streaks = await this.streakService.getAllStreaks(req.user.userId);
+      return {
+        success: true,
+        data: streaks,
+      };
+    } catch (error) {
+      console.error('Error fetching streaks:', error);
+      return {
+        success: false,
+        error: 'Failed to fetch streaks',
       };
     }
   }

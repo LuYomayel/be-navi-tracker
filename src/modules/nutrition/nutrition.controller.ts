@@ -112,7 +112,7 @@ export class NutritionController {
     }
   }
 
-  @Cron('0 0 * * *', {
+  @Cron(CronExpression.EVERY_DAY_AT_1AM, {
     timeZone: 'America/Argentina/Buenos_Aires',
   })
   async evaluateDailyNutritionGoals(@Req() req: any) {

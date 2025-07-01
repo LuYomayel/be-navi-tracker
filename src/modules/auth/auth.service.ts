@@ -34,7 +34,7 @@ export class AuthService {
       this.jwtService.signAsync(payload, {
         secret:
           process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production',
-        expiresIn: '15m', // 15 minutos
+        expiresIn: '3d', // 3 días (72 horas)
       }),
       this.jwtService.signAsync(payload, {
         secret:
@@ -100,7 +100,7 @@ export class AuthService {
         createdAt: user.createdAt,
       },
       tokens,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutos
+      expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 días
     };
   }
 
@@ -145,7 +145,7 @@ export class AuthService {
         createdAt: user.createdAt,
       },
       tokens,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutos
+      expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 días
     };
   }
 
