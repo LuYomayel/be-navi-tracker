@@ -17,7 +17,6 @@ export class XpController {
   async getXpStats(@Req() req: any): Promise<ApiResponse<XpStatsResponse>> {
     try {
       const data = await this.xpService.getXpStats(req.user.userId);
-      console.log('data', data, req.user.userId);
       return {
         success: true,
         data: data,

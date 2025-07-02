@@ -6,10 +6,10 @@ import { Activity, ApiResponse } from '../../common/types';
 export class ActivitiesService {
   constructor(private prisma: PrismaService) {}
 
-  async getAll(userId: string): Promise<Activity[]> {
+  async getAll(userId: string, archived: boolean = false): Promise<Activity[]> {
     try {
       const activities = await this.prisma.activity.findMany({
-        where: { user: { id: userId } },
+        where: { user: { id: userId }, archived },
         include: {
           completions: true,
         },
@@ -78,6 +78,26 @@ export class ActivitiesService {
       };
     } catch (error) {
       console.error('Error updating activity:', error);
+      return null;
+    }
+  }
+
+  async archive(id: string, userId: string): Promise<Activity | null> {
+    try {
+      const activity = await this.prisma.activity.update({
+        where: { id },
+        data: {
+          archived: true,
+          updatedAt: new Date(),
+          userId,
+        },
+      });
+      return {
+        ...activity,
+        days: activity.days as boolean[],
+      };
+    } catch (error) {
+      console.error('Error archiving activity:', error);
       return null;
     }
   }

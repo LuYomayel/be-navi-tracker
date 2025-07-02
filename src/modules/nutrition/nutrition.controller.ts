@@ -13,11 +13,19 @@ import {
   Req,
 } from '@nestjs/common';
 import { NutritionService } from './nutrition.service';
-import { NutritionAnalysis, ApiResponse } from '../../common/types';
+import {
+  NutritionAnalysis,
+  ApiResponse,
+  WeightEntry,
+  WeightEntryAnalysis,
+  WeightStats,
+  WeightAnalysis,
+} from '../../common/types';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { XpAction } from '../xp/dto/xp.dto';
 import { XpService } from '../xp/xp.service';
+import { CreateWeightEntryManualDto } from './dto/create-weight-entry.dto';
 
 @Controller('nutrition')
 @UseGuards(JwtAuthGuard)
@@ -48,6 +56,27 @@ export class NutritionController {
     }
   }
 
+  @Get('weight-entries')
+  async getWeightEntries(
+    @Query('date') date?: string,
+    @Req() req?: any,
+  ): Promise<ApiResponse<WeightEntry[]>> {
+    try {
+      const userId = req?.user?.userId || 'usr_test_id_123'; // Fallback para testing
+      const entries = date
+        ? await this.nutritionService.getWeightEntriesByDate(date, userId)
+        : await this.nutritionService.getAllWeightEntries(userId);
+
+      return { success: true, data: entries };
+    } catch (error) {
+      console.error('Error fetching weight entries:', error);
+      return {
+        success: false,
+        error: 'Failed to fetch weight entries',
+      };
+    }
+  }
+
   @Post()
   async create(
     @Body()
@@ -70,6 +99,177 @@ export class NutritionController {
     }
   }
 
+  @Post('weight-entries/analyze-image')
+  async createWeightEntry(
+    @Body()
+    body: { imageBase64: string },
+    @Req() req: any,
+  ): Promise<ApiResponse<WeightEntry>> {
+    try {
+      const { imageBase64 } = body || {};
+
+      if (!imageBase64) {
+        throw new HttpException(
+          'imageBase64 is required',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const analysis = await this.nutritionService.analyzeWeightImage(
+        imageBase64,
+        req.user?.userId ?? 'usr_test_id_123',
+      );
+      console.log('Entrada de peso creada:', analysis);
+      return { success: true, data: analysis };
+    } catch (error) {
+      console.error('Error creating weight entry:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Failed to create weight entry',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('weight-entries/analyze-manual')
+  async createWeightEntryManual(
+    @Body()
+    data: CreateWeightEntryManualDto,
+    @Req() req: any,
+  ): Promise<ApiResponse<WeightEntry>> {
+    try {
+      console.log('data', data, req?.user?.userId);
+      const analysis = await this.nutritionService.analyzeWeightManual(
+        data,
+        req?.user?.userId || 'usr_test_id_123',
+      );
+      console.log('Entrada de peso creada:', analysis);
+      return { success: true, data: analysis };
+    } catch (error) {
+      console.error('Error creating weight entry:', error);
+      throw new HttpException(
+        'Failed to create weight entry',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('weight-entries/:id')
+  async getWeightEntry(
+    @Param('id') id: string,
+    @Req() req: any,
+  ): Promise<ApiResponse<WeightEntry>> {
+    try {
+      const userId = req?.user?.userId || 'usr_test_id_123';
+      const entry = await this.nutritionService.getWeightEntryById(id, userId);
+
+      if (!entry) {
+        throw new HttpException('Weight entry not found', HttpStatus.NOT_FOUND);
+      }
+
+      return { success: true, data: entry };
+    } catch (error) {
+      console.error('Error fetching weight entry:', error);
+      throw new HttpException(
+        'Failed to fetch weight entry',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Put('weight-entries/:id')
+  async updateWeightEntry(
+    @Param('id') id: string,
+    @Body() data: Partial<WeightEntry>,
+    @Req() req: any,
+  ): Promise<ApiResponse<WeightEntry>> {
+    try {
+      const userId = req?.user?.userId || 'usr_test_id_123';
+      const updated = await this.nutritionService.updateWeightEntry(
+        id,
+        data,
+        userId,
+      );
+
+      if (!updated) {
+        throw new HttpException('Weight entry not found', HttpStatus.NOT_FOUND);
+      }
+
+      return { success: true, data: updated };
+    } catch (error) {
+      console.error('Error updating weight entry:', error);
+      throw new HttpException(
+        'Failed to update weight entry',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Delete('weight-entries/:id')
+  async deleteWeightEntry(
+    @Param('id') id: string,
+    @Req() req: any,
+  ): Promise<ApiResponse<{ deleted: boolean }>> {
+    try {
+      const userId = req?.user?.userId || 'usr_test_id_123';
+      const deleted = await this.nutritionService.deleteWeightEntry(id, userId);
+
+      if (!deleted) {
+        throw new HttpException('Weight entry not found', HttpStatus.NOT_FOUND);
+      }
+
+      return { success: true, data: { deleted } };
+    } catch (error) {
+      console.error('Error deleting weight entry:', error);
+      throw new HttpException(
+        'Failed to delete weight entry',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('weight-stats')
+  async getWeightStats(
+    @Query('timeframe') timeframe: 'week' | 'month' | 'year' = 'month',
+    @Req() req: any,
+  ): Promise<ApiResponse<WeightStats>> {
+    try {
+      const userId = req?.user?.userId || 'usr_test_id_123';
+      const stats = await this.nutritionService.getWeightStats(
+        userId,
+        timeframe,
+      );
+
+      return { success: true, data: stats };
+    } catch (error) {
+      console.error('Error fetching weight stats:', error);
+      return {
+        success: false,
+        error: 'Failed to fetch weight stats',
+      };
+    }
+  }
+
+  @Get('weight-analysis')
+  async getWeightAnalysis(
+    @Req() req: any,
+  ): Promise<ApiResponse<WeightAnalysis>> {
+    try {
+      const userId = req?.user?.userId || 'usr_test_id_123';
+      const analysis = await this.nutritionService.getWeightAnalysis(userId);
+
+      return { success: true, data: analysis };
+    } catch (error) {
+      console.error('Error fetching weight analysis:', error);
+      return {
+        success: false,
+        error: 'Failed to fetch weight analysis',
+      };
+    }
+  }
+
   @Put(':id')
   async update(
     @Param('id') id: string,
@@ -86,6 +286,7 @@ export class NutritionController {
       );
     }
   }
+
   @Delete(':id')
   async delete(
     @Param('id') id: string,

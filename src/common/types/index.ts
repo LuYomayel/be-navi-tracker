@@ -29,6 +29,7 @@ export interface Activity {
   updatedAt: Date;
   userId?: string;
   user?: User;
+  archived?: boolean;
 }
 
 export interface DailyCompletion {
@@ -180,6 +181,63 @@ export interface UserPreferences {
 
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface WeightEntry {
+  id: string;
+  userId: string;
+  date: string; // YYYY-MM-DD
+  weight: number; // kg
+  bodyFatPercentage?: number; // %
+  muscleMassPercentage?: number; // %
+  bodyWaterPercentage?: number; // %
+  bmi?: number;
+  bfr?: number; // Body Fat Rate
+  score?: number; // Score general de la balanza
+  imageUrl?: string; // Foto de la balanza (opcional)
+  source: 'manual' | 'photo' | 'scale'; // Cómo se registró
+  aiConfidence?: number; // Si se usó AI para detectar desde foto
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface WeightEntryAnalysis {
+  weight: number;
+  bodyFatPercentage: number;
+  muscleMassPercentage: number;
+  bodyWaterPercentage: number;
+  bmi: number;
+  bfr: number;
+  score: number;
+  source: 'manual' | 'photo' | 'scale';
+  aiConfidence: number;
+  notes: string;
+}
+
+export interface WeightAnalysis {
+  currentWeight: number;
+  previousWeight?: number;
+  weightChange?: number; // kg
+  weightChangePercentage?: number; // %
+  bmiChange?: number;
+  bfrChange?: number;
+  trend: 'increasing' | 'decreasing' | 'stable';
+  period: 'day' | 'week' | 'month';
+  classification: 'underweight' | 'normal' | 'overweight' | 'obese';
+  targetWeight?: number;
+  progressToTarget?: number; // %
+}
+
+export interface WeightStats {
+  totalEntries: number;
+  averageWeight: number;
+  minWeight: number;
+  maxWeight: number;
+  weightRange: number;
+  averageBMI?: number;
+  averageBFR?: number;
+  timeframe: 'week' | 'month' | 'year';
 }
 
 export interface ApiResponse<T> {

@@ -36,6 +36,7 @@ model User {
   notes               Note[]
   physical_activities PhysicalActivity[]
   userStreaks        UserStreak[]
+  weightEntries      WeightEntry[]
 
   @@map("users")
 }
@@ -50,7 +51,7 @@ model Activity {
   category    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
+  archived    Boolean   @default(false)
   // Relaciones
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -273,4 +274,28 @@ model UserStreak {
   streakType StreakType @relation(fields: [streakTypeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, streakTypeId])
+}
+
+model WeightEntry {
+  id                    String   @id @default(cuid())
+  userId                String
+  date                  String   // YYYY-MM-DD format
+  weight                Float    // kg
+  bodyFatPercentage     Float?   // %
+  muscleMassPercentage  Float?   // %
+  bodyWaterPercentage   Float?   // %
+  bmi                   Float?
+  bfr                   Float?   // Body Fat Rate
+  score                 Int?     // Score general de la balanza
+  imageUrl              String?  // Foto de la balanza (opcional)
+  source                String   @default("manual") // manual | photo | scale
+  aiConfidence          Float?   // Si se usó AI para detectar desde foto
+  notes                 String?  @db.Text
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relaciones
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("weight_entries")
 }
