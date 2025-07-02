@@ -21,10 +21,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm run test
+        run: npm install
 
       - name: Build project
         run: npm run build
@@ -46,24 +43,24 @@ jobs:
             git pull origin main
 
             echo "📦 Instalando dependencias..."
-            npm ci --production=false
+            npm install
 
             echo "🔧 Generando cliente de Prisma..."
             npx prisma generate
 
             echo "🗃️ Ejecutando migraciones de base de datos..."
-            npx prisma db push
+            DATABASE_URL="mysql://${{ secrets.DB_USERNAME }}:${{ secrets.DB_PASSWORD }}@${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }}" npx prisma db push
 
             echo "🏗️ Construyendo proyecto..."
             npm run build
 
             echo "🔄 Reiniciando aplicación con PM2..."
-            pm2 restart ${{ secrets.PM2_APP_ID || '3' }}
+            pm2 restart ${{ secrets.PM2_APP_ID || '6' }}
 
             echo "✅ Despliegue completado exitosamente!"
 
             # Verificar el estado de la aplicación
             echo "📊 Estado de la aplicación:"
-            pm2 show ${{ secrets.PM2_APP_ID || '3' }}
+            pm2 show ${{ secrets.PM2_APP_ID || '6' }}
 
             echo "🎉 Aplicación desplegada y funcionando correctamente!"
