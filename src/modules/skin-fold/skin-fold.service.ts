@@ -391,7 +391,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 
       console.log('Análisis de antropometría completado exitosamente');
 
-      // Create a SkinFoldRecord from the extracted skin fold values
+      // Map skin fold values from the analysis to the SkinFoldSite format
       const skinFoldValues: Partial<Record<SkinFoldSite, number>> = {};
       if (analysis.skinFolds) {
         if (analysis.skinFolds.triceps)
@@ -406,28 +406,16 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
           skinFoldValues.calf = analysis.skinFolds.calf;
       }
 
-      const record = await this.prisma.skinFoldRecord.create({
-        data: {
-          userId,
-          date: new Date().toISOString(),
-          technician: 'Extraído de PDF por IA',
-          notes: JSON.stringify({
-            source: 'anthropometry-pdf',
-            bodyComposition: analysis.bodyComposition,
-            somatotype: analysis.somatotype,
-            indexes: analysis.indexes,
-            diameters: analysis.diameters,
-            perimeters: analysis.perimeters,
-            basics: analysis.basics,
-            zScores: analysis.zScores,
-          }),
-          values: skinFoldValues,
-          aiConfidence: 0.9,
-        },
-      });
+      // Return extracted data without creating a record
+      // The frontend will create the record when the user clicks "Guardar"
+      const extractedRecord: Partial<SkinFoldRecord> = {
+        technician: 'Extraído de PDF por IA',
+        values: skinFoldValues,
+        aiConfidence: 0.9,
+      };
 
       return {
-        record: record as SkinFoldRecord,
+        record: extractedRecord as SkinFoldRecord,
         fullAnalysis: analysis,
       };
     } catch (error) {
