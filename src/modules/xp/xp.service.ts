@@ -129,6 +129,31 @@ export class XpService {
       let { xpAmount } = addXpDto;
       let streakResult: StreakResult | null = null;
 
+      // Deduplicar DAY_COMPLETE: solo permitir uno por usuario por día
+      if (addXpDto.action === XpAction.DAY_COMPLETE) {
+        const existingDayComplete = await this.prisma.xpLog.findFirst({
+          where: {
+            userId,
+            action: XpAction.DAY_COMPLETE,
+            date: currentDate,
+          },
+        });
+        if (existingDayComplete) {
+          // Ya se otorgó el bonus hoy, retornar sin agregar XP
+          const nextLevelXp = this.calculateXpForLevel(user.level + 1);
+          const currentLevelXp = this.calculateXpForLevel(user.level);
+          return {
+            newLevel: user.level,
+            xpEarned: 0,
+            totalXpEarned: user.totalXp,
+            leveledUp: false,
+            nextLevelXp: nextLevelXp - currentLevelXp,
+            streak: user.streak,
+            streakBonus: 0,
+          };
+        }
+      }
+
       // Determinar qué tipo de racha actualizar según la acción
       switch (addXpDto.action) {
         case XpAction.HABIT_COMPLETE:
@@ -350,7 +375,7 @@ export class XpService {
       userId,
       {
         action: XpAction.NUTRITION_LOG,
-        xpAmount: 5,
+        xpAmount: 15,
         description: `Registraste tu ${mealType}`,
         metadata: { mealType },
       },

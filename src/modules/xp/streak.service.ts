@@ -32,7 +32,7 @@ export class StreakService {
     const activities = await this.prisma.activity.findMany({
       where: {
         userId,
-        // No incluir actividades archivadas si tienes ese campo
+        archived: false,
       },
       include: {
         completions: {
@@ -60,10 +60,6 @@ export class StreakService {
     const completedActivities = scheduledActivities.filter((activity) =>
       activity.completions.some((completion) => completion.completed),
     );
-    scheduledActivities.forEach((activity) => {
-      console.log('activity', activity.name, activity.completions);
-    });
-
     return completedActivities.length === scheduledActivities.length;
   }
 
@@ -305,19 +301,17 @@ export class StreakService {
       userId,
       date,
     );
-    console.log('nutritionCompleted', nutritionCompleted);
     if (!nutritionCompleted) {
       const { userStreak } = await this.getUserStreak(userId, 'nutrition');
       if (userStreak.count !== 0) {
-        const updated = await this.prisma.userStreak.update({
+        await this.prisma.userStreak.update({
           where: { id: userStreak.id },
           data: { count: 0, lastDate: null },
         });
-        console.log('Racha de nutrición rota', updated);
       }
     }
 
-    // Verificar actividad física (reset opcional)
+    // Verificar actividad física
     const physicalActivityCompleted = await this.checkDailyActivityCompletion(
       userId,
       date,
@@ -326,11 +320,10 @@ export class StreakService {
     if (!physicalActivityCompleted) {
       const { userStreak } = await this.getUserStreak(userId, 'activity');
       if (userStreak.count !== 0) {
-        const updated = await this.prisma.userStreak.update({
+        await this.prisma.userStreak.update({
           where: { id: userStreak.id },
           data: { count: 0, lastDate: null },
         });
-        console.log('Racha de actividad física rota', updated);
       }
     }
 
@@ -338,11 +331,10 @@ export class StreakService {
     if (!habitsCompleted) {
       const { userStreak } = await this.getUserStreak(userId, 'habits');
       if (userStreak.count !== 0) {
-        const updated = await this.prisma.userStreak.update({
+        await this.prisma.userStreak.update({
           where: { id: userStreak.id },
           data: { count: 0, lastDate: null },
         });
-        console.log('Racha de hábitos rota', updated);
       }
     }
 
