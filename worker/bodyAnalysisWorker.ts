@@ -36,7 +36,7 @@ connection.on('error', (err) => {
 const worker = new Worker(
   'bodyAnalysis',
   async (job: Job) => {
-    const { image, userData } = job.data;
+    const { image, isUrl, userData } = job.data;
 
     console.log(`🔄 Procesando trabajo ${job.id}...`);
 
@@ -50,6 +50,22 @@ const worker = new Worker(
       console.log('📡 Enviando imagen a Ollama...');
       await job.updateProgress(30);
 
+      // Resolver imagen para Ollama (necesita base64 puro, sin prefijo)
+      let rawBase64: string;
+      if (isUrl) {
+        // Descargar imagen desde URL y convertir a base64
+        console.log('📥 Descargando imagen desde URL...');
+        const imgResponse = await fetch(image);
+        if (!imgResponse.ok) {
+          throw new Error(`Error descargando imagen: ${imgResponse.status} ${imgResponse.statusText}`);
+        }
+        const buffer = await imgResponse.buffer();
+        rawBase64 = buffer.toString('base64');
+      } else {
+        // Quitar prefijo data URI si existe
+        rawBase64 = image.replace(/^data:image\/[^;]+;base64,/, '');
+      }
+
       // Llamar a Ollama
       const response = await fetch('http://127.0.0.1:11434/api/generate', {
         method: 'POST',
@@ -57,7 +73,7 @@ const worker = new Worker(
         body: JSON.stringify({
           model: 'llava:7b-v1.6-mistral-q4_K_M',
           prompt,
-          images: [image.replace(/^data:image\/[^;]+;base64,/, '')],
+          images: [rawBase64],
           stream: false,
         }),
       });

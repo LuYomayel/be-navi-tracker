@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
+import { resolveImageUrl } from '../../common/utils/image.utils';
 /*
 interface FoodAnalysisResponse {
   foods: Array<{
@@ -161,7 +162,7 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
               {
                 type: 'image_url',
                 image_url: {
-                  url: imageBase64,
+                  url: resolveImageUrl(imageBase64),
                   detail: 'high',
                 },
               },

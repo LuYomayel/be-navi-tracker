@@ -258,7 +258,7 @@ export class XpService {
         streakBonus: streakResult?.streakBonus || 0,
       };
     } catch (error) {
-      console.error('Error adding XP:', error);
+      console.error('Error al agregar XP:', error);
       throw error;
     }
   }

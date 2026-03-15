@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { BodyAnalysis } from '../../common/types';
 import OpenAI from 'openai';
+import { resolveImageUrl, isImageUrl } from '../../common/utils/image.utils';
 import { Queue } from 'bullmq';
 import { SaveDTO } from './dto/save-body-analysis.dto';
 
@@ -166,7 +167,7 @@ export class BodyAnalysisService {
       });
       return results as any[];
     } catch (error) {
-      console.error('Error fetching body analyses:', error);
+      console.error('Error al obtener análisis corporales:', error);
       return [];
     }
   }
@@ -178,7 +179,7 @@ export class BodyAnalysisService {
       });
       return result as any;
     } catch (error) {
-      console.error('Error fetching body analysis by id:', error);
+      console.error('Error al obtener análisis corporal por id:', error);
       return null;
     }
   }
@@ -206,8 +207,8 @@ export class BodyAnalysisService {
       const analysis = await this.create(analysisToSave);
       return analysis;
     } catch (error) {
-      console.error('Error saving body analysis:', error);
-      throw new Error('Failed to save body analysis');
+      console.error('Error al guardar análisis corporal:', error);
+      throw new Error('Error al guardar análisis corporal');
     }
   }
 
@@ -238,8 +239,8 @@ export class BodyAnalysisService {
       });
       return analysis as any;
     } catch (error) {
-      console.error('Error creating body analysis:', error);
-      throw new Error('Failed to create body analysis');
+      console.error('Error al crear análisis corporal:', error);
+      throw new Error('Error al crear análisis corporal');
     }
   }
 
@@ -274,7 +275,7 @@ export class BodyAnalysisService {
       });
       return analysis as any;
     } catch (error) {
-      console.error('Error updating body analysis:', error);
+      console.error('Error al actualizar análisis corporal:', error);
       return null;
     }
   }
@@ -286,7 +287,7 @@ export class BodyAnalysisService {
       });
       return true;
     } catch (error) {
-      console.error('Error deleting body analysis:', error);
+      console.error('Error al eliminar análisis corporal:', error);
       return false;
     }
   }
@@ -298,7 +299,7 @@ export class BodyAnalysisService {
       });
       return result as any;
     } catch (error) {
-      console.error('Error fetching latest body analysis:', error);
+      console.error('Error al obtener último análisis corporal:', error);
       return null;
     }
   }
@@ -318,7 +319,7 @@ export class BodyAnalysisService {
       });
       return results as any[];
     } catch (error) {
-      console.error('Error fetching recent body analyses:', error);
+      console.error('Error al obtener análisis corporales recientes:', error);
       return [];
     }
   }
@@ -347,11 +348,15 @@ export class BodyAnalysisService {
         // Por ahora continuamos, pero en producción deberíamos rechazarla
       }
 
+      // Normalizar imagen (soporta URL, data URI, o base64 raw)
+      const resolvedImage = resolveImageUrl(imageBase64);
+
       // Crear trabajo en la cola
       const job = await this.analysisQueue.add(
         'bodyAnalysis',
         {
-          image: imageBase64,
+          image: resolvedImage,
+          isUrl: isImageUrl(imageBase64),
           userData,
         },
         {

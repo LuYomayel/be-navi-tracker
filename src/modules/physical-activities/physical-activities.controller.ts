@@ -12,6 +12,7 @@ import {
   Req,
   Param,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { PhysicalActivitiesService } from './physical-activities.service';
 import { PhysicalActivity, ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -21,6 +22,7 @@ import { XpAction } from '../xp/dto/xp.dto';
 
 @Controller('physical-activities')
 @UseGuards(JwtAuthGuard)
+@Throttle({ default: { ttl: 60000, limit: 10 } })
 export class PhysicalActivitiesController {
   constructor(
     private readonly physicalActivitiesService: PhysicalActivitiesService,
@@ -31,7 +33,7 @@ export class PhysicalActivitiesController {
   async create(@Req() req, @Body() dto: CreatePhysicalActivityDto) {
     try {
       const userId = req?.user?.userId;
-      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
 
       if (dto.source === 'image' && dto.screenshotUrl) {
         const activity =
@@ -86,7 +88,7 @@ export class PhysicalActivitiesController {
   async findAll(@Req() req) {
     try {
       const userId = req?.user?.userId;
-      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
       const activities = await this.physicalActivitiesService.getAll(userId);
       return { success: true, data: activities };
     } catch (error) {
@@ -106,7 +108,7 @@ export class PhysicalActivitiesController {
   ) {
     try {
       const userId = req?.user?.userId;
-      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
       const updated = await this.physicalActivitiesService.update(id, dto, userId);
       return { success: true, data: updated };
     } catch (error) {
@@ -118,7 +120,7 @@ export class PhysicalActivitiesController {
   async remove(@Param('id') id: string, @Req() req) {
     try {
       const userId = req?.user?.userId;
-      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
       const deleted = await this.physicalActivitiesService.delete(id, userId);
       return { success: true, data: { deleted } };
     } catch (error) {

@@ -33,10 +33,10 @@ export class ActivitiesController {
       );
       return { success: true, data: activities };
     } catch (error) {
-      console.error('Error fetching activities:', error);
+      console.error('Error al obtener actividades:', error);
       return {
         success: false,
-        error: 'Failed to fetch activities',
+        error: 'Error al obtener actividades',
       };
     }
   }
@@ -53,9 +53,9 @@ export class ActivitiesController {
       );
       return { success: true, data: activity };
     } catch (error) {
-      console.error('Error creating activity:', error);
+      console.error('Error al crear actividad:', error);
       throw new HttpException(
-        'Failed to create activity',
+        'Error al crear actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -75,9 +75,9 @@ export class ActivitiesController {
       );
       return { success: true, data: activity };
     } catch (error) {
-      console.error('Error updating activity:', error);
+      console.error('Error al actualizar actividad:', error);
       throw new HttpException(
-        'Failed to update activity',
+        'Error al actualizar actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -94,9 +94,9 @@ export class ActivitiesController {
       );
       return { success: true, data: activity };
     } catch (error) {
-      console.error('Error archiving activity:', error);
+      console.error('Error al archivar actividad:', error);
       throw new HttpException(
-        'Failed to archive activity',
+        'Error al archivar actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -114,9 +114,9 @@ export class ActivitiesController {
       );
       return { success: true, data: activity };
     } catch (error) {
-      console.error('Error restoring activity:', error);
+      console.error('Error al restaurar actividad:', error);
       throw new HttpException(
-        'Failed to restore activity',
+        'Error al restaurar actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -130,7 +130,7 @@ export class ActivitiesController {
     try {
       if (!id) {
         throw new HttpException(
-          'Activity ID is required',
+          'El ID de la actividad es requerido',
           HttpStatus.BAD_REQUEST,
         );
       }
@@ -138,9 +138,9 @@ export class ActivitiesController {
       const success = await this.activitiesService.delete(id, req.user.userId);
       return { success, data: { deleted: success } };
     } catch (error) {
-      console.error('Error deleting activity:', error);
+      console.error('Error al eliminar actividad:', error);
       throw new HttpException(
-        'Failed to delete activity',
+        'Error al eliminar actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

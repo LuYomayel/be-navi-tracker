@@ -20,7 +20,7 @@ export class NotesService {
         customComment: note.customComment ?? undefined,
       }));
     } catch (error) {
-      console.error('Error fetching notes:', error);
+      console.error('Error al obtener notas:', error);
       return [];
     }
   }
@@ -45,8 +45,8 @@ export class NotesService {
         customComment: note.customComment ?? undefined,
       };
     } catch (error) {
-      console.error('Error creating note:', error);
-      throw new Error('Failed to create note');
+      console.error('Error al crear nota:', error);
+      throw new Error('Error al crear nota');
     }
   }
 
@@ -73,7 +73,7 @@ export class NotesService {
         customComment: note.customComment ?? undefined,
       };
     } catch (error) {
-      console.error('Error updating note:', error);
+      console.error('Error al actualizar nota:', error);
       return null;
     }
   }
@@ -85,7 +85,7 @@ export class NotesService {
       });
       return true;
     } catch (error) {
-      console.error('Error deleting note:', error);
+      console.error('Error al eliminar nota:', error);
       return false;
     }
   }

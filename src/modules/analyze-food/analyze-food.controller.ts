@@ -8,6 +8,7 @@ import {
   UseGuards,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AnalyzeFoodService } from './analyze-food.service';
 import { ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -33,6 +34,7 @@ interface FoodAnalysisManualRequest {
 
 @Controller('analyze-food')
 @UseGuards(JwtAuthGuard)
+@Throttle({ default: { ttl: 60000, limit: 10 } })
 export class AnalyzeFoodController {
   constructor(private readonly analyzeFoodService: AnalyzeFoodService) {}
 

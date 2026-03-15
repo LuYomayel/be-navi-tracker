@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ActivitiesModule } from './modules/activities/activities.module';
@@ -21,6 +23,10 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { PhysicalActivitiesModule } from './modules/physical-activities/physical-activities.module';
 @Module({
   imports: [
+    ThrottlerModule.forRoot([{
+      ttl: 60000,
+      limit: 60,
+    }]),
     ScheduleModule.forRoot(),
     QueueModule,
     ActivitiesModule,
@@ -40,6 +46,13 @@ import { PhysicalActivitiesModule } from './modules/physical-activities/physical
     PhysicalActivitiesModule,
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService],
+  providers: [
+    AppService,
+    PrismaService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

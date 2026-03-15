@@ -21,7 +21,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       }));
     } catch (error) {
-      console.error('Error fetching activities:', error);
+      console.error('Error al obtener actividades:', error);
       return [];
     }
   }
@@ -50,8 +50,8 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error('Error creating activity:', error);
-      throw new Error('Failed to create activity');
+      console.error('Error al crear actividad:', error);
+      throw new Error('Error al crear actividad');
     }
   }
 
@@ -76,7 +76,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error('Error updating activity:', error);
+      console.error('Error al actualizar actividad:', error);
       return null;
     }
   }
@@ -96,7 +96,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error('Error archiving activity:', error);
+      console.error('Error al archivar actividad:', error);
       return null;
     }
   }
@@ -116,7 +116,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error('Error restoring activity:', error);
+      console.error('Error al restaurar actividad:', error);
       return null;
     }
   }
@@ -128,7 +128,7 @@ export class ActivitiesService {
       });
       return true;
     } catch (error) {
-      console.error('Error deleting activity:', error);
+      console.error('Error al eliminar actividad:', error);
       return false;
     }
   }

@@ -93,7 +93,7 @@ REGLAS IMPORTANTES:
       try {
         parsed = JSON.parse(response);
       } catch (parseError) {
-        console.error('Error parseando respuesta de OpenAI:', parseError);
+        console.error('Error al parsear respuesta de OpenAI:', parseError);
         console.log('Respuesta recibida:', response);
         throw new Error('Respuesta de OpenAI no válida');
       }
@@ -109,7 +109,7 @@ REGLAS IMPORTANTES:
       );
       return validatedRecommendations;
     } catch (error) {
-      console.error('Error generando recomendaciones con OpenAI:', error);
+      console.error('Error al obtener recomendaciones de contenido:', error);
       // Fallback a recomendaciones predefinidas
       return this.getFallbackRecommendations(request);
     }

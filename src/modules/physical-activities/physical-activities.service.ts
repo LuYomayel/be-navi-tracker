@@ -3,6 +3,7 @@ import { PrismaService } from '../../config/prisma.service';
 import { PhysicalActivity, ApiResponse } from '../../common/types';
 import { CreatePhysicalActivityDto } from './dto/create-physical-activity.dto';
 import { OpenAI } from 'openai';
+import { resolveImageUrl } from '../../common/utils/image.utils';
 
 @Injectable()
 export class PhysicalActivitiesService {
@@ -24,7 +25,7 @@ export class PhysicalActivitiesService {
 
       return activities;
     } catch (error) {
-      console.error('Error fetching activities:', error);
+      console.error('Error al obtener actividades físicas:', error);
       return [];
     }
   }
@@ -71,7 +72,7 @@ export class PhysicalActivitiesService {
               {
                 type: 'image_url',
                 image_url: {
-                  url: imageBase64,
+                  url: resolveImageUrl(imageBase64),
                   detail: 'high',
                 },
               },
@@ -141,8 +142,8 @@ export class PhysicalActivitiesService {
         ...activity,
       };
     } catch (error) {
-      console.error('Error creating activity:', error);
-      throw new Error('Failed to create activity');
+      console.error('Error al crear actividad física:', error);
+      throw new Error('Error al crear actividad física');
     }
   }
 
@@ -167,7 +168,7 @@ export class PhysicalActivitiesService {
         ...activity,
       };
     } catch (error) {
-      console.error('Error updating activity:', error);
+      console.error('Error al actualizar actividad física:', error);
       return null;
     }
   }
@@ -179,7 +180,7 @@ export class PhysicalActivitiesService {
       });
       return true;
     } catch (error) {
-      console.error('Error deleting activity:', error);
+      console.error('Error al eliminar actividad física:', error);
       return false;
     }
   }

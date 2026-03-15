@@ -12,6 +12,7 @@ import {
   UseGuards,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { NutritionService } from './nutrition.service';
 import {
   NutritionAnalysis,
@@ -42,17 +43,17 @@ export class NutritionController {
   ): Promise<ApiResponse<NutritionAnalysis[]>> {
     try {
       const userId = req?.user?.userId;
-      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
       const analyses = date
         ? await this.nutritionService.getByDate(date, userId)
         : await this.nutritionService.getAll(userId);
 
       return { success: true, data: analyses };
     } catch (error) {
-      console.error('Error fetching nutrition analyses:', error);
+      console.error('Error al obtener análisis nutricionales:', error);
       return {
         success: false,
-        error: 'Failed to fetch nutrition analyses',
+        error: 'Error al obtener análisis nutricionales',
       };
     }
   }
@@ -64,17 +65,17 @@ export class NutritionController {
   ): Promise<ApiResponse<WeightEntry[]>> {
     try {
       const userId = req?.user?.userId;
-      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
       const entries = date
         ? await this.nutritionService.getWeightEntriesByDate(date, userId)
         : await this.nutritionService.getAllWeightEntries(userId);
 
       return { success: true, data: entries };
     } catch (error) {
-      console.error('Error fetching weight entries:', error);
+      console.error('Error al obtener entradas de peso:', error);
       return {
         success: false,
-        error: 'Failed to fetch weight entries',
+        error: 'Error al obtener entradas de peso',
       };
     }
   }
@@ -93,14 +94,15 @@ export class NutritionController {
       console.log('Análisis de nutrición creado:', analysis);
       return { success: true, data: analysis };
     } catch (error) {
-      console.error('Error creating nutrition analysis:', error);
+      console.error('Error al crear análisis nutricional:', error);
       throw new HttpException(
-        'Failed to create nutrition analysis',
+        'Error al crear análisis nutricional',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post('weight-entries/analyze-image')
   async createWeightEntry(
     @Body()
@@ -112,7 +114,7 @@ export class NutritionController {
 
       if (!imageBase64) {
         throw new HttpException(
-          'imageBase64 is required',
+          'La imagen en base64 es requerida',
           HttpStatus.BAD_REQUEST,
         );
       }
@@ -124,17 +126,18 @@ export class NutritionController {
       console.log('Entrada de peso creada:', analysis);
       return { success: true, data: analysis };
     } catch (error) {
-      console.error('Error creating weight entry:', error);
+      console.error('Error al crear entrada de peso:', error);
       if (error instanceof HttpException) {
         throw error;
       }
       throw new HttpException(
-        'Failed to create weight entry',
+        'Error al crear entrada de peso',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post('weight-entries/analyze-manual')
   async createWeightEntryManual(
     @Body()
@@ -150,9 +153,9 @@ export class NutritionController {
       console.log('Entrada de peso creada:', analysis);
       return { success: true, data: analysis };
     } catch (error) {
-      console.error('Error creating weight entry:', error);
+      console.error('Error al crear entrada de peso:', error);
       throw new HttpException(
-        'Failed to create weight entry',
+        'Error al crear entrada de peso',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -168,14 +171,14 @@ export class NutritionController {
       const entry = await this.nutritionService.getWeightEntryById(id, userId);
 
       if (!entry) {
-        throw new HttpException('Weight entry not found', HttpStatus.NOT_FOUND);
+        throw new HttpException('Entrada de peso no encontrada', HttpStatus.NOT_FOUND);
       }
 
       return { success: true, data: entry };
     } catch (error) {
-      console.error('Error fetching weight entry:', error);
+      console.error('Error al obtener entrada de peso:', error);
       throw new HttpException(
-        'Failed to fetch weight entry',
+        'Error al obtener entrada de peso',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -196,14 +199,14 @@ export class NutritionController {
       );
 
       if (!updated) {
-        throw new HttpException('Weight entry not found', HttpStatus.NOT_FOUND);
+        throw new HttpException('Entrada de peso no encontrada', HttpStatus.NOT_FOUND);
       }
 
       return { success: true, data: updated };
     } catch (error) {
-      console.error('Error updating weight entry:', error);
+      console.error('Error al actualizar entrada de peso:', error);
       throw new HttpException(
-        'Failed to update weight entry',
+        'Error al actualizar entrada de peso',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -219,14 +222,14 @@ export class NutritionController {
       const deleted = await this.nutritionService.deleteWeightEntry(id, userId);
 
       if (!deleted) {
-        throw new HttpException('Weight entry not found', HttpStatus.NOT_FOUND);
+        throw new HttpException('Entrada de peso no encontrada', HttpStatus.NOT_FOUND);
       }
 
       return { success: true, data: { deleted } };
     } catch (error) {
-      console.error('Error deleting weight entry:', error);
+      console.error('Error al eliminar entrada de peso:', error);
       throw new HttpException(
-        'Failed to delete weight entry',
+        'Error al eliminar entrada de peso',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -246,10 +249,10 @@ export class NutritionController {
 
       return { success: true, data: stats };
     } catch (error) {
-      console.error('Error fetching weight stats:', error);
+      console.error('Error al obtener estadísticas de peso:', error);
       return {
         success: false,
-        error: 'Failed to fetch weight stats',
+        error: 'Error al obtener estadísticas de peso',
       };
     }
   }
@@ -264,10 +267,10 @@ export class NutritionController {
 
       return { success: true, data: analysis };
     } catch (error) {
-      console.error('Error fetching weight analysis:', error);
+      console.error('Error al obtener análisis de peso:', error);
       return {
         success: false,
-        error: 'Failed to fetch weight analysis',
+        error: 'Error al obtener análisis de peso',
       };
     }
   }
@@ -281,9 +284,9 @@ export class NutritionController {
       const analysis = await this.nutritionService.update(id, analysisData);
       return { success: true, data: analysis };
     } catch (error) {
-      console.error('Error updating nutrition analysis:', error);
+      console.error('Error al actualizar análisis nutricional:', error);
       throw new HttpException(
-        'Failed to update nutrition analysis',
+        'Error al actualizar análisis nutricional',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -298,7 +301,7 @@ export class NutritionController {
       console.log('Eliminando análisis de nutrición con ID:', id);
       if (!id) {
         throw new HttpException(
-          'Analysis ID is required',
+          'El ID del análisis es requerido',
           HttpStatus.BAD_REQUEST,
         );
       }
@@ -307,9 +310,9 @@ export class NutritionController {
       console.log('Análisis de nutrición eliminado:', success);
       return { success, data: { deleted: success } };
     } catch (error) {
-      console.error('Error deleting nutrition analysis:', error);
+      console.error('Error al eliminar análisis nutricional:', error);
       throw new HttpException(
-        'Failed to delete nutrition analysis',
+        'Error al eliminar análisis nutricional',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -333,10 +336,10 @@ export class NutritionController {
       }
       return { success: true, data: result };
     } catch (error) {
-      console.error('Error evaluating daily nutrition goals:', error);
+      console.error('Error al evaluar objetivos nutricionales diarios:', error);
       return {
         success: false,
-        error: 'Failed to evaluate daily nutrition goals',
+        error: 'Error al evaluar objetivos nutricionales diarios',
       };
     }
   }
@@ -348,7 +351,7 @@ export class NutritionController {
   ): Promise<ApiResponse<any>> {
     try {
       const userId = req?.user?.userId;
-      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
       const today = date || new Date().toISOString().split('T')[0];
 
       const balance = await this.nutritionService.getDailyNutritionBalance(
@@ -358,10 +361,10 @@ export class NutritionController {
 
       return { success: true, data: balance };
     } catch (error) {
-      console.error('Error fetching daily nutrition balance:', error);
+      console.error('Error al obtener balance nutricional diario:', error);
       return {
         success: false,
-        error: 'Failed to fetch daily nutrition balance',
+        error: 'Error al obtener balance nutricional diario',
       };
     }
   }

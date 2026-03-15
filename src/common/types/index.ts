@@ -30,6 +30,7 @@ export interface Activity {
   userId?: string;
   user?: User;
   archived?: boolean;
+  archivedAt?: Date | null;
 }
 
 export interface DailyCompletion {

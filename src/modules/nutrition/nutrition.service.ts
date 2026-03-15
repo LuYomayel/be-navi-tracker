@@ -6,6 +6,7 @@ import {
   WeightEntryAnalysis,
 } from '../../common/types';
 import OpenAI from 'openai';
+import { resolveImageUrl } from '../../common/utils/image.utils';
 import { CreateWeightEntryManualDto } from './dto/create-weight-entry.dto';
 
 @Injectable()
@@ -106,7 +107,7 @@ export class NutritionService {
       });
       return analyses as any[];
     } catch (error) {
-      console.error('Error fetching nutrition analyses:', error);
+      console.error('Error al obtener análisis nutricionales:', error);
       return [];
     }
   }
@@ -119,7 +120,7 @@ export class NutritionService {
       });
       return analyses as any[];
     } catch (error) {
-      console.error('Error fetching nutrition analyses by date:', error);
+      console.error('Error al obtener análisis nutricionales por fecha:', error);
       return [];
     }
   }
@@ -153,8 +154,8 @@ export class NutritionService {
       };
       return analysis;
     } catch (error) {
-      console.error('Error creating nutrition analysis:', error);
-      throw new Error('Failed to create nutrition analysis');
+      console.error('Error al crear análisis nutricional:', error);
+      throw new Error('Error al crear análisis nutricional');
     }
   }
 
@@ -182,8 +183,8 @@ export class NutritionService {
       };
       return analysis;
     } catch (error) {
-      console.error('Error updating nutrition analysis:', error);
-      throw new Error('Failed to update nutrition analysis');
+      console.error('Error al actualizar análisis nutricional:', error);
+      throw new Error('Error al actualizar análisis nutricional');
     }
   }
 
@@ -194,7 +195,7 @@ export class NutritionService {
       });
       return true;
     } catch (error) {
-      console.error('Error deleting nutrition analysis:', error);
+      console.error('Error al eliminar análisis nutricional:', error);
       return false;
     }
   }
@@ -216,8 +217,8 @@ export class NutritionService {
 
       return result; // Devolver para controlador si lo necesita
     } catch (error) {
-      console.error('Error updating nutrition analysis:', error);
-      throw new Error('Failed to update nutrition analysis');
+      console.error('Error al actualizar análisis nutricional:', error);
+      throw new Error('Error al actualizar análisis nutricional');
     }
   }
 
@@ -337,7 +338,7 @@ export class NutritionService {
       });
       return entries as any[];
     } catch (error) {
-      console.error('Error fetching weight entries:', error);
+      console.error('Error al obtener entradas de peso:', error);
       return [];
     }
   }
@@ -353,7 +354,7 @@ export class NutritionService {
       });
       return entries as any[];
     } catch (error) {
-      console.error('Error fetching weight entries by date:', error);
+      console.error('Error al obtener entradas de peso por fecha:', error);
       return [];
     }
   }
@@ -368,7 +369,7 @@ export class NutritionService {
       });
       return entry as any;
     } catch (error) {
-      console.error('Error fetching weight entry by id:', error);
+      console.error('Error al obtener entrada de peso por id:', error);
       return null;
     }
   }
@@ -395,7 +396,7 @@ export class NutritionService {
       });
       return updated as any;
     } catch (error) {
-      console.error('Error updating weight entry:', error);
+      console.error('Error al actualizar entrada de peso:', error);
       return null;
     }
   }
@@ -407,7 +408,7 @@ export class NutritionService {
       });
       return true;
     } catch (error) {
-      console.error('Error deleting weight entry:', error);
+      console.error('Error al eliminar entrada de peso:', error);
       return false;
     }
   }
@@ -497,7 +498,7 @@ export class NutritionService {
         weightChangePercentage: Math.round(weightChangePercentage * 100) / 100,
       };
     } catch (error) {
-      console.error('Error calculating weight stats:', error);
+      console.error('Error al calcular estadísticas de peso:', error);
       return null;
     }
   }
@@ -578,7 +579,7 @@ export class NutritionService {
         progressToTarget: Math.round(progressToTarget * 100) / 100,
       };
     } catch (error) {
-      console.error('Error calculating weight analysis:', error);
+      console.error('Error al calcular análisis de peso:', error);
       return null;
     }
   }
@@ -630,7 +631,7 @@ export class NutritionService {
               {
                 type: 'image_url',
                 image_url: {
-                  url: imageBase64,
+                  url: resolveImageUrl(imageBase64),
                   detail: 'high',
                 },
               },

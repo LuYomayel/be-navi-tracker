@@ -12,6 +12,7 @@ import {
   UseGuards,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { BodyAnalysisService } from './body-analysis.service';
 import { ApiResponse } from '../../common/types';
 import { SaveBodyAnalysisDto, SaveDTO } from './dto/save-body-analysis.dto';
@@ -52,6 +53,7 @@ interface PersonalDataRequest {
 
 @Controller('body-analysis')
 @UseGuards(JwtAuthGuard)
+@Throttle({ default: { ttl: 60000, limit: 10 } })
 export class BodyAnalysisController {
   constructor(private readonly bodyAnalysisService: BodyAnalysisService) {}
 
@@ -100,7 +102,7 @@ export class BodyAnalysisController {
       const analysis = await this.bodyAnalysisService.save(request, req.user.userId);
       return { success: true, data: analysis };
     } catch (error) {
-      console.error('Error saving body analysis:', error);
+      console.error('Error al guardar análisis corporal:', error);
 
       throw new HttpException(
         'Error guardando análisis corporal',
@@ -126,7 +128,7 @@ export class BodyAnalysisController {
         data: analyses,
       };
     } catch (error) {
-      console.error('Error fetching body analyses:', error);
+      console.error('Error al obtener análisis corporales:', error);
       return {
         success: false,
         data: [],
@@ -153,7 +155,7 @@ export class BodyAnalysisController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error fetching latest body analysis:', error);
+      console.error('Error al obtener último análisis corporal:', error);
       return {
         success: false,
         data: null,
@@ -179,7 +181,7 @@ export class BodyAnalysisController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error fetching body analysis by id:', error);
+      console.error('Error al obtener análisis corporal por id:', error);
 
       if (error instanceof HttpException) {
         throw error;
@@ -212,7 +214,7 @@ export class BodyAnalysisController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error updating body analysis:', error);
+      console.error('Error al actualizar análisis corporal:', error);
 
       if (error instanceof HttpException) {
         throw error;
@@ -242,7 +244,7 @@ export class BodyAnalysisController {
         data: true,
       };
     } catch (error) {
-      console.error('Error deleting body analysis:', error);
+      console.error('Error al eliminar análisis corporal:', error);
 
       if (error instanceof HttpException) {
         throw error;
@@ -317,7 +319,7 @@ export class BodyAnalysisController {
         data: summary,
       };
     } catch (error) {
-      console.error('Error getting stats summary:', error);
+      console.error('Error al obtener resumen de estadísticas:', error);
       return {
         success: false,
         data: {},
@@ -485,7 +487,7 @@ export class BodyAnalysisController {
         },
       };
     } catch (error) {
-      console.error('Error getting service status:', error);
+      console.error('Error al obtener estado del servicio:', error);
       return {
         success: false,
         data: {},

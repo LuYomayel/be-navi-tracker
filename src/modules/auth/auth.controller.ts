@@ -7,6 +7,7 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto, RegisterDto, RefreshTokenDto } from './dto/auth.dto';
 import { Public } from './decorators/public.decorator';
@@ -17,6 +18,7 @@ import { ApiResponse } from '../../common/types';
 
 @Controller('auth')
 @UseGuards(JwtAuthGuard)
+@Throttle({ default: { ttl: 60000, limit: 5 } })
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
