@@ -39,12 +39,6 @@ describe('SkinFoldService', () => {
             },
           },
         },
-        {
-          provide: 'BODY_ANALYSIS_QUEUE',
-          useValue: {
-            add: jest.fn().mockResolvedValue({ id: 'job-1' }),
-          },
-        },
       ],
     }).compile();
 
@@ -223,27 +217,17 @@ describe('SkinFoldService', () => {
     });
   });
 
-  describe('analyzeSkinFold', () => {
-    it('should queue analysis job and return taskId', async () => {
-      const data = {
-        imageBase64: 'base64data...',
-        user: { age: 30, gender: 'male' },
-      };
-
-      const result = await service.analyzeSkinFold(data as any, userId);
-
-      expect(result.taskId).toBe('job-1');
-      expect(result.status).toBe('queued');
+  describe('analyzeAnthropometryPdf', () => {
+    it('should throw when no images provided', async () => {
+      await expect(
+        service.analyzeAnthropometryPdf([], userId),
+      ).rejects.toThrow(BadRequestException);
     });
 
-    it('should reject when no image provided', async () => {
-      const data = {
-        imageBase64: '',
-        user: {},
-      };
-
+    it('should throw when OpenAI is not configured', async () => {
+      // Service was created without OPENAI_API_KEY env var, so openai is null
       await expect(
-        service.analyzeSkinFold(data as any, userId),
+        service.analyzeAnthropometryPdf(['base64data'], userId),
       ).rejects.toThrow(BadRequestException);
     });
   });

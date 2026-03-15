@@ -13,11 +13,9 @@ import { AiSuggestionsModule } from './modules/ai-suggestions/ai-suggestions.mod
 import { AnalysisModule } from './modules/analysis/analysis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
-import { TasksModule } from './modules/tasks/tasks.module';
 import { SkinFoldModule } from './modules/skin-fold/skin-fold.module';
 import { XpModule } from './modules/xp/xp.module';
 import { PrismaService } from './config/prisma.service';
-import { QueueModule } from './queue/queue.module';
 import { NotesModule } from './modules/notes/notes.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PhysicalActivitiesModule } from './modules/physical-activities/physical-activities.module';
@@ -30,7 +28,6 @@ import { AICostModule } from './modules/ai-cost/ai-cost.module';
       limit: 60,
     }]),
     ScheduleModule.forRoot(),
-    QueueModule,
     ActivitiesModule,
     ChatModule,
     NutritionModule,
@@ -41,7 +38,6 @@ import { AICostModule } from './modules/ai-cost/ai-cost.module';
     AnalysisModule,
     AuthModule,
     PreferencesModule,
-    TasksModule,
     SkinFoldModule,
     XpModule,
     NotesModule,

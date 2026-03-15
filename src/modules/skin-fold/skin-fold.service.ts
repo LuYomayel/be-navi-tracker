@@ -2,29 +2,80 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  Inject,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import {
   CreateSkinFoldRecordDto,
   UpdateSkinFoldRecordDto,
-  AnalyzeSkinFoldDto,
   SkinFoldRecord,
   SkinFoldSite,
 } from './dto/skin-fold.dto';
-import { Queue } from 'bullmq';
 import OpenAI from 'openai';
+
+export interface AnthropometryAnalysis {
+  basics: {
+    weight: number;
+    height: number;
+    seatedHeight?: number;
+    age?: number;
+  };
+  skinFolds: {
+    triceps: number;
+    subscapular: number;
+    supraspinal: number;
+    abdominal: number;
+    thigh: number;
+    calf: number;
+    sumOfSix: number;
+  };
+  diameters: {
+    biacromial: number;
+    transverseThorax: number;
+    anteroposteriorThorax: number;
+    biIliocrestideal: number;
+    humeral: number;
+    femoral: number;
+  };
+  perimeters: {
+    head: number;
+    relaxedArm: number;
+    flexedArm: number;
+    forearm: number;
+    mesosternalThorax: number;
+    waist: number;
+    hips: number;
+    upperThigh: number;
+    medialThigh: number;
+    calf: number;
+  };
+  bodyComposition: {
+    adipose: { percentage: number; kg: number };
+    muscular: { percentage: number; kg: number };
+    residual: { percentage: number; kg: number };
+    bone: { percentage: number; kg: number };
+    skin: { percentage: number; kg: number };
+  };
+  somatotype: {
+    endomorphy: number;
+    mesomorphy: number;
+    ectomorphy: number;
+  };
+  indexes: {
+    bmi: number;
+    waistHipRatio: number;
+    muscleToOsseousIndex: number;
+    adiposeToMuscularIndex: number;
+    bmr: number;
+    idealWeight: number;
+  };
+  zScores: Record<string, number>;
+}
 
 @Injectable()
 export class SkinFoldService {
   private openai: OpenAI | null = null;
 
-  constructor(
-    private prisma: PrismaService,
-    @Inject('BODY_ANALYSIS_QUEUE')
-    private readonly analysisQueue: Queue,
-  ) {
-    // Inicializar OpenAI solo si hay API key
+  constructor(private prisma: PrismaService) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
@@ -192,36 +243,197 @@ export class SkinFoldService {
     }
   }
 
-  async analyzeSkinFold(
-    data: AnalyzeSkinFoldDto,
-    userId: string = 'default',
-  ): Promise<{ taskId: string; status: string }> {
+  async analyzeAnthropometryPdf(
+    images: string[],
+    userId: string,
+  ): Promise<{ record: SkinFoldRecord; fullAnalysis: AnthropometryAnalysis }> {
+    if (!this.openai) {
+      throw new BadRequestException(
+        'OpenAI API key no configurada. No se puede analizar el PDF.',
+      );
+    }
+
+    if (!images || images.length === 0) {
+      throw new BadRequestException(
+        'Se requiere al menos una imagen del PDF de antropometría',
+      );
+    }
+
+    console.log(
+      `Analizando PDF de antropometría con ${images.length} página(s)...`,
+    );
+
+    const imageContents: OpenAI.Chat.Completions.ChatCompletionContentPart[] =
+      images.map((img) => {
+        const imageUrl = img.startsWith('data:')
+          ? img
+          : `data:image/jpeg;base64,${img}`;
+        return {
+          type: 'image_url' as const,
+          image_url: { url: imageUrl, detail: 'high' as const },
+        };
+      });
+
+    const prompt = `Eres un experto en cineantropometría y composición corporal. Analiza estas imágenes de un informe de antropometría profesional (PDF escaneado) y extrae TODOS los datos numéricos con precisión.
+
+El informe puede contener varias páginas con:
+- Página de datos básicos: peso, talla, talla sentado, edad
+- Mediciones de pliegues cutáneos (6 sitios): tríceps, subescapular, supraespinal, abdominal, muslo, pantorrilla
+- Diámetros óseos (6 tipos): biacromial, tórax transverso, tórax anteroposterior, biiliocrestídeo, humeral, femoral
+- Perímetros (10 tipos): cabeza, brazo relajado, brazo flexionado, antebrazo, tórax mesoesternal, cintura, cadera, muslo superior, muslo medial, pantorrilla
+- Composición corporal por 5 componentes (D. Kerr 1988): adiposo, muscular, residual, óseo, piel (% y kg)
+- Somatotipo (Heath & Carter): endomorfia, mesomorfia, ectomorfia
+- Índices: IMC, índice cintura-cadera, índice músculo-óseo, índice adiposo-muscular, TMB (Harris & Benedict), peso ideal
+- Z-Scores del Phantom para cada medición
+
+INSTRUCCIONES:
+1. Extrae los valores EXACTOS que aparecen en el informe, no los calcules
+2. Si un valor no aparece en el informe, usa null
+3. Para los Z-Scores, usa el nombre de la medición en español como clave
+4. Los pliegues cutáneos están en mm, los diámetros y perímetros en cm, el peso en kg, la talla en cm
+
+Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
+{
+  "basics": {
+    "weight": null,
+    "height": null,
+    "seatedHeight": null,
+    "age": null
+  },
+  "skinFolds": {
+    "triceps": null,
+    "subscapular": null,
+    "supraspinal": null,
+    "abdominal": null,
+    "thigh": null,
+    "calf": null,
+    "sumOfSix": null
+  },
+  "diameters": {
+    "biacromial": null,
+    "transverseThorax": null,
+    "anteroposteriorThorax": null,
+    "biIliocrestideal": null,
+    "humeral": null,
+    "femoral": null
+  },
+  "perimeters": {
+    "head": null,
+    "relaxedArm": null,
+    "flexedArm": null,
+    "forearm": null,
+    "mesosternalThorax": null,
+    "waist": null,
+    "hips": null,
+    "upperThigh": null,
+    "medialThigh": null,
+    "calf": null
+  },
+  "bodyComposition": {
+    "adipose": { "percentage": null, "kg": null },
+    "muscular": { "percentage": null, "kg": null },
+    "residual": { "percentage": null, "kg": null },
+    "bone": { "percentage": null, "kg": null },
+    "skin": { "percentage": null, "kg": null }
+  },
+  "somatotype": {
+    "endomorphy": null,
+    "mesomorphy": null,
+    "ectomorphy": null
+  },
+  "indexes": {
+    "bmi": null,
+    "waistHipRatio": null,
+    "muscleToOsseousIndex": null,
+    "adiposeToMuscularIndex": null,
+    "bmr": null,
+    "idealWeight": null
+  },
+  "zScores": {}
+}`;
+
     try {
-      // Validar imagen base64
-      if (!data.imageBase64 || data.imageBase64.length === 0) {
-        throw new BadRequestException('Imagen requerida para análisis');
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              ...imageContents,
+            ],
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 4000,
+      });
+
+      const responseText = completion.choices[0]?.message?.content;
+      if (!responseText) {
+        throw new BadRequestException(
+          'No se recibió respuesta de OpenAI al analizar el PDF',
+        );
       }
 
-      // Crear trabajo en la cola para análisis de pliegues cutáneos
-      const job = await this.analysisQueue.add('skinFoldAnalysis', {
-        image: `data:image/jpeg;base64,${data.imageBase64}`,
-        userData: {
-          ...data.user,
+      // Clean markdown code blocks if present
+      let cleaned = responseText.trim();
+      if (cleaned.startsWith('```json')) {
+        cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+
+      const analysis: AnthropometryAnalysis = JSON.parse(cleaned.trim());
+
+      console.log('Análisis de antropometría completado exitosamente');
+
+      // Create a SkinFoldRecord from the extracted skin fold values
+      const skinFoldValues: Partial<Record<SkinFoldSite, number>> = {};
+      if (analysis.skinFolds) {
+        if (analysis.skinFolds.triceps)
+          skinFoldValues.triceps = analysis.skinFolds.triceps;
+        if (analysis.skinFolds.subscapular)
+          skinFoldValues.subscapular = analysis.skinFolds.subscapular;
+        if (analysis.skinFolds.abdominal)
+          skinFoldValues.abdominal = analysis.skinFolds.abdominal;
+        if (analysis.skinFolds.thigh)
+          skinFoldValues.thigh = analysis.skinFolds.thigh;
+        if (analysis.skinFolds.calf)
+          skinFoldValues.calf = analysis.skinFolds.calf;
+      }
+
+      const record = await this.prisma.skinFoldRecord.create({
+        data: {
           userId,
-          analysisType: 'skinfold',
+          date: new Date().toISOString(),
+          technician: 'Extraído de PDF por IA',
+          notes: JSON.stringify({
+            source: 'anthropometry-pdf',
+            bodyComposition: analysis.bodyComposition,
+            somatotype: analysis.somatotype,
+            indexes: analysis.indexes,
+            diameters: analysis.diameters,
+            perimeters: analysis.perimeters,
+            basics: analysis.basics,
+            zScores: analysis.zScores,
+          }),
+          values: skinFoldValues,
+          aiConfidence: 0.9,
         },
       });
 
       return {
-        taskId: job.id as string,
-        status: 'queued',
+        record: record as SkinFoldRecord,
+        fullAnalysis: analysis,
       };
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      console.error('Error analyzing skin fold:', error);
-      throw new BadRequestException('Error al analizar pliegues cutáneos');
+      console.error('Error analyzing anthropometry PDF:', error);
+      throw new BadRequestException(
+        'Error al analizar el PDF de antropometría. Verifique que las imágenes sean legibles.',
+      );
     }
   }
 
@@ -253,7 +465,7 @@ export class SkinFoldService {
 
       return {
         totalRecords: records.length,
-        latestRecord: records[0], // Ya están ordenados por fecha desc
+        latestRecord: records[0],
         sitesFrequency: sitesFrequency as Record<SkinFoldSite, number>,
       };
     } catch (error) {
@@ -272,7 +484,6 @@ export class SkinFoldService {
     try {
       // Fórmula de Jackson-Pollock de 3 sitios
       if (gender === 'male') {
-        // Hombres: pectoral, abdominal, muslo
         const chest = values.chest;
         const abdominal = values.abdominal;
         const thigh = values.thigh;
@@ -285,7 +496,6 @@ export class SkinFoldService {
           return Math.round(bodyFat * 10) / 10;
         }
       } else {
-        // Mujeres: tríceps, supraespinal, muslo
         const triceps = values.triceps;
         const suprailiac = values.suprailiac;
         const thigh = values.thigh;
