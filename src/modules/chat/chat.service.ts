@@ -6,10 +6,12 @@ import { ChatMessage } from '../../common/types';
 export class ChatService {
   constructor(private prisma: PrismaService) {}
 
-  async getAll(): Promise<ChatMessage[]> {
+  async getAll(userId: string, limit: number = 50): Promise<ChatMessage[]> {
     try {
       const messages = await this.prisma.chatMessage.findMany({
+        where: { userId },
         orderBy: { timestamp: 'asc' },
+        take: limit,
       });
       return messages as any[];
     } catch (error) {
@@ -19,12 +21,14 @@ export class ChatService {
   }
 
   async create(
+    userId: string,
     role: 'user' | 'assistant',
     content: string,
   ): Promise<ChatMessage> {
     try {
       const message = await this.prisma.chatMessage.create({
         data: {
+          userId,
           role,
           content,
         },
@@ -36,9 +40,11 @@ export class ChatService {
     }
   }
 
-  async clear(): Promise<boolean> {
+  async clear(userId: string): Promise<boolean> {
     try {
-      await this.prisma.chatMessage.deleteMany({});
+      await this.prisma.chatMessage.deleteMany({
+        where: { userId },
+      });
       return true;
     } catch (error) {
       console.error('Error clearing chat messages:', error);

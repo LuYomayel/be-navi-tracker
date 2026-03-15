@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, UseGuards, Req } from '@nestjs/common';
 import { AnalysisService } from './analysis.service';
 import { ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -26,8 +26,10 @@ export class AnalysisController {
   @Post('content-recommendations')
   async getContentRecommendations(
     @Body() request: ContentRecommendationRequest,
+    @Req() req: any,
   ): Promise<ApiResponse<any[]>> {
     try {
+      const userId = req.user?.userId;
       const {
         availableTime,
         preferredMood,
@@ -37,10 +39,9 @@ export class AnalysisController {
         includeUserPatterns,
       } = request;
 
-      // Obtener patrones del usuario si se solicita
       let userPatterns = [];
-      if (includeUserPatterns) {
-        userPatterns = await this.analysisService.getRecentAnalysis(7);
+      if (includeUserPatterns && userId) {
+        userPatterns = await this.analysisService.getRecentAnalysis(userId, 7);
       }
 
       const contentRequest = {
@@ -57,15 +58,6 @@ export class AnalysisController {
           contentRequest,
           userPatterns,
         );
-
-      console.log(`📚 Generando recomendaciones para:`, {
-        tiempo: availableTime,
-        mood: preferredMood,
-        tipo: contentType,
-        tema: topic,
-        genero: genre,
-        resultados: recommendations.length,
-      });
 
       return {
         success: true,
@@ -84,14 +76,15 @@ export class AnalysisController {
   @Post('book-recommendations')
   async getBookRecommendations(
     @Body() request: BookRecommendationRequest,
+    @Req() req: any,
   ): Promise<ApiResponse<any[]>> {
     try {
+      const userId = req.user?.userId;
       const { availableTime, preferredMood, includeUserPatterns } = request;
 
-      // Obtener patrones del usuario si se solicita
       let userPatterns = [];
-      if (includeUserPatterns) {
-        userPatterns = await this.analysisService.getRecentAnalysis(7);
+      if (includeUserPatterns && userId) {
+        userPatterns = await this.analysisService.getRecentAnalysis(userId, 7);
       }
 
       const recommendations = await this.analysisService.getBookRecommendations(
@@ -117,10 +110,15 @@ export class AnalysisController {
   @Get('recent')
   async getRecentAnalysis(
     @Query('days') days: string,
+    @Req() req: any,
   ): Promise<ApiResponse<any[]>> {
     try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return { success: false, data: [], error: 'Unauthorized' };
+      }
       const daysNumber = parseInt(days) || 7;
-      const analyses = await this.analysisService.getRecentAnalysis(daysNumber);
+      const analyses = await this.analysisService.getRecentAnalysis(userId, daysNumber);
 
       return {
         success: true,
@@ -137,9 +135,13 @@ export class AnalysisController {
   }
 
   @Get('patterns')
-  async getPatterns(): Promise<ApiResponse<any>> {
+  async getPatterns(@Req() req: any): Promise<ApiResponse<any>> {
     try {
-      const patterns = await this.analysisService.detectPatterns();
+      const userId = req.user?.userId;
+      if (!userId) {
+        return { success: false, data: {}, error: 'Unauthorized' };
+      }
+      const patterns = await this.analysisService.detectPatterns(userId);
 
       return {
         success: true,
@@ -157,28 +159,19 @@ export class AnalysisController {
 
   @Get('status')
   async getStatus(): Promise<ApiResponse<any>> {
-    try {
-      return {
-        success: true,
-        data: {
-          openaiAvailable: !!process.env.OPENAI_API_KEY,
-          endpoints: [
-            'POST /analysis/content-recommendations',
-            'POST /analysis/book-recommendations',
-            'GET /analysis/recent',
-            'GET /analysis/patterns',
-            'GET /analysis/status',
-          ],
-          version: '2.0.0',
-        },
-      };
-    } catch (error) {
-      console.error('Error getting status:', error);
-      return {
-        success: false,
-        data: {},
-        error: 'Error obteniendo estado del servicio',
-      };
-    }
+    return {
+      success: true,
+      data: {
+        openaiAvailable: !!process.env.OPENAI_API_KEY,
+        endpoints: [
+          'POST /analysis/content-recommendations',
+          'POST /analysis/book-recommendations',
+          'GET /analysis/recent',
+          'GET /analysis/patterns',
+          'GET /analysis/status',
+        ],
+        version: '2.0.0',
+      },
+    };
   }
 }

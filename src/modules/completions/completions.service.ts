@@ -10,9 +10,12 @@ export class CompletionsService {
     private xpService: XpService,
   ) {}
 
-  async getAll(): Promise<DailyCompletion[]> {
+  async getAll(userId: string): Promise<DailyCompletion[]> {
     try {
       return await this.prisma.dailyCompletion.findMany({
+        where: {
+          activity: { userId },
+        },
         orderBy: { date: 'desc' },
       });
     } catch (error) {

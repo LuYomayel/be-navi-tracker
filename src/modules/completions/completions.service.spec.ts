@@ -60,16 +60,17 @@ describe('CompletionsService', () => {
   });
 
   describe('getAll', () => {
-    it('should return all completions ordered by date desc', async () => {
+    it('should return completions filtered by userId', async () => {
       (prisma.dailyCompletion.findMany as jest.Mock).mockResolvedValue([
         mockCompletion,
       ]);
 
-      const result = await service.getAll();
+      const result = await service.getAll('user-1');
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('completion-1');
       expect(prisma.dailyCompletion.findMany).toHaveBeenCalledWith({
+        where: { activity: { userId: 'user-1' } },
         orderBy: { date: 'desc' },
       });
     });
@@ -79,7 +80,7 @@ describe('CompletionsService', () => {
         new Error('DB error'),
       );
 
-      const result = await service.getAll();
+      const result = await service.getAll('user-1');
 
       expect(result).toEqual([]);
     });

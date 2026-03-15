@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../../config/prisma.service';
 import OpenAI from 'openai';
 
 interface ContentRecommendation {
@@ -11,8 +12,8 @@ interface ContentRecommendation {
   difficulty: 'Principiante' | 'Intermedio' | 'Avanzado';
   type: 'libro' | 'artículo' | 'podcast' | 'blog' | 'estudio' | 'informe';
   link?: string;
-  platform?: string; // Para podcasts: "Spotify", "Apple Podcasts", etc.
-  source?: string; // Para artículos: "Nature", "Harvard Business Review", etc.
+  platform?: string;
+  source?: string;
   tags: string[];
 }
 
@@ -29,8 +30,7 @@ interface ContentRequest {
 export class AnalysisService {
   private openai: OpenAI | null = null;
 
-  constructor() {
-    // Inicializar OpenAI solo si hay API key
+  constructor(private prisma: PrismaService) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
@@ -43,18 +43,12 @@ export class AnalysisService {
     userPatterns: any[] = [],
   ): Promise<ContentRecommendation[]> {
     if (!this.openai) {
-      console.log('OpenAI no disponible, usando recomendaciones de fallback');
       return this.getFallbackRecommendations(request);
     }
 
     try {
-      // Analizar patrones del usuario para contexto
       const userContext = this.analyzeUserPatterns(userPatterns);
-
-      // Mapear tipos de contenido del frontend al backend
       const contentTypeMapping = this.mapContentType(request.contentType);
-
-      // Generar prompt especializado según el tipo de contenido
       const prompt = this.generateAdvancedPrompt(
         request,
         userContext,
@@ -88,29 +82,18 @@ REGLAS IMPORTANTES:
         throw new Error('No se recibió respuesta de OpenAI');
       }
 
-      // Intentar parsear la respuesta JSON
       let parsed;
       try {
         parsed = JSON.parse(response);
-      } catch (parseError) {
-        console.error('Error al parsear respuesta de OpenAI:', parseError);
-        console.log('Respuesta recibida:', response);
+      } catch {
+        console.error('Error al parsear respuesta de OpenAI');
         throw new Error('Respuesta de OpenAI no válida');
       }
 
       const recommendations = parsed.recommendations || [];
-
-      // Validar y limpiar las recomendaciones
-      const validatedRecommendations =
-        this.validateAndCleanRecommendations(recommendations);
-
-      console.log(
-        `✅ Generadas ${validatedRecommendations.length} recomendaciones con OpenAI`,
-      );
-      return validatedRecommendations;
+      return this.validateAndCleanRecommendations(recommendations);
     } catch (error) {
       console.error('Error al obtener recomendaciones de contenido:', error);
-      // Fallback a recomendaciones predefinidas
       return this.getFallbackRecommendations(request);
     }
   }
@@ -306,15 +289,14 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
         source: rec.source || undefined,
         tags: Array.isArray(rec.tags) ? rec.tags.slice(0, 6) : [],
       }))
-      .slice(0, 4); // Limitar a 4 recomendaciones
+      .slice(0, 4);
   }
 
   private getFallbackRecommendations(
     request: ContentRequest,
   ): ContentRecommendation[] {
-    const { contentType, genre, availableTime, preferredMood, topic } = request;
+    const { contentType, topic } = request;
 
-    // Base de recomendaciones diversas para fallback
     const fallbackRecommendations: ContentRecommendation[] = [
       {
         title: 'Hábitos Atómicos',
@@ -376,14 +358,12 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
       },
     ];
 
-    // Filtrar por tipo de contenido
     let filtered = fallbackRecommendations;
     if (contentType !== 'Cualquiera') {
       const typeMap = this.mapContentType(contentType);
       filtered = filtered.filter((rec) => typeMap.includes(rec.type));
     }
 
-    // Filtrar por búsqueda específica
     if (topic) {
       filtered = filtered.filter(
         (rec) =>
@@ -395,7 +375,6 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
       );
     }
 
-    // Si no hay resultados después del filtrado, devolver al menos una recomendación
     if (filtered.length === 0) {
       filtered = [fallbackRecommendations[0]];
     }
@@ -411,13 +390,16 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
     const analysis = patterns
       .map((pattern) => {
         if (pattern.type === 'habit_completion') {
-          return `Hábito activo: ${pattern.data.habitName} (racha: ${pattern.data.streak})`;
+          return `Hábito activo: ${pattern.habitName} (racha: ${pattern.streak} días)`;
         }
-        if (pattern.type === 'nutrition_analysis') {
-          return `Enfoque en nutrición (puntuación: ${pattern.data.healthScore})`;
+        if (pattern.type === 'nutrition') {
+          return `Registros nutricionales: ${pattern.count} comidas (promedio ${pattern.avgCalories} kcal)`;
         }
-        if (pattern.type === 'sleep_tracking') {
-          return `Patrones de sueño: ${pattern.data.duration}h (calidad: ${pattern.data.quality})`;
+        if (pattern.type === 'physical_activity') {
+          return `Actividad física: ${pattern.count} sesiones (${pattern.avgMinutes} min promedio)`;
+        }
+        if (pattern.type === 'mood') {
+          return `Estado anímico promedio: ${pattern.avgMood}/5`;
         }
         return '';
       })
@@ -429,7 +411,6 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
     );
   }
 
-  // Mantener métodos existentes para compatibilidad
   async getBookRecommendations(
     availableTime: string,
     preferredMood: string,
@@ -447,82 +428,314 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
     return this.getContentRecommendations(request, userPatterns);
   }
 
-  async getRecentAnalysis(days: number = 7): Promise<any[]> {
-    // Datos simulados para análisis recientes
-    const mockAnalyses = [
-      {
-        id: '1',
-        type: 'habit_completion',
-        data: {
-          habitName: 'Ejercicio matutino',
-          completed: true,
-          streak: 7,
-          patterns: ['morning_routine', 'consistency', 'fitness_focus'],
-        },
-        createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-        metadata: {
-          mood: 'energetic',
-          difficulty: 'moderate',
-        },
-      },
-      {
-        id: '2',
-        type: 'nutrition_analysis',
-        data: {
-          mealType: 'breakfast',
-          healthScore: 8.7,
-          patterns: ['healthy_choices', 'good_timing', 'balanced_macros'],
-        },
-        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-        metadata: {
-          satisfaction: 'high',
-          energy_level: 'good',
-        },
-      },
-      {
-        id: '3',
-        type: 'reading_habit',
-        data: {
-          duration: 45,
-          content_type: 'article',
-          topic: 'productivity',
-          patterns: ['consistent_learning', 'tech_interest'],
-        },
-        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-        metadata: {
-          comprehension: 'high',
-          interest_level: 'very_high',
-        },
-      },
-    ];
+  /**
+   * Returns real recent analysis data from the database:
+   * - Habit completions with streaks
+   * - Nutrition logs summary
+   * - Physical activity summary
+   * - Mood from notes
+   */
+  async getRecentAnalysis(userId: string, days: number = 7): Promise<any[]> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
 
-    const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    return mockAnalyses.filter((analysis) => analysis.createdAt >= cutoffDate);
+    const results: any[] = [];
+
+    try {
+      // 1. Habit completions with streak info
+      const completions = await this.prisma.dailyCompletion.findMany({
+        where: {
+          activity: { userId },
+          date: { gte: cutoffDateStr },
+          completed: true,
+        },
+        include: {
+          activity: { select: { name: true, category: true } },
+        },
+        orderBy: { date: 'desc' },
+      });
+
+      // Group by activity and count streaks
+      const habitMap = new Map<string, { name: string; count: number; category: string; dates: string[] }>();
+      for (const c of completions) {
+        const existing = habitMap.get(c.activityId);
+        if (existing) {
+          existing.count++;
+          existing.dates.push(c.date);
+        } else {
+          habitMap.set(c.activityId, {
+            name: c.activity.name,
+            count: 1,
+            category: c.activity.category || 'general',
+            dates: [c.date],
+          });
+        }
+      }
+
+      for (const [, habit] of habitMap) {
+        results.push({
+          type: 'habit_completion',
+          habitName: habit.name,
+          count: habit.count,
+          category: habit.category,
+          streak: this.calculateConsecutiveDays(habit.dates),
+        });
+      }
+
+      // 2. Nutrition analysis summary
+      const nutritionLogs = await this.prisma.nutritionAnalysis.findMany({
+        where: {
+          userId,
+          date: { gte: cutoffDateStr },
+        },
+        select: { totalCalories: true, mealType: true, date: true },
+      });
+
+      if (nutritionLogs.length > 0) {
+        const totalCalories = nutritionLogs.reduce(
+          (sum, n) => sum + (n.totalCalories || 0),
+          0,
+        );
+        results.push({
+          type: 'nutrition',
+          count: nutritionLogs.length,
+          avgCalories: Math.round(totalCalories / nutritionLogs.length),
+          totalCalories,
+          uniqueDays: new Set(nutritionLogs.map((n) => n.date)).size,
+        });
+      }
+
+      // 3. Physical activity summary
+      const activities = await this.prisma.physicalActivity.findMany({
+        where: {
+          userId,
+          date: { gte: cutoffDateStr },
+        },
+        select: {
+          exerciseMinutes: true,
+          activeEnergyKcal: true,
+          steps: true,
+          date: true,
+        },
+      });
+
+      if (activities.length > 0) {
+        const totalMinutes = activities.reduce(
+          (sum, a) => sum + (a.exerciseMinutes || 0),
+          0,
+        );
+        const totalSteps = activities.reduce(
+          (sum, a) => sum + (a.steps || 0),
+          0,
+        );
+        results.push({
+          type: 'physical_activity',
+          count: activities.length,
+          avgMinutes: Math.round(totalMinutes / activities.length),
+          totalSteps,
+          totalCaloriesBurned: activities.reduce(
+            (sum, a) => sum + (a.activeEnergyKcal || 0),
+            0,
+          ),
+        });
+      }
+
+      // 4. Mood from notes
+      const notes = await this.prisma.note.findMany({
+        where: {
+          userId,
+          date: { gte: cutoffDateStr },
+        },
+        select: { mood: true, date: true },
+      });
+
+      if (notes.length > 0) {
+        const totalMood = notes.reduce((sum, n) => sum + (n.mood || 3), 0);
+        results.push({
+          type: 'mood',
+          count: notes.length,
+          avgMood: Math.round((totalMood / notes.length) * 10) / 10,
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching recent analysis:', error);
+    }
+
+    return results;
   }
 
-  async detectPatterns(): Promise<any> {
-    return {
-      streaks: {
-        current_longest: 7,
-        habit: 'Ejercicio matutino',
-      },
-      trends: {
-        most_consistent: 'morning_routine',
-        needs_improvement: 'evening_reading',
-        growing_interest: 'AI_and_technology',
-      },
-      recommendations: [
-        'Tu rutina matutina está muy consolidada',
-        'Considera explorar más contenido sobre IA y tecnología',
-        'Tus hábitos nutricionales muestran excelente progreso',
-      ],
-      detected_issues: [],
-      strengths: [
-        'consistency',
-        'morning_motivation',
-        'healthy_choices',
-        'learning_mindset',
-      ],
-    };
+  /**
+   * Detects real patterns from user data
+   */
+  async detectPatterns(userId: string): Promise<any> {
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const cutoffDateStr = sevenDaysAgo.toISOString().split('T')[0];
+
+      // Get streaks
+      const userStreaks = await this.prisma.userStreak.findMany({
+        where: { userId },
+        include: { streakType: true },
+      });
+
+      const streakData: Record<string, { count: number; lastDate: string | null }> = {};
+      let longestStreak = 0;
+      let longestStreakName = '';
+
+      for (const s of userStreaks) {
+        streakData[s.streakType.code] = {
+          count: s.count,
+          lastDate: s.lastDate,
+        };
+        if (s.count > longestStreak) {
+          longestStreak = s.count;
+          longestStreakName = s.streakType.name;
+        }
+      }
+
+      // Get most completed habit
+      const topHabits = await this.prisma.dailyCompletion.groupBy({
+        by: ['activityId'],
+        where: {
+          activity: { userId },
+          date: { gte: cutoffDateStr },
+          completed: true,
+        },
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 3,
+      });
+
+      const topHabitNames: string[] = [];
+      for (const h of topHabits) {
+        const activity = await this.prisma.activity.findUnique({
+          where: { id: h.activityId },
+          select: { name: true },
+        });
+        if (activity) {
+          topHabitNames.push(activity.name);
+        }
+      }
+
+      // Nutrition consistency
+      const nutritionDays = await this.prisma.nutritionAnalysis.groupBy({
+        by: ['date'],
+        where: { userId, date: { gte: cutoffDateStr } },
+      });
+
+      // Activity consistency
+      const activityDays = await this.prisma.physicalActivity.groupBy({
+        by: ['date'],
+        where: { userId, date: { gte: cutoffDateStr } },
+      });
+
+      // Notes/mood trend
+      const recentNotes = await this.prisma.note.findMany({
+        where: { userId, date: { gte: cutoffDateStr } },
+        select: { mood: true },
+        orderBy: { date: 'asc' },
+      });
+
+      const avgMood =
+        recentNotes.length > 0
+          ? recentNotes.reduce((s, n) => s + (n.mood || 3), 0) /
+            recentNotes.length
+          : null;
+
+      // Build recommendations
+      const recommendations: string[] = [];
+      const strengths: string[] = [];
+      const needsImprovement: string[] = [];
+
+      if (longestStreak >= 7) {
+        strengths.push('consistency');
+        recommendations.push(
+          `Tu racha de ${longestStreakName} de ${longestStreak} días muestra gran constancia`,
+        );
+      } else if (longestStreak >= 3) {
+        strengths.push('building_habits');
+        recommendations.push(
+          `Vas por buen camino con ${longestStreakName} (${longestStreak} días). ¡Seguí así!`,
+        );
+      }
+
+      if (nutritionDays.length >= 5) {
+        strengths.push('nutrition_tracking');
+      } else if (nutritionDays.length < 3) {
+        needsImprovement.push('nutrition_consistency');
+        recommendations.push(
+          'Intentá registrar tus comidas más seguido para obtener mejores insights',
+        );
+      }
+
+      if (activityDays.length >= 3) {
+        strengths.push('active_lifestyle');
+      } else {
+        needsImprovement.push('physical_activity');
+        recommendations.push(
+          'Registrá más actividad física — incluso caminar cuenta',
+        );
+      }
+
+      if (avgMood !== null && avgMood >= 4) {
+        strengths.push('positive_mindset');
+      } else if (avgMood !== null && avgMood < 3) {
+        recommendations.push(
+          'Tu estado de ánimo ha estado bajo. Considerá actividades que te hagan sentir bien',
+        );
+      }
+
+      if (topHabitNames.length > 0) {
+        recommendations.push(
+          `Tus hábitos más consistentes: ${topHabitNames.join(', ')}`,
+        );
+      }
+
+      return {
+        streaks: {
+          current_longest: longestStreak,
+          habit: longestStreakName || 'Ninguno',
+          details: streakData,
+        },
+        trends: {
+          top_habits: topHabitNames,
+          nutrition_days_logged: nutritionDays.length,
+          activity_days_logged: activityDays.length,
+          average_mood: avgMood,
+        },
+        recommendations,
+        strengths,
+        needs_improvement: needsImprovement,
+      };
+    } catch (error) {
+      console.error('Error detecting patterns:', error);
+      return {
+        streaks: { current_longest: 0, habit: 'Ninguno' },
+        trends: {},
+        recommendations: ['No hay suficientes datos todavía. ¡Seguí registrando!'],
+        strengths: [],
+        needs_improvement: [],
+      };
+    }
+  }
+
+  private calculateConsecutiveDays(dates: string[]): number {
+    if (dates.length === 0) return 0;
+    const sorted = [...new Set(dates)].sort().reverse();
+    let streak = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = new Date(sorted[i - 1]);
+      const curr = new Date(sorted[i]);
+      const diffMs = prev.getTime() - curr.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      if (Math.abs(diffDays - 1) < 0.1) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
   }
 }

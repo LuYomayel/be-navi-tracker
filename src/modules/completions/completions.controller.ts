@@ -18,9 +18,13 @@ export class CompletionsController {
   constructor(private readonly completionsService: CompletionsService) {}
 
   @Get()
-  async getAll(): Promise<ApiResponse<DailyCompletion[]>> {
+  async getAll(@Req() req: any): Promise<ApiResponse<DailyCompletion[]>> {
     try {
-      const completions = await this.completionsService.getAll();
+      const userId = req.user?.userId;
+      if (!userId) {
+        return { success: false, error: 'Unauthorized' };
+      }
+      const completions = await this.completionsService.getAll(userId);
       return { success: true, data: completions };
     } catch (error) {
       console.error('Error fetching completions:', error);
@@ -38,7 +42,10 @@ export class CompletionsController {
   ): Promise<ApiResponse<DailyCompletion>> {
     try {
       const { activityId, date } = toggleData;
-      const userId = req.user?.userId || 'default';
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
       const completion = await this.completionsService.toggle(
         activityId,
         date,
