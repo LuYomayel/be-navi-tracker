@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NutritionService } from './nutrition.service';
 import { PrismaService } from '../../config/prisma.service';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 describe('NutritionService', () => {
   let service: NutritionService;
@@ -74,6 +75,13 @@ describe('NutritionService', () => {
             user: {
               findMany: jest.fn(),
             },
+          },
+        },
+        {
+          provide: AICostService,
+          useValue: {
+            logFromCompletion: jest.fn(),
+            calculateCost: jest.fn().mockReturnValue(0),
           },
         },
       ],

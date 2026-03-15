@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import OpenAI from 'openai';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 interface ContentRecommendation {
   title: string;
@@ -30,7 +31,7 @@ interface ContentRequest {
 export class AnalysisService {
   private openai: OpenAI | null = null;
 
-  constructor(private prisma: PrismaService) {
+  constructor(private prisma: PrismaService, private aiCostService: AICostService) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
@@ -41,6 +42,7 @@ export class AnalysisService {
   async getContentRecommendations(
     request: ContentRequest,
     userPatterns: any[] = [],
+    userId?: string,
   ): Promise<ContentRecommendation[]> {
     if (!this.openai) {
       return this.getFallbackRecommendations(request);
@@ -76,6 +78,11 @@ REGLAS IMPORTANTES:
         max_tokens: 2500,
         temperature: 0.7,
       });
+
+      // Log AI cost
+      if (userId) {
+        await this.aiCostService.logFromCompletion(userId, 'analysis-content-recommendations', completion);
+      }
 
       const response = completion.choices[0]?.message?.content;
       if (!response) {
@@ -415,6 +422,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
     availableTime: string,
     preferredMood: string,
     userPatterns: any[] = [],
+    userId?: string,
   ): Promise<any[]> {
     const request: ContentRequest = {
       availableTime,
@@ -425,7 +433,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
       includeUserPatterns: true,
     };
 
-    return this.getContentRecommendations(request, userPatterns);
+    return this.getContentRecommendations(request, userPatterns, userId);
   }
 
   /**

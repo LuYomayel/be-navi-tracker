@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
+import { AICostService } from '../ai-cost/ai-cost.service';
 /*
 interface FoodAnalysisResponse {
   foods: Array<{
@@ -85,7 +86,7 @@ export enum MealType {
 export class AnalyzeFoodService {
   private openai: OpenAI | null = null;
 
-  constructor() {
+  constructor(private aiCostService: AICostService) {
     // Inicializar OpenAI solo si hay API key
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
@@ -112,6 +113,7 @@ export class AnalyzeFoodService {
     imageBase64: string,
     mealType?: string,
     context?: string,
+    userId?: string,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
       console.log('OpenAI no disponible, usando análisis de fallback');
@@ -180,6 +182,11 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
         throw new Error('No se recibió respuesta de OpenAI Vision');
       }
 
+      // Log AI cost
+      if (userId) {
+        await this.aiCostService.logFromCompletion(userId, 'analyze-food-image', completion);
+      }
+
       // Extraer costo de la llamada
       const usage = completion.usage;
       const costUsd = usage ? this.calculateCost(usage.prompt_tokens, usage.completion_tokens, 'gpt-4o') : null;
@@ -219,6 +226,7 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
     servings: number = 1, // Número de porciones
     mealType: MealType,
     context?: string,
+    userId?: string,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
       console.log('OpenAI no disponible, usando análisis de fallback');
@@ -307,6 +315,11 @@ Por favor, estima las cantidades si no están especificadas y calcula las calor�
         throw new Error('No se recibió respuesta de OpenAI');
       }
 
+      // Log AI cost
+      if (userId) {
+        await this.aiCostService.logFromCompletion(userId, 'analyze-food-manual', completion);
+      }
+
       // Extraer costo de la llamada
       const usage = completion.usage;
       const costUsd = usage ? this.calculateCost(usage.prompt_tokens, usage.completion_tokens, 'gpt-4o') : null;
@@ -360,6 +373,7 @@ Por favor, estima las cantidades si no están especificadas y calcula las calor�
   async analyzeRecipeText(
     recipeText: string,
     mealType?: string,
+    userId?: string,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
       console.log('OpenAI no disponible, usando análisis de fallback');
@@ -406,6 +420,11 @@ ${this.generateFoodAnalysisPrompt(mealType)}`,
       const response = completion.choices[0]?.message?.content;
       if (!response) {
         throw new Error('No se recibió respuesta de OpenAI');
+      }
+
+      // Log AI cost
+      if (userId) {
+        await this.aiCostService.logFromCompletion(userId, 'analyze-food-recipe', completion);
       }
 
       // Limpiar y parsear la respuesta JSON

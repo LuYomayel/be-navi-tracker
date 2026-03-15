@@ -145,10 +145,12 @@ export class NutritionController {
     @Req() req: any,
   ): Promise<ApiResponse<WeightEntry>> {
     try {
-      console.log('data', data, req?.user?.userId);
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
+      console.log('data', data, userId);
       const analysis = await this.nutritionService.analyzeWeightManual(
         data,
-        req?.user?.userId || 'usr_test_id_123',
+        userId,
       );
       console.log('Entrada de peso creada:', analysis);
       return { success: true, data: analysis };
@@ -167,7 +169,7 @@ export class NutritionController {
     @Req() req: any,
   ): Promise<ApiResponse<WeightEntry>> {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123';
+      const userId = req?.user?.userId;
       const entry = await this.nutritionService.getWeightEntryById(id, userId);
 
       if (!entry) {
@@ -191,7 +193,7 @@ export class NutritionController {
     @Req() req: any,
   ): Promise<ApiResponse<WeightEntry>> {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123';
+      const userId = req?.user?.userId;
       const updated = await this.nutritionService.updateWeightEntry(
         id,
         data,
@@ -218,7 +220,7 @@ export class NutritionController {
     @Req() req: any,
   ): Promise<ApiResponse<{ deleted: boolean }>> {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123';
+      const userId = req?.user?.userId;
       const deleted = await this.nutritionService.deleteWeightEntry(id, userId);
 
       if (!deleted) {
@@ -241,7 +243,7 @@ export class NutritionController {
     @Req() req: any,
   ): Promise<ApiResponse<WeightStats>> {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123';
+      const userId = req?.user?.userId;
       const stats = await this.nutritionService.getWeightStats(
         userId,
         timeframe,
@@ -262,7 +264,7 @@ export class NutritionController {
     @Req() req: any,
   ): Promise<ApiResponse<WeightAnalysis>> {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123';
+      const userId = req?.user?.userId;
       const analysis = await this.nutritionService.getWeightAnalysis(userId);
 
       return { success: true, data: analysis };

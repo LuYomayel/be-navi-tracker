@@ -44,6 +44,135 @@ interface PersonalDataRequest {
 export class BodyAnalysisController {
   constructor(private readonly bodyAnalysisService: BodyAnalysisService) {}
 
+  @Post()
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  async analyze(
+    @Body()
+    request: {
+      image: string;
+      currentWeight?: number;
+      targetWeight?: number;
+      height?: number;
+      age?: number;
+      gender?: 'male' | 'female' | 'other';
+      activityLevel?: string;
+      goals?: string[];
+    },
+    @Req() req: any,
+  ): Promise<ApiResponse<any>> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
+      }
+
+      if (!request.image) {
+        throw new HttpException(
+          'Se requiere una imagen para el análisis',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      console.log('🔬 Iniciando análisis corporal con OpenAI Vision...');
+
+      const analysisResult =
+        await this.bodyAnalysisService.analyzeBody(request, userId);
+
+      // Guardar automáticamente el resultado
+      const saved = await this.bodyAnalysisService.create({
+        userId,
+        bodyType: analysisResult.bodyType,
+        measurements: analysisResult.measurements as any,
+        bodyComposition: analysisResult.bodyComposition as any,
+        recommendations: analysisResult.recommendations as any,
+        progress: analysisResult.progress as any,
+        insights: analysisResult.insights || [],
+        disclaimer: analysisResult.disclaimer || '',
+        aiConfidence: analysisResult.confidence || 0,
+        rawAnalysis: analysisResult as any,
+      } as any);
+
+      console.log('✅ Análisis corporal completado y guardado:', saved.id);
+
+      return {
+        success: true,
+        data: {
+          ...analysisResult,
+          savedId: saved.id,
+        },
+      };
+    } catch (error) {
+      console.error('❌ Error en análisis corporal:', error);
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        error instanceof Error
+          ? error.message
+          : 'Error en el análisis corporal',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('analyze-only')
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  async analyzeOnly(
+    @Body()
+    request: {
+      image: string;
+      currentWeight?: number;
+      targetWeight?: number;
+      height?: number;
+      age?: number;
+      gender?: 'male' | 'female' | 'other';
+      activityLevel?: string;
+      goals?: string[];
+    },
+    @Req() req: any,
+  ): Promise<ApiResponse<any>> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
+      }
+
+      if (!request.image) {
+        throw new HttpException(
+          'Se requiere una imagen para el análisis',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      console.log('🔬 Iniciando análisis corporal (sin guardar)...');
+
+      const analysisResult =
+        await this.bodyAnalysisService.analyzeBody(request, userId);
+
+      console.log('✅ Análisis corporal completado (no guardado)');
+
+      return {
+        success: true,
+        data: analysisResult,
+      };
+    } catch (error) {
+      console.error('❌ Error en análisis corporal:', error);
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        error instanceof Error
+          ? error.message
+          : 'Error en el análisis corporal',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Post('save')
   async save(@Body() request: SaveDTO, @Req() req: any): Promise<ApiResponse<any>> {
     try {

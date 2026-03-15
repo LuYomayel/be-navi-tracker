@@ -52,10 +52,12 @@ export class AnalyzeFoodController {
         throw new HttpException('Imagen requerida', HttpStatus.BAD_REQUEST);
       }
 
+      const userId = req?.user?.userId;
       const analysis = await this.analyzeFoodService.analyzeImageFood(
         image,
         mealType,
         request.context,
+        userId,
       );
 
       return {
@@ -74,6 +76,7 @@ export class AnalyzeFoodController {
   @Post('manual')
   async analyzeFoodManual(
     @Body() request: FoodAnalysisManualRequest,
+    @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
       const { ingredients, servings = 1, mealType } = request;
@@ -85,11 +88,13 @@ export class AnalyzeFoodController {
         );
       }
 
+      const userId = req?.user?.userId;
       const analysis = await this.analyzeFoodService.analyzeManualFood(
         ingredients,
         servings,
         mealType,
         request.context,
+        userId,
       );
 
       return {

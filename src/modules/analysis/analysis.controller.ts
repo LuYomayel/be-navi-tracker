@@ -57,6 +57,7 @@ export class AnalysisController {
         await this.analysisService.getContentRecommendations(
           contentRequest,
           userPatterns,
+          userId,
         );
 
       return {
@@ -91,6 +92,7 @@ export class AnalysisController {
         availableTime,
         preferredMood,
         userPatterns,
+        userId,
       );
 
       return {

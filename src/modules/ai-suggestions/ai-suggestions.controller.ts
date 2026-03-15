@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Query,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { AiSuggestionsService } from './ai-suggestions.service';
 import { ApiResponse } from '../../common/types';
@@ -26,6 +27,7 @@ export class AiSuggestionsController {
   @Post()
   async generateSuggestion(
     @Body() request: SuggestionRequest,
+    @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
       console.log('request', request);
@@ -35,9 +37,11 @@ export class AiSuggestionsController {
         throw new HttpException('Mensaje requerido', HttpStatus.BAD_REQUEST);
       }
 
+      const userId = req?.user?.userId;
       const suggestion = await this.aiSuggestionsService.generateSuggestion(
         message,
         chatHistory,
+        userId,
       );
 
       return {

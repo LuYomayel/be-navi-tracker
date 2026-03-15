@@ -4,11 +4,12 @@ import { PhysicalActivity, ApiResponse } from '../../common/types';
 import { CreatePhysicalActivityDto } from './dto/create-physical-activity.dto';
 import { OpenAI } from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 @Injectable()
 export class PhysicalActivitiesService {
   private openai: OpenAI | null = null;
-  constructor(private prisma: PrismaService) {
+  constructor(private prisma: PrismaService, private aiCostService: AICostService) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
@@ -33,6 +34,7 @@ export class PhysicalActivitiesService {
   async analyzeImagePhysicalActivity(
     imageBase64: string,
     context?: string,
+    userId?: string,
   ): Promise<(PhysicalActivity & { aiCostUsd?: number | null }) | null> {
     if (!this.openai) {
       console.log('OpenAI no disponible, usando análisis de fallback');
@@ -87,6 +89,11 @@ export class PhysicalActivitiesService {
       const response = completion.choices[0]?.message?.content;
       if (!response) {
         throw new Error('No se recibió respuesta de OpenAI Vision');
+      }
+
+      // Log AI cost
+      if (userId) {
+        await this.aiCostService.logFromCompletion(userId, 'physical-activity-image', completion);
       }
 
       // Extraer costo de la llamada

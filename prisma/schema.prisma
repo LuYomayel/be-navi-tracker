@@ -45,6 +45,8 @@ model User {
   skinFoldRecords    SkinFoldRecord[]
   savedMeals         SavedMeal[]
   aiCostLogs         AICostLog[]
+  nutritionistPlans  NutritionistPlan[]
+  mealPreps          MealPrep[]
 
   @@map("users")
 }
@@ -366,4 +368,48 @@ model AICostLog {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("ai_cost_logs")
+}
+
+// Plan del nutricionista importado desde PDF
+model NutritionistPlan {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String                      // "Plan nutricionista Marzo 2026"
+  rawText      String?  @db.LongText       // Texto raw extraído por AI
+  parsedPlan   Json                        // Estructura semanal parseada
+  weeklyNotes  String?  @db.Text           // Notas generales o restricciones del PDF
+  pdfFilename  String?
+  isActive     Boolean  @default(true)
+  aiConfidence Float?
+  aiCostUsd    Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mealPreps MealPrep[]
+
+  @@map("nutritionist_plans")
+}
+
+// Meal Prep semanal
+model MealPrep {
+  id                   String   @id @default(cuid())
+  userId               String
+  nutritionistPlanId   String?
+  weekStartDate        String                    // YYYY-MM-DD del lunes
+  weekEndDate          String                    // YYYY-MM-DD del domingo
+  name                 String?                   // "Semana del 10 Mar"
+  days                 Json                      // MealPrepWeek: 7 días × 4 slots
+  dailyTotals          Json?                     // Record<DayKey, MacroSummary>
+  weeklyTotals         Json?                     // MacroSummary
+  userContext          String?  @db.Text         // Input del usuario para generación
+  status               String   @default("active") // active | archived
+  aiCostUsd            Float?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nutritionistPlan  NutritionistPlan? @relation(fields: [nutritionistPlanId], references: [id])
+
+  @@map("meal_preps")
 }

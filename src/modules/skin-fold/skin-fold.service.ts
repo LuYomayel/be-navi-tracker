@@ -11,6 +11,7 @@ import {
   SkinFoldSite,
 } from './dto/skin-fold.dto';
 import OpenAI from 'openai';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 export interface AnthropometryAnalysis {
   basics: {
@@ -75,7 +76,7 @@ export interface AnthropometryAnalysis {
 export class SkinFoldService {
   private openai: OpenAI | null = null;
 
-  constructor(private prisma: PrismaService) {
+  constructor(private prisma: PrismaService, private aiCostService: AICostService) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
@@ -367,6 +368,9 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
         temperature: 0.1,
         max_tokens: 4000,
       });
+
+      // Log AI cost
+      await this.aiCostService.logFromCompletion(userId, 'skin-fold-analyze-pdf', completion);
 
       const responseText = completion.choices[0]?.message?.content;
       if (!responseText) {

@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { BodyAnalysis } from '../../common/types';
 import { SaveDTO } from './dto/save-body-analysis.dto';
+import OpenAI from 'openai';
+import { resolveImageUrl } from '../../common/utils/image.utils';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 export enum BodyType {
   ECTOMORPH = 'ectomorph', // Delgado, dificultad para ganar peso
@@ -116,9 +119,16 @@ export interface BodyAnalysisApiResponse {
 
 @Injectable()
 export class BodyAnalysisService {
+  private openai: OpenAI | null = null;
+
   constructor(
     private prisma: PrismaService,
-  ) {}
+    private aiCostService: AICostService,
+  ) {
+    if (process.env.OPENAI_API_KEY) {
+      this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    }
+  }
 
   async getAll(): Promise<BodyAnalysis[]> {
     try {
@@ -281,6 +291,143 @@ export class BodyAnalysisService {
     } catch (error) {
       console.error('Error al obtener análisis corporales recientes:', error);
       return [];
+    }
+  }
+
+  /**
+   * Analiza una imagen corporal usando OpenAI Vision y devuelve el resultado.
+   * Reemplaza el viejo flujo basado en Redis/BullMQ tasks.
+   */
+  async analyzeBody(
+    data: {
+      image: string;
+      currentWeight?: number;
+      targetWeight?: number;
+      height?: number;
+      age?: number;
+      gender?: 'male' | 'female' | 'other';
+      activityLevel?: string;
+      goals?: string[];
+    },
+    userId: string,
+  ): Promise<BodyAnalysisApiResponse> {
+    if (!this.openai) {
+      throw new Error('OpenAI no está configurado. Falta OPENAI_API_KEY.');
+    }
+
+    const imageUrl = resolveImageUrl(data.image);
+
+    const personalContext = [
+      data.age ? `Edad: ${data.age} años` : '',
+      data.gender ? `Género: ${data.gender}` : '',
+      data.height ? `Altura: ${data.height} cm` : '',
+      data.currentWeight ? `Peso actual: ${data.currentWeight} kg` : '',
+      data.targetWeight ? `Peso objetivo: ${data.targetWeight} kg` : '',
+      data.activityLevel ? `Nivel de actividad: ${data.activityLevel}` : '',
+      data.goals?.length ? `Objetivos: ${data.goals.join(', ')}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const prompt = `Eres un experto en fitness y análisis corporal. Analiza la siguiente imagen corporal y proporciona un análisis detallado.
+
+Datos personales del usuario:
+${personalContext}
+
+Responde EXCLUSIVAMENTE con un JSON válido (sin markdown, sin \`\`\`, sin texto extra) con esta estructura exacta:
+
+{
+  "bodyType": "ectomorph" | "mesomorph" | "endomorph",
+  "bodyComposition": {
+    "estimatedBMI": number | null,
+    "bodyType": "ectomorph" | "mesomorph" | "endomorph",
+    "muscleMass": "low" | "medium" | "high",
+    "bodyFat": "low" | "medium" | "high",
+    "metabolism": "slow" | "medium" | "fast",
+    "boneDensity": "light" | "medium" | "heavy",
+    "muscleGroups": [
+      {
+        "name": "string (nombre del grupo muscular)",
+        "development": "underdeveloped" | "developing" | "well_developed" | "good" | "excellent" | "highly_developed",
+        "recommendations": ["string"]
+      }
+    ]
+  },
+  "measurements": {
+    "bodyFatPercentage": number | null,
+    "muscleDefinition": "low" | "moderate" | "high" | "very_high",
+    "posture": "needs_attention" | "fair" | "good" | "excellent",
+    "symmetry": "needs_attention" | "fair" | "good" | "excellent",
+    "overallFitness": "beginner" | "intermediate" | "advanced" | "athlete"
+  },
+  "recommendations": {
+    "nutrition": ["string (recomendaciones nutricionales)"],
+    "priority": "cardio" | "strength" | "flexibility" | "balance" | "general_fitness",
+    "dailyCalories": number,
+    "macroSplit": { "protein": number, "carbs": number, "fat": number },
+    "supplements": ["string"],
+    "goals": ["lose_fat" | "gain_muscle" | "maintain_weight" | "improve_health" | "increase_energy" | "better_sleep"]
+  },
+  "progress": {
+    "strengths": ["string"],
+    "areasToImprove": ["string"],
+    "generalAdvice": "string"
+  },
+  "confidence": number (0-1),
+  "disclaimer": "string (disclaimer médico)",
+  "insights": ["string (observaciones adicionales)"]
+}
+
+Analiza los grupos musculares visibles (pecho, hombros, brazos, abdomen, espalda, piernas, etc.) y da recomendaciones específicas para cada uno.
+Si no puedes determinar un valor con certeza, usa estimaciones conservadoras y un confidence más bajo.
+Las calorías y macros deben ser coherentes con los datos personales y objetivos del usuario.`;
+
+    const completion = await this.openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: { url: imageUrl, detail: 'high' },
+            },
+          ],
+        },
+      ],
+      max_tokens: 4000,
+      temperature: 0.3,
+    });
+
+    // Log AI cost
+    try {
+      await this.aiCostService.logFromCompletion(
+        userId,
+        'body-analysis-image',
+        completion,
+      );
+    } catch (e) {
+      console.error('Error logging AI cost for body-analysis:', e);
+    }
+
+    const content = completion.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('OpenAI no devolvió contenido en la respuesta');
+    }
+
+    // Limpiar posibles backticks de markdown
+    const cleanedContent = content
+      .replace(/```json\s*/g, '')
+      .replace(/```\s*/g, '')
+      .trim();
+
+    try {
+      const parsed = JSON.parse(cleanedContent) as BodyAnalysisApiResponse;
+      return parsed;
+    } catch (parseError) {
+      console.error('Error parseando respuesta de OpenAI:', cleanedContent);
+      throw new Error('Error parseando la respuesta del análisis corporal');
     }
   }
 

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 interface AISuggestionResponse {
   message: string;
@@ -20,7 +21,7 @@ interface AISuggestionResponse {
 export class AiSuggestionsService {
   private openai: OpenAI | null = null;
 
-  constructor() {
+  constructor(private aiCostService: AICostService) {
     // Inicializar OpenAI solo si hay API key
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
@@ -96,24 +97,25 @@ export class AiSuggestionsService {
   private async generateWithOpenAI(
     message: string,
     chatHistory: Array<{ role: string; content: string }> = [],
+    userId?: string,
   ): Promise<AISuggestionResponse> {
     if (!this.openai) {
       throw new Error('OpenAI no está configurado');
     }
 
     // 🎯 PASO 1: Detectar si es una solicitud para agregar hábito
-    const isHabitRequest = await this.detectHabitCreationIntent(message);
+    const isHabitRequest = await this.detectHabitCreationIntent(message, userId);
 
     if (isHabitRequest) {
       // 🚀 PASO 2: Extraer datos del hábito con OpenAI
-      return await this.extractHabitFromMessage(message);
+      return await this.extractHabitFromMessage(message, userId);
     }
 
     // 🗣️ PASO 3: Si no es para agregar hábito, respuesta de chat normal
-    return await this.generateChatResponse(message, chatHistory);
+    return await this.generateChatResponse(message, chatHistory, userId);
   }
 
-  private async detectHabitCreationIntent(message: string): Promise<boolean> {
+  private async detectHabitCreationIntent(message: string, userId?: string): Promise<boolean> {
     const intentPrompt = `Analiza este mensaje y determina si el usuario quiere AGREGAR/CREAR un nuevo hábito a su tracker.
 
 Mensaje: "${message}"
@@ -139,6 +141,11 @@ Ejemplos de NO:
         temperature: 0.1,
       });
 
+      // Log AI cost
+      if (userId) {
+        await this.aiCostService.logFromCompletion(userId, 'ai-suggestions-detect-intent', completion);
+      }
+
       const response = completion.choices[0]?.message?.content
         ?.trim()
         .toUpperCase();
@@ -162,6 +169,7 @@ Ejemplos de NO:
 
   private async extractHabitFromMessage(
     message: string,
+    userId?: string,
   ): Promise<AISuggestionResponse> {
     const extractionPrompt = `Extrae los datos del hábito de este mensaje y responde en formato JSON válido:
 
@@ -203,6 +211,11 @@ Reglas:
         temperature: 0.3,
       });
 
+      // Log AI cost
+      if (userId) {
+        await this.aiCostService.logFromCompletion(userId, 'ai-suggestions-extract-habit', completion);
+      }
+
       const response = completion.choices[0]?.message?.content;
       if (!response) throw new Error('No se recibió respuesta');
 
@@ -243,6 +256,7 @@ Reglas:
   private async generateChatResponse(
     message: string,
     chatHistory: Array<{ role: string; content: string }> = [],
+    userId?: string,
   ): Promise<AISuggestionResponse> {
     // Construir el contexto del sistema para chat general
     const systemPrompt = `Eres un asistente experto en hábitos y bienestar personal llamado NaviTracker AI. 
@@ -272,6 +286,11 @@ El usuario NO está pidiendo agregar un hábito, solo quiere consejos o informac
         max_tokens: 800,
         temperature: 0.7,
       });
+
+      // Log AI cost
+      if (userId) {
+        await this.aiCostService.logFromCompletion(userId, 'ai-suggestions-chat', completion);
+      }
 
       const aiResponse = completion.choices[0]?.message?.content;
 
@@ -490,11 +509,12 @@ El usuario NO está pidiendo agregar un hábito, solo quiere consejos o informac
   async generateSuggestion(
     message: string,
     chatHistory: Array<{ role: string; content: string }> = [],
+    userId?: string,
   ): Promise<AISuggestionResponse> {
     // 🚀 Usar OpenAI si está disponible, sino fallback
     if (this.openai && process.env.OPENAI_API_KEY) {
       console.log('🤖 Usando OpenAI para generar respuesta...');
-      return await this.generateWithOpenAI(message, chatHistory);
+      return await this.generateWithOpenAI(message, chatHistory, userId);
     } else {
       console.log('⚠️ OpenAI no configurado, usando respuestas predefinidas');
       // Detectar si hay una tabla de hábitos

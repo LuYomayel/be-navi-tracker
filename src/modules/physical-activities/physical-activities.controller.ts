@@ -40,6 +40,7 @@ export class PhysicalActivitiesController {
           await this.physicalActivitiesService.analyzeImagePhysicalActivity(
             dto.screenshotUrl,
             (dto as any).context,
+            userId,
           );
         if (!activity) {
           throw new HttpException(

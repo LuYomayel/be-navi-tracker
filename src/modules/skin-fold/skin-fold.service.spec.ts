@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SkinFoldService } from './skin-fold.service';
 import { PrismaService } from '../../config/prisma.service';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 describe('SkinFoldService', () => {
   let service: SkinFoldService;
@@ -37,6 +38,13 @@ describe('SkinFoldService', () => {
               update: jest.fn(),
               delete: jest.fn(),
             },
+          },
+        },
+        {
+          provide: AICostService,
+          useValue: {
+            logFromCompletion: jest.fn(),
+            calculateCost: jest.fn().mockReturnValue(0),
           },
         },
       ],

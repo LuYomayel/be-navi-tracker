@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PhysicalActivitiesService } from './physical-activities.service';
 import { PrismaService } from '../../config/prisma.service';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 describe('PhysicalActivitiesService', () => {
   let service: PhysicalActivitiesService;
@@ -39,6 +40,13 @@ describe('PhysicalActivitiesService', () => {
               update: jest.fn(),
               deleteMany: jest.fn(),
             },
+          },
+        },
+        {
+          provide: AICostService,
+          useValue: {
+            logFromCompletion: jest.fn(),
+            calculateCost: jest.fn().mockReturnValue(0),
           },
         },
       ],

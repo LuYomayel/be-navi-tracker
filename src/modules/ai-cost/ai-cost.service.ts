@@ -17,6 +17,52 @@ export class AICostService {
     return this.prisma.aICostLog.create({ data });
   }
 
+  /**
+   * Calculates cost and logs it in a single call.
+   * GPT-4o pricing: $2.50/1M input, $10.00/1M output
+   */
+  async logFromCompletion(
+    userId: string,
+    service: string,
+    completion: { usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } },
+    model: string = 'gpt-4o',
+  ) {
+    const usage = completion.usage;
+    if (!usage) return;
+
+    const costUsd = this.calculateCost(usage.prompt_tokens, usage.completion_tokens, model);
+
+    try {
+      await this.logCost({
+        userId,
+        service,
+        model,
+        promptTokens: usage.prompt_tokens,
+        completionTokens: usage.completion_tokens,
+        totalTokens: usage.total_tokens,
+        costUsd,
+      });
+    } catch (error) {
+      // Never fail the parent operation because of cost logging
+      console.error('Error logging AI cost:', error);
+    }
+  }
+
+  /**
+   * Calculate cost in USD based on model pricing.
+   * GPT-4o: $2.50/1M input, $10.00/1M output
+   * GPT-4o-mini: $0.15/1M input, $0.60/1M output
+   */
+  calculateCost(promptTokens: number, completionTokens: number, model: string = 'gpt-4o'): number {
+    const pricing: Record<string, { input: number; output: number }> = {
+      'gpt-4o': { input: 2.5 / 1_000_000, output: 10.0 / 1_000_000 },
+      'gpt-4o-mini': { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
+      'gpt-4-turbo': { input: 10.0 / 1_000_000, output: 30.0 / 1_000_000 },
+    };
+    const rates = pricing[model] || pricing['gpt-4o'];
+    return Number(((promptTokens * rates.input) + (completionTokens * rates.output)).toFixed(6));
+  }
+
   async getStats(userId: string) {
     const logs = await this.prisma.aICostLog.findMany({
       where: { userId },

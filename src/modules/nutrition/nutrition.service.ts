@@ -8,11 +8,12 @@ import {
 import OpenAI from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
 import { CreateWeightEntryManualDto } from './dto/create-weight-entry.dto';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 @Injectable()
 export class NutritionService {
   private openai: OpenAI | null = null;
-  constructor(private prisma: PrismaService) {
+  constructor(private prisma: PrismaService, private aiCostService: AICostService) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
@@ -646,6 +647,9 @@ export class NutritionService {
       if (!response) {
         throw new Error('No se recibió respuesta de OpenAI Vision');
       }
+
+      // Log AI cost
+      await this.aiCostService.logFromCompletion(userId, 'nutrition-weight-image', completion);
 
       // Limpiar y parsear la respuesta JSON
       const cleanedResponse = this.cleanOpenAIResponse(response);
