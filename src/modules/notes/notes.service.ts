@@ -14,7 +14,11 @@ export class NotesService {
         orderBy: { createdAt: 'asc' },
       });
 
-      return notes;
+      return notes.map((note) => ({
+        ...note,
+        predefinedComments: (note.predefinedComments as string[] | null) ?? undefined,
+        customComment: note.customComment ?? undefined,
+      }));
     } catch (error) {
       console.error('Error fetching notes:', error);
       return [];
@@ -26,10 +30,8 @@ export class NotesService {
       const {
         /* strip relation fields */ user: _u,
         userId: _uid,
-        predefinedComments: _predefinedComments,
         ...cleanData
       } = data as any;
-      console.log('cleanData', cleanData);
       const note = await this.prisma.note.create({
         data: {
           ...cleanData,
@@ -39,6 +41,8 @@ export class NotesService {
 
       return {
         ...note,
+        predefinedComments: (note.predefinedComments as string[] | null) ?? undefined,
+        customComment: note.customComment ?? undefined,
       };
     } catch (error) {
       console.error('Error creating note:', error);
@@ -65,6 +69,8 @@ export class NotesService {
 
       return {
         ...note,
+        predefinedComments: (note.predefinedComments as string[] | null) ?? undefined,
+        customComment: note.customComment ?? undefined,
       };
     } catch (error) {
       console.error('Error updating note:', error);
@@ -72,10 +78,10 @@ export class NotesService {
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, userId: string): Promise<boolean> {
     try {
-      await this.prisma.note.delete({
-        where: { id },
+      await this.prisma.note.deleteMany({
+        where: { id, userId },
       });
       return true;
     } catch (error) {

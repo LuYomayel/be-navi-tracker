@@ -41,7 +41,8 @@ export class NutritionController {
     @Req() req?: any,
   ): Promise<ApiResponse<NutritionAnalysis[]>> {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123'; // Fallback para testing
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
       const analyses = date
         ? await this.nutritionService.getByDate(date, userId)
         : await this.nutritionService.getAll(userId);
@@ -62,7 +63,8 @@ export class NutritionController {
     @Req() req?: any,
   ): Promise<ApiResponse<WeightEntry[]>> {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123'; // Fallback para testing
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
       const entries = date
         ? await this.nutritionService.getWeightEntriesByDate(date, userId)
         : await this.nutritionService.getAllWeightEntries(userId);
@@ -117,7 +119,7 @@ export class NutritionController {
 
       const analysis = await this.nutritionService.analyzeWeightImage(
         imageBase64,
-        req.user?.userId ?? 'usr_test_id_123',
+        req.user?.userId,
       );
       console.log('Entrada de peso creada:', analysis);
       return { success: true, data: analysis };
@@ -322,7 +324,8 @@ export class NutritionController {
       const result = await this.nutritionService.updateNutritionAnalysis();
       if (result.meetsGoals) {
         // Agregar experiencia
-        const xp = await this.xpService.addXp('usr_test_id_123', {
+        // TODO: Iterate over all active users instead of hardcoded ID
+        const xp = await this.xpService.addXp('system', {
           action: XpAction.NUTRITION_LOG,
           xpAmount: 40,
           description: 'Cumplir el objetivo calórico/macros del día',
@@ -344,7 +347,8 @@ export class NutritionController {
     @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123'; // Fallback para testing
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
       const today = date || new Date().toISOString().split('T')[0];
 
       const balance = await this.nutritionService.getDailyNutritionBalance(

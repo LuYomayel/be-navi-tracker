@@ -35,8 +35,14 @@ model User {
   activities          Activity[]
   notes               Note[]
   physical_activities PhysicalActivity[]
-  userStreaks        UserStreak[]
+  userStreaks         UserStreak[]
   weightEntries      WeightEntry[]
+  nutritionAnalyses  NutritionAnalysis[]
+  chatMessages       ChatMessage[]
+  bodyAnalyses       BodyAnalysis[]
+  aiSuggestions      AISuggestion[]
+  analyses           Analysis[]
+  skinFoldRecords    SkinFoldRecord[]
 
   @@map("users")
 }
@@ -52,6 +58,7 @@ model Activity {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   archived    Boolean   @default(false)
+  archivedAt  DateTime?
   // Relaciones
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -89,6 +96,8 @@ model NutritionAnalysis {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("nutrition_analyses")
 }
 
@@ -98,6 +107,8 @@ model ChatMessage {
   role      String   // user, assistant
   content   String   @db.Text
   timestamp DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("chat_messages")
 }
@@ -118,11 +129,14 @@ model BodyAnalysis {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("body_analyses")
 }
 
 model AISuggestion {
   id          String    @id @default(cuid())
+  userId      String    @default("default")
   type        String
   title       String
   description String    @db.Text
@@ -131,6 +145,8 @@ model AISuggestion {
   actions     Json?     // Array de objetos
   dismissedAt DateTime?
   createdAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("ai_suggestions")
 }
@@ -144,6 +160,8 @@ model Analysis {
   notes            String?  @db.Text
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("analyses")
 }
@@ -196,16 +214,20 @@ model SkinFoldRecord {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("skin_fold_records")
 }
 
 model Note {
-  id          String   @id @default(cuid())
-  date        String
-  content     String
-  mood        Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  id                 String   @id @default(cuid())
+  date               String
+  content            String
+  mood               Int
+  predefinedComments Json?    // Array de IDs de comentarios predefinidos
+  customComment      String?  // Comentario personalizado del usuario
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   // Relaciones
   userId      String

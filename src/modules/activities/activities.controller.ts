@@ -102,9 +102,30 @@ export class ActivitiesController {
     }
   }
 
+  @Put('restore/:id')
+  async restore(
+    @Param('id') id: string,
+    @Req() req: any,
+  ): Promise<ApiResponse<Activity>> {
+    try {
+      const activity = await this.activitiesService.restore(
+        id,
+        req.user.userId,
+      );
+      return { success: true, data: activity };
+    } catch (error) {
+      console.error('Error restoring activity:', error);
+      throw new HttpException(
+        'Failed to restore activity',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Delete()
   async delete(
     @Query('id') id: string,
+    @Req() req: any,
   ): Promise<ApiResponse<{ deleted: boolean }>> {
     try {
       if (!id) {
@@ -114,7 +135,7 @@ export class ActivitiesController {
         );
       }
 
-      const success = await this.activitiesService.delete(id);
+      const success = await this.activitiesService.delete(id, req.user.userId);
       return { success, data: { deleted: success } };
     } catch (error) {
       console.error('Error deleting activity:', error);

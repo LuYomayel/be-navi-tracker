@@ -6,9 +6,11 @@ import {
   HttpException,
   HttpStatus,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { AiSuggestionsService } from './ai-suggestions.service';
 import { ApiResponse } from '../../common/types';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface SuggestionRequest {
   message: string;
@@ -17,6 +19,7 @@ interface SuggestionRequest {
 }
 
 @Controller('ai-suggestions')
+@UseGuards(JwtAuthGuard)
 export class AiSuggestionsController {
   constructor(private readonly aiSuggestionsService: AiSuggestionsService) {}
 

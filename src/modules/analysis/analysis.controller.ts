@@ -1,6 +1,7 @@
-import { Controller, Get, Query, Post, Body } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, UseGuards } from '@nestjs/common';
 import { AnalysisService } from './analysis.service';
 import { ApiResponse } from '../../common/types';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface BookRecommendationRequest {
   availableTime: string;
@@ -18,6 +19,7 @@ interface ContentRecommendationRequest {
 }
 
 @Controller('analysis')
+@UseGuards(JwtAuthGuard)
 export class AnalysisController {
   constructor(private readonly analysisService: AnalysisService) {}
 

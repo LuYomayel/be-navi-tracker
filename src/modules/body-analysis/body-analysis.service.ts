@@ -183,14 +183,14 @@ export class BodyAnalysisService {
     }
   }
 
-  async save(dto: SaveDTO): Promise<BodyAnalysis> {
+  async save(dto: SaveDTO, userId: string): Promise<BodyAnalysis> {
     try {
       // Preparar datos para persistir
       const analysisToSave: Omit<
         BodyAnalysis,
         'id' | 'createdAt' | 'updatedAt'
       > = {
-        userId: 'default',
+        userId,
         bodyType: dto.bodyType,
         measurements:
           dto.fullAnalysisData?.measurements || (dto.measurements as any),

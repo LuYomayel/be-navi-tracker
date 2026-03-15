@@ -30,7 +30,8 @@ export class PhysicalActivitiesController {
   @Post()
   async create(@Req() req, @Body() dto: CreatePhysicalActivityDto) {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123'; // Fallback para testing
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
 
       if (dto.source === 'image' && dto.screenshotUrl) {
         const activity =
@@ -84,7 +85,8 @@ export class PhysicalActivitiesController {
   @Get()
   async findAll(@Req() req) {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123'; // Fallback para testing
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
       const activities = await this.physicalActivitiesService.getAll(userId);
       return { success: true, data: activities };
     } catch (error) {
@@ -103,17 +105,22 @@ export class PhysicalActivitiesController {
     >,
   ) {
     try {
-      const userId = req?.user?.userId || 'usr_test_id_123'; // Fallback para testing
-      return this.physicalActivitiesService.update(id, dto);
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      const updated = await this.physicalActivitiesService.update(id, dto, userId);
+      return { success: true, data: updated };
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string) {
+  async remove(@Param('id') id: string, @Req() req) {
     try {
-      return this.physicalActivitiesService.delete(id);
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      const deleted = await this.physicalActivitiesService.delete(id, userId);
+      return { success: true, data: { deleted } };
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }

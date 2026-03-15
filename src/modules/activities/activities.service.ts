@@ -64,11 +64,10 @@ export class ActivitiesService {
       const { user: _u, userId: _uid, ...cleanData } = data as any;
 
       const activity = await this.prisma.activity.update({
-        where: { id },
+        where: { id, userId },
         data: {
           ...cleanData,
           updatedAt: new Date(),
-          userId,
         },
       });
 
@@ -85,11 +84,11 @@ export class ActivitiesService {
   async archive(id: string, userId: string): Promise<Activity | null> {
     try {
       const activity = await this.prisma.activity.update({
-        where: { id },
+        where: { id, userId },
         data: {
           archived: true,
+          archivedAt: new Date(),
           updatedAt: new Date(),
-          userId,
         },
       });
       return {
@@ -102,10 +101,30 @@ export class ActivitiesService {
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async restore(id: string, userId: string): Promise<Activity | null> {
     try {
-      await this.prisma.activity.delete({
-        where: { id },
+      const activity = await this.prisma.activity.update({
+        where: { id, userId },
+        data: {
+          archived: false,
+          archivedAt: null,
+          updatedAt: new Date(),
+        },
+      });
+      return {
+        ...activity,
+        days: activity.days as boolean[],
+      };
+    } catch (error) {
+      console.error('Error restoring activity:', error);
+      return null;
+    }
+  }
+
+  async delete(id: string, userId: string): Promise<boolean> {
+    try {
+      await this.prisma.activity.deleteMany({
+        where: { id, userId },
       });
       return true;
     } catch (error) {

@@ -1,8 +1,10 @@
-import { Controller, Get, Param, Inject } from '@nestjs/common';
+import { Controller, Get, Param, Inject, UseGuards } from '@nestjs/common';
 import { Queue, Job } from 'bullmq';
 import { ApiResponse } from '../../common/types';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('tasks')
+@UseGuards(JwtAuthGuard)
 export class TasksController {
   constructor(
     @Inject('BODY_ANALYSIS_QUEUE')

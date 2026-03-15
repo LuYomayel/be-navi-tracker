@@ -152,10 +152,11 @@ export class PhysicalActivitiesService {
       PhysicalActivity,
       'id' | 'userId' | 'createdAt' | 'updatedAt' | 'user'
     >,
+    userId: string,
   ): Promise<PhysicalActivity | null> {
     try {
       const activity = await this.prisma.physicalActivity.update({
-        where: { id },
+        where: { id, userId },
         data: {
           ...data,
           updatedAt: new Date(),
@@ -171,10 +172,10 @@ export class PhysicalActivitiesService {
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, userId: string): Promise<boolean> {
     try {
-      await this.prisma.physicalActivity.delete({
-        where: { id },
+      await this.prisma.physicalActivity.deleteMany({
+        where: { id, userId },
       });
       return true;
     } catch (error) {

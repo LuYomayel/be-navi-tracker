@@ -9,10 +9,13 @@ import {
   Query,
   HttpException,
   HttpStatus,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { BodyAnalysisService } from './body-analysis.service';
 import { ApiResponse } from '../../common/types';
 import { SaveBodyAnalysisDto, SaveDTO } from './dto/save-body-analysis.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface BodyAnalysisRequest {
   image: string;
@@ -48,6 +51,7 @@ interface PersonalDataRequest {
 }
 
 @Controller('body-analysis')
+@UseGuards(JwtAuthGuard)
 export class BodyAnalysisController {
   constructor(private readonly bodyAnalysisService: BodyAnalysisService) {}
 
@@ -91,11 +95,9 @@ export class BodyAnalysisController {
   }
 
   @Post('save')
-  async save(@Body() request: SaveDTO): Promise<ApiResponse<any>> {
+  async save(@Body() request: SaveDTO, @Req() req: any): Promise<ApiResponse<any>> {
     try {
-      console.log('🔍 Guardando análisis corporal...');
-      console.log(request);
-      const analysis = await this.bodyAnalysisService.save(request);
+      const analysis = await this.bodyAnalysisService.save(request, req.user.userId);
       return { success: true, data: analysis };
     } catch (error) {
       console.error('Error saving body analysis:', error);

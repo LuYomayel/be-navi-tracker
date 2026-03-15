@@ -77,13 +77,14 @@ export class NotesController {
   @Delete()
   async delete(
     @Query('id') id: string,
+    @Req() req: any,
   ): Promise<ApiResponse<{ deleted: boolean }>> {
     try {
       if (!id) {
         throw new HttpException('Note ID is required', HttpStatus.BAD_REQUEST);
       }
 
-      const success = await this.notesService.delete(id);
+      const success = await this.notesService.delete(id, req.user.userId);
       return { success, data: { deleted: success } };
     } catch (error) {
       console.error('Error deleting note:', error);

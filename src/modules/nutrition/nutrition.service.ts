@@ -205,10 +205,12 @@ export class NutritionService {
       yesterday.setDate(yesterday.getDate() - 1);
       const dateStr = new Date().toISOString().split('T')[0]; // Por ahora usamos hoy
 
-      const result = await this.checkDailyNutritionGoals(
-        'usr_test_id_123',
-        dateStr,
-      );
+      // TODO: Iterate over all active users
+      const users = await this.prisma.user.findMany({ where: { isActive: true }, select: { id: true } });
+      let result = { meetsGoals: false, totals: {} };
+      for (const user of users) {
+        result = await this.checkDailyNutritionGoals(user.id, dateStr);
+      }
 
       console.log('✅ Evaluación nutricional diaria:', result);
 
