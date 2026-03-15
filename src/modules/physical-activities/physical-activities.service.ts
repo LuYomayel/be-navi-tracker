@@ -32,7 +32,8 @@ export class PhysicalActivitiesService {
 
   async analyzeImagePhysicalActivity(
     imageBase64: string,
-  ): Promise<PhysicalActivity | null> {
+    context?: string,
+  ): Promise<(PhysicalActivity & { aiCostUsd?: number | null }) | null> {
     if (!this.openai) {
       console.log('OpenAI no disponible, usando análisis de fallback');
       return null;
@@ -67,7 +68,7 @@ export class PhysicalActivitiesService {
             content: [
               {
                 type: 'text',
-                text: `Analiza la imagen y devuelve un objeto con los datos de la actividad física. La imagen es de una actividad física. En ai confidence, devuelve un numero entre 0 y 1 de la confianza de que los datos son correctos.`,
+                text: `Analiza la imagen y devuelve un objeto con los datos de la actividad física. La imagen es de una actividad física. En ai confidence, devuelve un numero entre 0 y 1 de la confianza de que los datos son correctos.${context ? '\n\nCONTEXTO DEL USUARIO: ' + context : ''}`,
               },
               {
                 type: 'image_url',
@@ -87,6 +88,11 @@ export class PhysicalActivitiesService {
       if (!response) {
         throw new Error('No se recibió respuesta de OpenAI Vision');
       }
+
+      // Extraer costo de la llamada
+      const usage = completion.usage;
+      const costUsd = usage ? this.calculateCost(usage.prompt_tokens, usage.completion_tokens, 'gpt-4o') : null;
+
       const validatedResponse = JSON.parse(this.cleanOpenAIResponse(response));
       const isResponseValid =
         validatedResponse.date &&
@@ -105,13 +111,23 @@ export class PhysicalActivitiesService {
         throw new Error('La respuesta de OpenAI Vision no es válida');
       }
 
-      console.log('✅ Análisis de comida generado con OpenAI Vision');
-      return validatedResponse;
+      console.log('✅ Análisis de actividad física generado con OpenAI Vision');
+      return { ...validatedResponse, aiCostUsd: costUsd };
     } catch (error) {
       console.error('Error analizando imagen de comida con OpenAI:', error);
       // Fallback a análisis predefinido
       return null;
     }
+  }
+
+  private calculateCost(promptTokens: number, completionTokens: number, model: string): number {
+    // GPT-4o pricing (as of 2024): $2.50/1M input, $10.00/1M output
+    const pricing: Record<string, { input: number; output: number }> = {
+      'gpt-4o': { input: 2.50 / 1_000_000, output: 10.00 / 1_000_000 },
+      'gpt-4o-mini': { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
+    };
+    const p = pricing[model] || pricing['gpt-4o'];
+    return Number(((promptTokens * p.input) + (completionTokens * p.output)).toFixed(6));
   }
 
   private cleanOpenAIResponse(response: string): string {

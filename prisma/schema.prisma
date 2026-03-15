@@ -43,6 +43,8 @@ model User {
   aiSuggestions      AISuggestion[]
   analyses           Analysis[]
   skinFoldRecords    SkinFoldRecord[]
+  savedMeals         SavedMeal[]
+  aiCostLogs         AICostLog[]
 
   @@map("users")
 }
@@ -93,6 +95,9 @@ model NutritionAnalysis {
   imageUrl          String?
   aiConfidence      Float    @default(0.0)
   userAdjustments   Json?    // UserNutritionAdjustments object
+  context           String?  @db.Text // Contexto adicional del usuario para mejorar el analisis
+  aiCostUsd         Float?   // Costo de la llamada a OpenAI en USD
+  savedMealId       String?  // Si se creo desde un SavedMeal
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -210,7 +215,9 @@ model SkinFoldRecord {
   technician   String?  // Nombre del profesional o "AI"
   notes        String?  @db.Text
   values       Json     // Partial<Record<SkinFoldSite, number>> - valores en mm
-  aiConfidence Float?   // 0-1 cuando es extraído por IA
+  aiConfidence Float?   // 0-1 cuando es extraido por IA
+  pdfUrl       String?  @db.Text // PDF del nutricionista en base64
+  pdfFilename  String?  // Nombre original del archivo PDF
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -265,6 +272,8 @@ model PhysicalActivity {
   screenshotUrl   String?
   source          String   @default("manual") // manual | image
   aiConfidence    Float?
+  context         String?  @db.Text // Contexto del usuario para mejorar analisis de imagen
+  aiCostUsd       Float?   // Costo de la llamada a OpenAI en USD
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -320,4 +329,41 @@ model WeightEntry {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("weight_entries")
+}
+
+// Comidas guardadas - templates reutilizables
+model SavedMeal {
+  id              String   @id @default(cuid())
+  userId          String
+  name            String   // "Desayuno clasico", "Post-entreno", etc.
+  description     String?  // Descripcion breve
+  mealType        String   // breakfast, lunch, dinner, snack, other
+  foods           Json     // Array de DetectedFood (misma estructura que NutritionAnalysis)
+  totalCalories   Int
+  macronutrients  Json     // Macronutrients object
+  timesUsed       Int      @default(1)
+  lastUsedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("saved_meals")
+}
+
+// Registro de costos de IA
+model AICostLog {
+  id            String   @id @default(cuid())
+  userId        String
+  service       String   // "food_analysis", "body_analysis", "physical_activity", "weight_photo"
+  model         String   // "gpt-4o", etc.
+  promptTokens  Int
+  completionTokens Int
+  totalTokens   Int
+  costUsd       Float    // Costo estimado en USD
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_cost_logs")
 }

@@ -24,12 +24,14 @@ export enum MealType {
 interface FoodAnalysisImageRequest {
   image: string;
   mealType?: MealType;
+  context?: string;
 }
 
 interface FoodAnalysisManualRequest {
   ingredients: string; // Descripción libre de ingredientes
   servings?: number; // Número de porciones (opcional, default 1)
   mealType: MealType;
+  context?: string;
 }
 
 @Controller('analyze-food')
@@ -53,6 +55,7 @@ export class AnalyzeFoodController {
       const analysis = await this.analyzeFoodService.analyzeImageFood(
         image,
         mealType,
+        request.context,
       );
 
       return {
@@ -86,6 +89,7 @@ export class AnalyzeFoodController {
         ingredients,
         servings,
         mealType,
+        request.context,
       );
 
       return {

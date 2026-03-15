@@ -40,6 +40,7 @@ interface FoodAnalysisResponse {
   confidence: number;
   mealType: MealType;
   recommendations?: string[];
+  aiCostUsd?: number | null;
 }
 
 export interface DetectedFood {
@@ -110,6 +111,7 @@ export class AnalyzeFoodService {
   async analyzeImageFood(
     imageBase64: string,
     mealType?: string,
+    context?: string,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
       console.log('OpenAI no disponible, usando análisis de fallback');
@@ -157,7 +159,7 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
             content: [
               {
                 type: 'text',
-                text: prompt,
+                text: `${prompt}${context ? `\n\nCONTEXTO ADICIONAL DEL USUARIO: ${context}` : ''}`,
               },
               {
                 type: 'image_url',
@@ -177,6 +179,10 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
       if (!response) {
         throw new Error('No se recibió respuesta de OpenAI Vision');
       }
+
+      // Extraer costo de la llamada
+      const usage = completion.usage;
+      const costUsd = usage ? this.calculateCost(usage.prompt_tokens, usage.completion_tokens, 'gpt-4o') : null;
 
       // Limpiar y parsear la respuesta JSON
       const cleanedResponse = this.cleanOpenAIResponse(response);
@@ -200,7 +206,7 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
       );
 
       console.log('✅ Análisis de comida generado con OpenAI Vision');
-      return validatedAnalysis;
+      return { ...validatedAnalysis, aiCostUsd: costUsd };
     } catch (error) {
       console.error('Error analizando imagen de comida con OpenAI:', error);
       // Fallback a análisis predefinido
@@ -212,6 +218,7 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
     ingredients: string, // Descripción libre de ingredientes
     servings: number = 1, // Número de porciones
     mealType: MealType,
+    context?: string,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
       console.log('OpenAI no disponible, usando análisis de fallback');
@@ -288,7 +295,7 @@ Ingredientes: ${ingredients}
 Número de porciones: ${servings}
 Tipo de comida: ${mealType}
 
-Por favor, estima las cantidades si no están especificadas y calcula las calorías y macronutrientes totales considerando ${servings} porción(es).`,
+Por favor, estima las cantidades si no están especificadas y calcula las calorías y macronutrientes totales considerando ${servings} porción(es).${context ? `\n\nContexto adicional: ${context}` : ''}`,
           },
         ],
         max_tokens: 2000,
@@ -299,6 +306,10 @@ Por favor, estima las cantidades si no están especificadas y calcula las calor�
       if (!response) {
         throw new Error('No se recibió respuesta de OpenAI');
       }
+
+      // Extraer costo de la llamada
+      const usage = completion.usage;
+      const costUsd = usage ? this.calculateCost(usage.prompt_tokens, usage.completion_tokens, 'gpt-4o') : null;
 
       // Limpiar y parsear la respuesta JSON
       const cleanedResponse = this.cleanOpenAIResponse(response);
@@ -319,7 +330,7 @@ Por favor, estima las cantidades si no están especificadas y calcula las calor�
       );
 
       console.log('✅ Análisis manual de comida generado con OpenAI');
-      return validatedAnalysis;
+      return { ...validatedAnalysis, aiCostUsd: costUsd };
     } catch (error) {
       console.error(
         'Error analizando ingredientes manuales con OpenAI:',
@@ -595,6 +606,16 @@ IMPORTANTE:
       return categoryValue;
     }
     return FoodCategory.OTHER; // Categoría por defecto
+  }
+
+  private calculateCost(promptTokens: number, completionTokens: number, model: string): number {
+    // GPT-4o pricing (as of 2024): $2.50/1M input, $10.00/1M output
+    const pricing: Record<string, { input: number; output: number }> = {
+      'gpt-4o': { input: 2.50 / 1_000_000, output: 10.00 / 1_000_000 },
+      'gpt-4o-mini': { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
+    };
+    const p = pricing[model] || pricing['gpt-4o'];
+    return Number(((promptTokens * p.input) + (completionTokens * p.output)).toFixed(6));
   }
 
   // Función fallback para cuando no hay OpenAI disponible

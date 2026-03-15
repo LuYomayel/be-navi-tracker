@@ -21,6 +21,8 @@ import { QueueModule } from './queue/queue.module';
 import { NotesModule } from './modules/notes/notes.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PhysicalActivitiesModule } from './modules/physical-activities/physical-activities.module';
+import { SavedMealsModule } from './modules/saved-meals/saved-meals.module';
+import { AICostModule } from './modules/ai-cost/ai-cost.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([{
@@ -44,6 +46,8 @@ import { PhysicalActivitiesModule } from './modules/physical-activities/physical
     XpModule,
     NotesModule,
     PhysicalActivitiesModule,
+    SavedMealsModule,
+    AICostModule,
   ],
   controllers: [AppController],
   providers: [

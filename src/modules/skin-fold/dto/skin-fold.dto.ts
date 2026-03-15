@@ -39,6 +39,14 @@ export class CreateSkinFoldRecordDto {
   @Min(0)
   @Max(1)
   aiConfidence?: number;
+
+  @IsOptional()
+  @IsString()
+  pdfUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  pdfFilename?: string;
 }
 
 export class UpdateSkinFoldRecordDto {
@@ -63,6 +71,14 @@ export class UpdateSkinFoldRecordDto {
   @Min(0)
   @Max(1)
   aiConfidence?: number;
+
+  @IsOptional()
+  @IsString()
+  pdfUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  pdfFilename?: string;
 }
 
 export class AnalyzeSkinFoldDto {
@@ -86,6 +102,8 @@ export interface SkinFoldRecord {
   notes?: string;
   values: Partial<Record<SkinFoldSite, number>>;
   aiConfidence?: number;
+  pdfUrl?: string;
+  pdfFilename?: string;
   createdAt: Date;
   updatedAt: Date;
 }

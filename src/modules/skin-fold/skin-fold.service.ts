@@ -106,6 +106,8 @@ export class SkinFoldService {
           notes: data.notes,
           values: data.values,
           aiConfidence: data.aiConfidence,
+          pdfUrl: data.pdfUrl,
+          pdfFilename: data.pdfFilename,
         },
       });
 
@@ -149,6 +151,8 @@ export class SkinFoldService {
           notes: data.notes,
           values: data.values,
           aiConfidence: data.aiConfidence,
+          pdfUrl: data.pdfUrl,
+          pdfFilename: data.pdfFilename,
         },
       });
 
