@@ -293,7 +293,7 @@ export class MealPrepService {
         weekStartDate: dto.weekStartDate,
         weekEndDate,
         name: `Semana del ${this.formatDateShort(dto.weekStartDate)}`,
-        days: JSON.parse(JSON.stringify(week)),
+        days: JSON.parse(JSON.stringify(week.days)),
         dailyTotals: JSON.parse(JSON.stringify(totals.dailyTotals)),
         weeklyTotals: JSON.parse(JSON.stringify(totals.weeklyTotals)),
         userContext: dto.userContext || null,
