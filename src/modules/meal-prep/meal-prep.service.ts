@@ -339,24 +339,31 @@ export class MealPrepService {
       throw new NotFoundException('Meal prep no encontrado');
     }
 
-    const days = existing.days as any as MealPrepWeek;
+    // DB stores days as Record<DayKey, MealPrepDay> directly (not wrapped in { days: ... })
+    const rawDays = existing.days as any as Record<string, any>;
+    const week: MealPrepWeek = { days: rawDays } as any;
 
-    if (!days.days[dto.day]) {
-      throw new BadRequestException(`Día inválido: ${dto.day}`);
+    if (!week.days[dto.day]) {
+      // Initialize day if it doesn't exist
+      week.days[dto.day] = { slots: {} } as any;
+    }
+
+    if (!week.days[dto.day].slots) {
+      week.days[dto.day].slots = {} as any;
     }
 
     // Mergear el slot
-    days.days[dto.day].slots[dto.mealType] = {
-      ...(days.days[dto.day].slots[dto.mealType] || {}),
+    week.days[dto.day].slots[dto.mealType] = {
+      ...(week.days[dto.day].slots[dto.mealType] || {}),
       ...dto.slot,
     } as any;
 
-    const totals = this.computeTotals(days);
+    const totals = this.computeTotals(week);
 
     return this.prisma.mealPrep.update({
       where: { id },
       data: {
-        days: JSON.parse(JSON.stringify(days)),
+        days: JSON.parse(JSON.stringify(week.days)),
         dailyTotals: JSON.parse(JSON.stringify(totals.dailyTotals)),
         weeklyTotals: JSON.parse(JSON.stringify(totals.weeklyTotals)),
         updatedAt: new Date(),
@@ -373,8 +380,10 @@ export class MealPrepService {
       throw new NotFoundException('Meal prep no encontrado');
     }
 
-    const days = existing.days as any as MealPrepWeek;
-    const slot = days.days[dto.day]?.slots?.[dto.mealType];
+    // DB stores days as Record<DayKey, MealPrepDay> directly (not wrapped in { days: ... })
+    const rawDays = existing.days as any as Record<string, any>;
+    const week: MealPrepWeek = { days: rawDays } as any;
+    const slot = week.days[dto.day]?.slots?.[dto.mealType];
 
     if (!slot) {
       throw new BadRequestException(
@@ -405,12 +414,12 @@ export class MealPrepService {
     slot.eatenAt = new Date().toISOString();
     slot.nutritionAnalysisId = nutritionAnalysis.id;
 
-    const totals = this.computeTotals(days);
+    const totals = this.computeTotals(week);
 
     const updatedMealPrep = await this.prisma.mealPrep.update({
       where: { id },
       data: {
-        days: JSON.parse(JSON.stringify(days)),
+        days: JSON.parse(JSON.stringify(week.days)),
         dailyTotals: JSON.parse(JSON.stringify(totals.dailyTotals)),
         weeklyTotals: JSON.parse(JSON.stringify(totals.weeklyTotals)),
         updatedAt: new Date(),
