@@ -117,8 +117,9 @@ export class ShoppingListService {
     for (const dayKey of Object.keys(days)) {
       const day = days[dayKey];
       if (!day) continue;
+      const slots = day.slots || day;
       for (const slotKey of ['breakfast', 'lunch', 'snack', 'dinner']) {
-        const slot = day[slotKey];
+        const slot = slots[slotKey];
         if (slot?.foods && Array.isArray(slot.foods)) {
           for (const food of slot.foods) {
             const name = (
