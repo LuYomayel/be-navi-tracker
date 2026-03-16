@@ -22,6 +22,9 @@ import { PhysicalActivitiesModule } from './modules/physical-activities/physical
 import { SavedMealsModule } from './modules/saved-meals/saved-meals.module';
 import { AICostModule } from './modules/ai-cost/ai-cost.module';
 import { MealPrepModule } from './modules/meal-prep/meal-prep.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
+import { DayScoreModule } from './modules/day-score/day-score.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([{
@@ -46,6 +49,9 @@ import { MealPrepModule } from './modules/meal-prep/meal-prep.module';
     SavedMealsModule,
     AICostModule,
     MealPrepModule,
+    TasksModule,
+    CalendarModule,
+    DayScoreModule,
   ],
   controllers: [AppController],
   providers: [

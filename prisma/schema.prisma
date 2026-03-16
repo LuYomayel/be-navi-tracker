@@ -47,6 +47,10 @@ model User {
   aiCostLogs         AICostLog[]
   nutritionistPlans  NutritionistPlan[]
   mealPreps          MealPrep[]
+  tasks              Task[]
+  calendarEvents     CalendarEvent[]
+  googleCalendarConnection GoogleCalendarConnection?
+  dayScores          DayScore[]
 
   @@map("users")
 }
@@ -412,4 +416,115 @@ model MealPrep {
   nutritionistPlan  NutritionistPlan? @relation(fields: [nutritionistPlanId], references: [id])
 
   @@map("meal_preps")
+}
+
+// ==========================================
+// TASKS (To-Do List)
+// ==========================================
+model Task {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title           String
+  description     String?   @db.Text
+  dueDate         String?   // YYYY-MM-DD (nullable = sin fecha limite)
+  dueTime         String?   // HH:mm (opcional, para tareas con hora especifica)
+  priority        String    @default("medium") // "low" | "medium" | "high" | "urgent"
+  status          String    @default("pending") // "pending" | "in_progress" | "completed"
+  completed       Boolean   @default(false)
+  completedAt     DateTime?
+  category        String?   // "work" | "personal" | "health" | "finance" | "study" | "other"
+  tags            String?   @db.Text // JSON array de strings
+  order           Int       @default(0)
+  isRecurring     Boolean   @default(false)
+  recurrenceRule  String?   @db.Text // JSON: { frequency, days?, endDate? }
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([userId, dueDate])
+  @@index([userId, status])
+  @@map("tasks")
+}
+
+// ==========================================
+// CALENDAR EVENTS
+// ==========================================
+model CalendarEvent {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  googleEventId   String?   @unique
+  title           String
+  description     String?   @db.Text
+  location        String?
+  startTime       DateTime
+  endTime         DateTime
+  allDay          Boolean   @default(false)
+  color           String?
+  source          String    @default("manual") // "manual" | "google"
+  syncedAt        DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([userId, startTime])
+  @@map("calendar_events")
+}
+
+// ==========================================
+// GOOGLE CALENDAR CONNECTION
+// ==========================================
+model GoogleCalendarConnection {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accessToken     String    @db.Text
+  refreshToken    String    @db.Text
+  tokenExpiresAt  DateTime
+  calendarId      String    @default("primary")
+  syncEnabled     Boolean   @default(true)
+  lastSyncAt      DateTime?
+  syncToken       String?   @db.Text
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("google_calendar_connections")
+}
+
+// ==========================================
+// DAY SCORE (Dia Ganado/Perdido)
+// ==========================================
+model DayScore {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date            String    // YYYY-MM-DD
+  totalItems      Int
+  completedItems  Int
+  percentage      Float     // 0-100
+  status          String    // "won" | "partial" | "lost" | "no_data"
+
+  habitsTotal     Int       @default(0)
+  habitsCompleted Int       @default(0)
+  tasksTotal      Int       @default(0)
+  tasksCompleted  Int       @default(0)
+  nutritionLogged Boolean   @default(false)
+  exerciseLogged  Boolean   @default(false)
+  reflectionLogged Boolean  @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@index([userId, status])
+  @@map("day_scores")
 }

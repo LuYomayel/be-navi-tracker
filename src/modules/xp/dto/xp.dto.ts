@@ -10,6 +10,9 @@ export enum XpAction {
   HABIT_CREATED = 'habit_created',
   HABIT_CREATED_BY_AI = 'habit_created_by_ai',
   PHYSICAL_ACTIVITY = 'physical_activity',
+  TASK_COMPLETE = 'task_complete',
+  DAY_WON = 'day_won',
+  DAY_PARTIAL = 'day_partial',
 }
 
 export class AddXpDto {
