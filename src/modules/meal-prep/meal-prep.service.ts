@@ -520,6 +520,67 @@ export class MealPrepService {
       .trim();
   }
 
+  /**
+   * Intenta reparar un JSON truncado cerrando llaves y corchetes faltantes.
+   * Útil cuando OpenAI corta la respuesta por max_tokens.
+   */
+  private repairTruncatedJson(json: string): string {
+    // Remover última propiedad/valor incompleto (ej: "name": "Pollo a)
+    // Buscar la última coma o llave de apertura válida
+    let repaired = json.trimEnd();
+
+    // Si termina en medio de un string, cortarlo
+    const lastQuote = repaired.lastIndexOf('"');
+    const lastBrace = repaired.lastIndexOf('}');
+    const lastBracket = repaired.lastIndexOf(']');
+    const lastComma = repaired.lastIndexOf(',');
+
+    // Si el último caracter significativo es una coma o un valor incompleto,
+    // retroceder hasta la última estructura cerrada
+    if (lastComma > lastBrace && lastComma > lastBracket) {
+      repaired = repaired.substring(0, lastComma);
+    }
+
+    // Contar llaves y corchetes abiertos
+    let openBraces = 0;
+    let openBrackets = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (const char of repaired) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (char === '{') openBraces++;
+      else if (char === '}') openBraces--;
+      else if (char === '[') openBrackets++;
+      else if (char === ']') openBrackets--;
+    }
+
+    // Cerrar lo que falte
+    while (openBrackets > 0) {
+      repaired += ']';
+      openBrackets--;
+    }
+    while (openBraces > 0) {
+      repaired += '}';
+      openBraces--;
+    }
+
+    return repaired;
+  }
+
   // ═══════════════════════════════════════════════════════════
   // AI METHODS
   // ═══════════════════════════════════════════════════════════
@@ -676,8 +737,10 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
       parts.push(`\nSLOTS FIJOS (no modificar):\n${fixedList}`);
     }
 
-    parts.push(`\nPara cada comida incluye alimentos con cantidades en gramos, calorías y macronutrientes.
+    parts.push(`\nPara cada comida incluye alimentos con cantidades, calorías y macros.
 Si una comida guardada del usuario es apropiada, úsala (indica savedMealId).
+
+IMPORTANTE: Sé conciso en los nombres. Usa máximo 2-3 foods por comida. No uses "notes" salvo que sea necesario.
 
 Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 {
@@ -685,24 +748,22 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
     "monday": {
       "slots": {
         "breakfast": {
-          "name": "string",
-          "foods": [{ "name": "string", "quantity": "string", "calories": 0, "confidence": 0.85, "macronutrients": { "protein": 0, "carbs": 0, "fat": 0, "fiber": 0 }, "category": "string" }],
+          "name": "Nombre corto",
+          "foods": [{ "name": "str", "quantity": "str", "calories": 0, "macronutrients": { "protein": 0, "carbs": 0, "fat": 0, "fiber": 0 } }],
           "totalCalories": 0,
-          "macronutrients": { "protein": 0, "carbs": 0, "fat": 0, "fiber": 0 },
-          "notes": "string|null",
-          "savedMealId": "string|null"
+          "macronutrients": { "protein": 0, "carbs": 0, "fat": 0, "fiber": 0 }
         },
-        "lunch": { ... },
-        "snack": { ... },
-        "dinner": { ... }
+        "lunch": { "name": "...", "foods": [...], "totalCalories": 0, "macronutrients": {...} },
+        "snack": { "name": "...", "foods": [...], "totalCalories": 0, "macronutrients": {...} },
+        "dinner": { "name": "...", "foods": [...], "totalCalories": 0, "macronutrients": {...} }
       }
     },
-    "tuesday": { ... },
-    "wednesday": { ... },
-    "thursday": { ... },
-    "friday": { ... },
-    "saturday": { ... },
-    "sunday": { ... }
+    "tuesday": { "slots": { ... } },
+    "wednesday": { "slots": { ... } },
+    "thursday": { "slots": { ... } },
+    "friday": { "slots": { ... } },
+    "saturday": { "slots": { ... } },
+    "sunday": { "slots": { ... } }
   }
 }`);
 
@@ -719,7 +780,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
           content: parts.join('\n'),
         },
       ],
-      max_tokens: 6000,
+      max_tokens: 16000,
       temperature: 0.3,
     });
 
@@ -734,10 +795,18 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
       const parsed = JSON.parse(cleaned) as MealPrepWeek;
       return { week: parsed, completion };
     } catch (e) {
-      console.error('Error parseando respuesta meal prep:', cleaned);
-      throw new BadRequestException(
-        'Error parseando la respuesta de generación del meal prep',
-      );
+      // Intentar reparar JSON truncado: cerrar llaves/corchetes faltantes
+      console.warn('JSON truncado, intentando reparar...', cleaned.slice(-100));
+      try {
+        const repaired = this.repairTruncatedJson(cleaned);
+        const parsed = JSON.parse(repaired) as MealPrepWeek;
+        return { week: parsed, completion };
+      } catch (e2) {
+        console.error('Error parseando respuesta meal prep (irreparable):', cleaned.slice(-200));
+        throw new BadRequestException(
+          'Error parseando la respuesta de generación del meal prep. La respuesta de la IA fue demasiado larga.',
+        );
+      }
     }
   }
 }
