@@ -13,6 +13,7 @@ export enum XpAction {
   TASK_COMPLETE = 'task_complete',
   DAY_WON = 'day_won',
   DAY_PARTIAL = 'day_partial',
+  HYDRATION_GOAL = 'hydration_goal',
 }
 
 export class AddXpDto {

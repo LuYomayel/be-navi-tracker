@@ -64,15 +64,27 @@ export class DayScoreService {
     });
     const reflectionLogged = noteCount > 0;
 
+    // 6. HYDRATION: daily goal reached
+    const hydrationLog = await this.prisma.hydrationLog.findUnique({
+      where: { userId_date: { userId, date } },
+    });
+    const prefs = await this.prisma.userPreferences.findFirst({
+      where: { userId },
+    });
+    const hydrationGoal = prefs?.hydrationGoalGlasses ?? 8;
+    const hydrationLogged =
+      (hydrationLog?.glassesConsumed ?? 0) >= hydrationGoal;
+
     // Calculate score
     let totalItems = habitsTotal + tasksTotal;
     let completedItems = habitsCompleted + tasksCompleted;
 
     // Boolean modules always count as 1 item each
-    totalItems += 3; // nutrition + exercise + reflection
+    totalItems += 4; // nutrition + exercise + reflection + hydration
     if (nutritionLogged) completedItems += 1;
     if (exerciseLogged) completedItems += 1;
     if (reflectionLogged) completedItems += 1;
+    if (hydrationLogged) completedItems += 1;
 
     const percentage =
       totalItems > 0
@@ -104,6 +116,7 @@ export class DayScoreService {
         nutritionLogged,
         exerciseLogged,
         reflectionLogged,
+        hydrationLogged,
       },
       update: {
         totalItems,
@@ -117,6 +130,7 @@ export class DayScoreService {
         nutritionLogged,
         exerciseLogged,
         reflectionLogged,
+        hydrationLogged,
       },
     });
 
@@ -200,6 +214,7 @@ export class DayScoreService {
           nutritionLogged: false,
           exerciseLogged: false,
           reflectionLogged: false,
+          hydrationLogged: false,
         });
       } else if (date === today) {
         // Always recalculate today

@@ -25,6 +25,8 @@ import { MealPrepModule } from './modules/meal-prep/meal-prep.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { DayScoreModule } from './modules/day-score/day-score.module';
+import { HydrationModule } from './modules/hydration/hydration.module';
+import { ShoppingListModule } from './modules/shopping-list/shopping-list.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([{
@@ -52,6 +54,8 @@ import { DayScoreModule } from './modules/day-score/day-score.module';
     TasksModule,
     CalendarModule,
     DayScoreModule,
+    HydrationModule,
+    ShoppingListModule,
   ],
   controllers: [AppController],
   providers: [

@@ -51,6 +51,8 @@ model User {
   calendarEvents     CalendarEvent[]
   googleCalendarConnection GoogleCalendarConnection?
   dayScores          DayScore[]
+  hydrationLogs      HydrationLog[]
+  shoppingLists      ShoppingList[]
 
   @@map("users")
 }
@@ -207,7 +209,11 @@ model UserPreferences {
   // Configuraciones adicionales
   preferredUnits    String   @default("metric") // metric, imperial
   notifications     Json?    // Configuraciones de notificaciones
-  
+
+  // Hidratación
+  hydrationGoalGlasses  Int?     @default(8)   // Meta diaria en vasos
+  hydrationMlPerGlass   Int?     @default(250) // ml por vaso
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -519,6 +525,7 @@ model DayScore {
   nutritionLogged Boolean   @default(false)
   exerciseLogged  Boolean   @default(false)
   reflectionLogged Boolean  @default(false)
+  hydrationLogged  Boolean  @default(false)
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -527,4 +534,69 @@ model DayScore {
   @@index([userId, date])
   @@index([userId, status])
   @@map("day_scores")
+}
+
+// ==========================================
+// HYDRATION TRACKING
+// ==========================================
+model HydrationLog {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date             String    // YYYY-MM-DD
+  glassesConsumed  Int       @default(0)
+  mlConsumed       Int       @default(0)
+  goalReachedAt    DateTime?
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("hydration_logs")
+}
+
+// ==========================================
+// SHOPPING LISTS
+// ==========================================
+model ShoppingList {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  source      String   @default("manual")    // "manual" | "ai_generated" | "meal_prep"
+  mealPrepId  String?
+  status      String   @default("active")    // "active" | "archived"
+  notes       String?  @db.Text
+  aiCostUsd   Float?
+
+  items       ShoppingItem[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, status])
+  @@map("shopping_lists")
+}
+
+model ShoppingItem {
+  id             String       @id @default(cuid())
+  shoppingListId String
+  shoppingList   ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
+
+  name           String
+  quantity       String?
+  category       String       @default("other") // produce | protein | dairy | grains | pantry | frozen | other
+  checked        Boolean      @default(false)
+  checkedAt      DateTime?
+  notes          String?
+  order          Int          @default(0)
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([shoppingListId, category])
+  @@map("shopping_items")
 }
