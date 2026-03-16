@@ -16,6 +16,7 @@ import {
 import { NutritionService } from '../nutrition/nutrition.service';
 import { SavedMealsService } from '../saved-meals/saved-meals.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { PreferencesService } from '../preferences/preferences.service';
 import OpenAI from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
 
@@ -45,6 +46,7 @@ export class MealPrepService {
     private nutritionService: NutritionService,
     private savedMealsService: SavedMealsService,
     private aiCostService: AICostService,
+    private preferencesService: PreferencesService,
   ) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -117,6 +119,45 @@ export class MealPrepService {
         aiConfidence: confidence,
       },
     });
+
+    // Auto-sync nutrition goals from the imported plan
+    try {
+      const goals: any = {};
+      if (parsedPlan.targetCalories) {
+        goals.dailyCalorieGoal = Math.round(parsedPlan.targetCalories);
+      }
+      if (parsedPlan.targetMacros) {
+        if (parsedPlan.targetMacros.protein) goals.proteinGoal = Math.round(parsedPlan.targetMacros.protein);
+        if (parsedPlan.targetMacros.carbs) goals.carbsGoal = Math.round(parsedPlan.targetMacros.carbs);
+        if (parsedPlan.targetMacros.fat) goals.fatGoal = Math.round(parsedPlan.targetMacros.fat);
+      }
+
+      // If AI didn't extract explicit targets, calculate from the plan's daily totals
+      if (!goals.dailyCalorieGoal && parsedPlan.days) {
+        const dailyCals: number[] = [];
+        for (const dayKey of DAY_KEYS) {
+          const day = parsedPlan.days[dayKey];
+          if (day) {
+            let dayCal = 0;
+            for (const slot of ['breakfast', 'lunch', 'snack', 'dinner']) {
+              dayCal += day[slot]?.estimatedCalories || 0;
+            }
+            if (dayCal > 0) dailyCals.push(dayCal);
+          }
+        }
+        if (dailyCals.length > 0) {
+          goals.dailyCalorieGoal = Math.round(dailyCals.reduce((a, b) => a + b, 0) / dailyCals.length);
+        }
+      }
+
+      if (Object.keys(goals).length > 0) {
+        await this.preferencesService.updateGoals(goals, userId);
+        console.log('✅ Objetivos nutricionales actualizados desde plan:', goals);
+      }
+    } catch (error) {
+      console.error('Error auto-syncing nutrition goals from plan:', error);
+      // Non-blocking: plan import succeeds even if goal sync fails
+    }
 
     return plan;
   }

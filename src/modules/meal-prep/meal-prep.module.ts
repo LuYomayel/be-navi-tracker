@@ -5,9 +5,10 @@ import { PrismaService } from '../../config/prisma.service';
 import { AICostModule } from '../ai-cost/ai-cost.module';
 import { SavedMealsModule } from '../saved-meals/saved-meals.module';
 import { NutritionModule } from '../nutrition/nutrition.module';
+import { PreferencesModule } from '../preferences/preferences.module';
 
 @Module({
-  imports: [AICostModule, SavedMealsModule, NutritionModule],
+  imports: [AICostModule, SavedMealsModule, NutritionModule, PreferencesModule],
   controllers: [MealPrepController],
   providers: [MealPrepService, PrismaService],
   exports: [MealPrepService],
