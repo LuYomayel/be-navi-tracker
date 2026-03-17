@@ -5,6 +5,7 @@ import { PrismaService } from '../../config/prisma.service';
 import { NutritionService } from '../nutrition/nutrition.service';
 import { SavedMealsService } from '../saved-meals/saved-meals.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { PreferencesService } from '../preferences/preferences.service';
 import { MealPrepWeek } from './dto';
 
 describe('MealPrepService', () => {
@@ -134,6 +135,12 @@ describe('MealPrepService', () => {
           provide: AICostService,
           useValue: {
             logFromCompletion: jest.fn(),
+          },
+        },
+        {
+          provide: PreferencesService,
+          useValue: {
+            updateGoals: jest.fn().mockResolvedValue({}),
           },
         },
       ],
@@ -546,19 +553,34 @@ describe('MealPrepService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw BadRequestException for invalid day', async () => {
-      const existingPrep = { ...mockMealPrep, days: { days: {} } };
+    it('should auto-initialize missing day when updating slot', async () => {
+      const existingPrep = { ...mockMealPrep, days: {} };
       (prisma.mealPrep.findFirst as jest.Mock).mockResolvedValue(existingPrep);
+      (prisma.mealPrep.update as jest.Mock).mockImplementation(({ data }) => Promise.resolve({
+        ...existingPrep,
+        ...data,
+      }));
 
-      await expect(
-        service.updateSlot('prep-1', { day: 'monday', mealType: 'breakfast', slot: {} }, userId),
-      ).rejects.toThrow(BadRequestException);
+      await service.updateSlot('prep-1', { day: 'monday', mealType: 'breakfast', slot: { name: 'Test' } }, userId);
+
+      expect(prisma.mealPrep.update).toHaveBeenCalledWith({
+        where: { id: 'prep-1' },
+        data: expect.objectContaining({
+          days: expect.objectContaining({
+            monday: expect.objectContaining({
+              slots: expect.objectContaining({
+                breakfast: expect.objectContaining({ name: 'Test' }),
+              }),
+            }),
+          }),
+        }),
+      });
     });
   });
 
   describe('markSlotEaten', () => {
     it('should mark a slot as eaten and create NutritionAnalysis', async () => {
-      const existingPrep = { ...mockMealPrep, days: buildMockWeek() };
+      const existingPrep = { ...mockMealPrep, days: buildMockWeek().days };
       (prisma.mealPrep.findFirst as jest.Mock).mockResolvedValue(existingPrep);
       (nutritionService.create as jest.Mock).mockResolvedValue({
         id: 'nutr-1',
@@ -593,7 +615,7 @@ describe('MealPrepService', () => {
         ...mockSlot,
         eatenAt: '2026-03-16T12:00:00.000Z',
       } as any;
-      const existingPrep = { ...mockMealPrep, days: week };
+      const existingPrep = { ...mockMealPrep, days: week.days };
       (prisma.mealPrep.findFirst as jest.Mock).mockResolvedValue(existingPrep);
 
       await expect(
@@ -612,7 +634,7 @@ describe('MealPrepService', () => {
     it('should throw BadRequestException if no slot exists for the day/mealType', async () => {
       const week = buildMockWeek();
       week.days.monday.slots.breakfast = null as any;
-      const existingPrep = { ...mockMealPrep, days: week };
+      const existingPrep = { ...mockMealPrep, days: week.days };
       (prisma.mealPrep.findFirst as jest.Mock).mockResolvedValue(existingPrep);
 
       await expect(
@@ -621,7 +643,7 @@ describe('MealPrepService', () => {
     });
 
     it('should update the slot with eatenAt and nutritionAnalysisId', async () => {
-      const existingPrep = { ...mockMealPrep, days: buildMockWeek() };
+      const existingPrep = { ...mockMealPrep, days: buildMockWeek().days };
       (prisma.mealPrep.findFirst as jest.Mock).mockResolvedValue(existingPrep);
       (nutritionService.create as jest.Mock).mockResolvedValue({
         id: 'nutr-1',

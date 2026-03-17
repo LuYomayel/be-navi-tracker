@@ -11,67 +11,68 @@ datasource db {
 }
 
 model User {
-  id                String   @id @default(cuid())
-  email             String   @unique
-  name              String
-  password          String
-  plan              String   @default("free") // free, basic, premium
-  isActive          Boolean  @default(true)
-  
+  id       String  @id @default(cuid())
+  email    String  @unique
+  name     String
+  password String
+  plan     String  @default("free") // free, basic, premium
+  isActive Boolean @default(true)
+
   // Sistema de XP y Niveles
-  level             Int      @default(1)
-  xp                Int      @default(0)
-  totalXp           Int      @default(0) // XP total acumulada histórica
-  streak            Int      @default(0) // Días consecutivos completando hábitos
-  lastStreakDate    String? // Fecha de la última actividad para calcular racha
-  
+  level          Int     @default(1)
+  xp             Int     @default(0)
+  totalXp        Int     @default(0) // XP total acumulada histórica
+  streak         Int     @default(0) // Días consecutivos completando hábitos
+  lastStreakDate String? // Fecha de la última actividad para calcular racha
+
   // Rachas desacopladas → UserStreak
-  
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relaciones
-  xpLogs              XpLog[]
-  activities          Activity[]
-  notes               Note[]
-  physical_activities PhysicalActivity[]
-  userStreaks         UserStreak[]
-  weightEntries      WeightEntry[]
-  nutritionAnalyses  NutritionAnalysis[]
-  chatMessages       ChatMessage[]
-  bodyAnalyses       BodyAnalysis[]
-  aiSuggestions      AISuggestion[]
-  analyses           Analysis[]
-  skinFoldRecords    SkinFoldRecord[]
-  savedMeals         SavedMeal[]
-  aiCostLogs         AICostLog[]
-  nutritionistPlans  NutritionistPlan[]
-  mealPreps          MealPrep[]
-  tasks              Task[]
-  calendarEvents     CalendarEvent[]
+  xpLogs                   XpLog[]
+  activities               Activity[]
+  notes                    Note[]
+  physical_activities      PhysicalActivity[]
+  userStreaks              UserStreak[]
+  weightEntries            WeightEntry[]
+  nutritionAnalyses        NutritionAnalysis[]
+  chatMessages             ChatMessage[]
+  bodyAnalyses             BodyAnalysis[]
+  aiSuggestions            AISuggestion[]
+  analyses                 Analysis[]
+  skinFoldRecords          SkinFoldRecord[]
+  savedMeals               SavedMeal[]
+  aiCostLogs               AICostLog[]
+  nutritionistPlans        NutritionistPlan[]
+  mealPreps                MealPrep[]
+  tasks                    Task[]
+  calendarEvents           CalendarEvent[]
   googleCalendarConnection GoogleCalendarConnection?
-  dayScores          DayScore[]
-  hydrationLogs      HydrationLog[]
-  shoppingLists      ShoppingList[]
+  dayScores                DayScore[]
+  hydrationLogs            HydrationLog[]
+  shoppingLists            ShoppingList[]
+  userPreferences          UserPreferences?
 
   @@map("users")
 }
 
 model Activity {
-  id          String   @id @default(cuid())
+  id          String            @id @default(cuid())
   name        String
   description String?
   time        String?
-  days        Json     // Array de 7 booleans [L, M, X, J, V, S, D]
+  days        Json // Array de 7 booleans [L, M, X, J, V, S, D]
   color       String
   category    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  archived    Boolean   @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  archived    Boolean           @default(false)
   archivedAt  DateTime?
   // Relaciones
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   completions DailyCompletion[]
 
   @@map("activities")
@@ -80,7 +81,7 @@ model Activity {
 model DailyCompletion {
   id         String   @id @default(cuid())
   activityId String
-  date       String   // YYYY-MM-DD format
+  date       String // YYYY-MM-DD format
   completed  Boolean  @default(false)
   notes      String?
   createdAt  DateTime @default(now())
@@ -93,23 +94,23 @@ model DailyCompletion {
 }
 
 model NutritionAnalysis {
-  id                String   @id @default(cuid())
-  userId            String   @default("default")
-  date              String   // YYYY-MM-DD format
-  mealType          String   // breakfast, lunch, dinner, snack, other
-  foods             Json     // Array de DetectedFood
-  totalCalories     Int
-  macronutrients    Json     // Macronutrients object
-  imageUrl          String?
-  aiConfidence      Float    @default(0.0)
-  userAdjustments   Json?    // UserNutritionAdjustments object
-  context           String?  @db.Text // Contexto adicional del usuario para mejorar el analisis
-  aiCostUsd         Float?   // Costo de la llamada a OpenAI en USD
-  savedMealId       String?  // Si se creo desde un SavedMeal
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String   @id @default(cuid())
+  userId          String   @default("default")
+  date            String // YYYY-MM-DD format
+  mealType        String // breakfast, lunch, dinner, snack, other
+  foods           Json // Array de DetectedFood
+  totalCalories   Int
+  macronutrients  Json // Macronutrients object
+  imageUrl        String?
+  aiConfidence    Float    @default(0.0)
+  userAdjustments Json? // UserNutritionAdjustments object
+  context         String?  @db.Text // Contexto adicional del usuario para mejorar el analisis
+  aiCostUsd       Float? // Costo de la llamada a OpenAI en USD
+  savedMealId     String? // Si se creo desde un SavedMeal
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("nutrition_analyses")
 }
@@ -117,11 +118,11 @@ model NutritionAnalysis {
 model ChatMessage {
   id        String   @id @default(cuid())
   userId    String   @default("default")
-  role      String   // user, assistant
+  role      String // user, assistant
   content   String   @db.Text
   timestamp DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("chat_messages")
 }
@@ -130,19 +131,19 @@ model BodyAnalysis {
   id              String   @id @default(cuid())
   userId          String   @default("default")
   bodyType        String
-  measurements    Json?    // BodyMeasurements object
-  bodyComposition Json?    // BodyComposition object
-  recommendations Json?    // NutritionRecommendations object
-  progress        Json?    // Progress object con strengths, areasToImprove, generalAdvice
-  insights        Json?    // Array de insights de la AI
-  disclaimer      String?  // Disclaimer del análisis
-  rawAnalysis     Json?    // TODO el JSON completo de la AI
+  measurements    Json? // BodyMeasurements object
+  bodyComposition Json? // BodyComposition object
+  recommendations Json? // NutritionRecommendations object
+  progress        Json? // Progress object con strengths, areasToImprove, generalAdvice
+  insights        Json? // Array de insights de la AI
+  disclaimer      String? // Disclaimer del análisis
+  rawAnalysis     Json? // TODO el JSON completo de la AI
   imageUrl        String?
   aiConfidence    Float    @default(0.0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("body_analyses")
 }
@@ -154,12 +155,12 @@ model AISuggestion {
   title       String
   description String    @db.Text
   priority    String
-  basedOn     Json      // Array de strings
-  actions     Json?     // Array de objetos
+  basedOn     Json // Array de strings
+  actions     Json? // Array de objetos
   dismissedAt DateTime?
   createdAt   DateTime  @default(now())
 
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("ai_suggestions")
 }
@@ -167,55 +168,57 @@ model AISuggestion {
 model Analysis {
   id               String   @id @default(cuid())
   userId           String   @default("default")
-  date             String   // YYYY-MM-DD format
-  detectedPatterns Json     // Array de strings: ["sleep_issues", "stress_pattern", etc.]
-  mood             Int      // 1-5 scale
+  date             String // YYYY-MM-DD format
+  detectedPatterns Json // Array de strings: ["sleep_issues", "stress_pattern", etc.]
+  mood             Int // 1-5 scale
   notes            String?  @db.Text
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("analyses")
 }
 
 model UserPreferences {
-  id                String   @id @default(cuid())
-  userId            String   @unique @default("default")
-  
+  id     String @id @default(cuid())
+  userId String @unique @default("default")
+
   // Datos personales
-  height            Int?     // cm
-  currentWeight     Float?   // kg
-  targetWeight      Float?   // kg
-  age               Int?
-  gender            String?  // male, female, other
-  activityLevel     String?  // sedentary, light, moderate, active, very_active
-  
+  height        Int? // cm
+  currentWeight Float? // kg
+  targetWeight  Float? // kg
+  age           Int?
+  gender        String? // male, female, other
+  activityLevel String? // sedentary, light, moderate, active, very_active
+
   // Objetivos de fitness
-  fitnessGoals      Json?    // Array de strings: ["define", "bulk", "lose_weight", etc.]
-  
+  fitnessGoals Json? // Array de strings: ["define", "bulk", "lose_weight", etc.]
+
   // Objetivos nutricionales (calculados/ajustados)
-  dailyCalorieGoal  Int?
-  proteinGoal       Float?   // gramos
-  carbsGoal         Float?   // gramos
-  fatGoal           Float?   // gramos
-  fiberGoal         Float?   // gramos
-  
+  dailyCalorieGoal Int?
+  proteinGoal      Float? // gramos
+  carbsGoal        Float? // gramos
+  fatGoal          Float? // gramos
+  fiberGoal        Float? // gramos
+
   // Metadatos
   lastBodyAnalysisId String? // ID del último body analysis usado para calcular
-  bmr               Float?   // Metabolismo basal calculado
-  tdee              Float?   // Gasto energético total calculado
-  
+  bmr                Float? // Metabolismo basal calculado
+  tdee               Float? // Gasto energético total calculado
+
   // Configuraciones adicionales
-  preferredUnits    String   @default("metric") // metric, imperial
-  notifications     Json?    // Configuraciones de notificaciones
+  preferredUnits String @default("metric") // metric, imperial
+  notifications  Json? // Configuraciones de notificaciones
 
   // Hidratación
-  hydrationGoalGlasses  Int?     @default(8)   // Meta diaria en vasos
-  hydrationMlPerGlass   Int?     @default(250) // ml por vaso
+  hydrationGoalGlasses Int? @default(8) // Meta diaria en vasos
+  hydrationMlPerGlass  Int? @default(250) // ml por vaso
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_preferences")
 }
@@ -223,17 +226,17 @@ model UserPreferences {
 model SkinFoldRecord {
   id           String   @id @default(cuid())
   userId       String   @default("default")
-  date         String   // YYYY-MM-DD format
-  technician   String?  // Nombre del profesional o "AI"
+  date         String // YYYY-MM-DD format
+  technician   String? // Nombre del profesional o "AI"
   notes        String?  @db.Text
-  values       Json     // Partial<Record<SkinFoldSite, number>> - valores en mm
-  aiConfidence Float?   // 0-1 cuando es extraido por IA
+  values       Json // Partial<Record<SkinFoldSite, number>> - valores en mm
+  aiConfidence Float? // 0-1 cuando es extraido por IA
   pdfUrl       String?  @db.Text // PDF del nutricionista en base64
-  pdfFilename  String?  // Nombre original del archivo PDF
+  pdfFilename  String? // Nombre original del archivo PDF
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("skin_fold_records")
 }
@@ -243,14 +246,14 @@ model Note {
   date               String
   content            String
   mood               Int
-  predefinedComments Json?    // Array de IDs de comentarios predefinidos
-  customComment      String?  // Comentario personalizado del usuario
+  predefinedComments Json? // Array de IDs de comentarios predefinidos
+  customComment      String? // Comentario personalizado del usuario
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   // Relaciones
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notes")
 }
@@ -258,60 +261,60 @@ model Note {
 model XpLog {
   id          String   @id @default(cuid())
   userId      String   @default("default")
-  action      String   // "habit_complete", "nutrition_log", "daily_comment", "streak_bonus", "level_up"
-  xpEarned    Int      // XP ganada en esta acción
-  description String   // Descripción de la acción
-  date        String   // YYYY-MM-DD format
-  metadata    Json?    // Información adicional (streak_count, level_reached, etc.)
+  action      String // "habit_complete", "nutrition_log", "daily_comment", "streak_bonus", "level_up"
+  xpEarned    Int // XP ganada en esta acción
+  description String // Descripción de la acción
+  date        String // YYYY-MM-DD format
+  metadata    Json? // Información adicional (streak_count, level_reached, etc.)
   createdAt   DateTime @default(now())
 
   // Relaciones
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("xp_logs")
 }
 
 // 👇 agregar al final
 model PhysicalActivity {
-  id              String   @id @default(cuid())
-  userId          String
-  date            String   // yyyy-MM-dd (UTC 00:00)
-  steps           Int?
-  distanceKm      Float?
+  id               String   @id @default(cuid())
+  userId           String
+  date             String // yyyy-MM-dd (UTC 00:00)
+  steps            Int?
+  distanceKm       Float?
   activeEnergyKcal Int?
-  exerciseMinutes Int?
-  standHours      Int?
-  screenshotUrl   String?
-  source          String   @default("manual") // manual | image
-  aiConfidence    Float?
-  context         String?  @db.Text // Contexto del usuario para mejorar analisis de imagen
-  aiCostUsd       Float?   // Costo de la llamada a OpenAI en USD
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  exerciseMinutes  Int?
+  standHours       Int?
+  screenshotUrl    String?
+  source           String   @default("manual") // manual | image
+  aiConfidence     Float?
+  context          String?  @db.Text // Contexto del usuario para mejorar analisis de imagen
+  aiCostUsd        Float? // Costo de la llamada a OpenAI en USD
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("physical_activities")
 }
 
 // 📈 Tipos de racha configurables
 model StreakType {
-  id              String        @id @default(cuid())
-  code            String        @unique // "habits", "nutrition", etc.
+  id              String       @id @default(cuid())
+  code            String       @unique // "habits", "nutrition", etc.
   name            String
-  bonusMultiplier Int           @default(10) // XP extra por día de racha
+  bonusMultiplier Int          @default(10) // XP extra por día de racha
   userStreaks     UserStreak[]
 }
 
 // 🔥 Rachas de usuario por tipo
 model UserStreak {
-  id           String      @id @default(cuid())
+  id           String   @id @default(cuid())
   userId       String
   streakTypeId String
-  count        Int         @default(0)
+  count        Int      @default(0)
   lastDate     String? // YYYY-MM-DD
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   streakType StreakType @relation(fields: [streakTypeId], references: [id], onDelete: Cascade)
@@ -320,22 +323,22 @@ model UserStreak {
 }
 
 model WeightEntry {
-  id                    String   @id @default(cuid())
-  userId                String
-  date                  String   // YYYY-MM-DD format
-  weight                Float    // kg
-  bodyFatPercentage     Float?   // %
-  muscleMassPercentage  Float?   // %
-  bodyWaterPercentage   Float?   // %
-  bmi                   Float?
-  bfr                   Float?   // Body Fat Rate
-  score                 Int?     // Score general de la balanza
-  imageUrl              String?  // Foto de la balanza (opcional)
-  source                String   @default("manual") // manual | photo | scale
-  aiConfidence          Float?   // Si se usó AI para detectar desde foto
-  notes                 String?  @db.Text
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  userId               String
+  date                 String // YYYY-MM-DD format
+  weight               Float // kg
+  bodyFatPercentage    Float? // %
+  muscleMassPercentage Float? // %
+  bodyWaterPercentage  Float? // %
+  bmi                  Float?
+  bfr                  Float? // Body Fat Rate
+  score                Int? // Score general de la balanza
+  imageUrl             String? // Foto de la balanza (opcional)
+  source               String   @default("manual") // manual | photo | scale
+  aiConfidence         Float? // Si se usó AI para detectar desde foto
+  notes                String?  @db.Text
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   // Relaciones
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -345,18 +348,18 @@ model WeightEntry {
 
 // Comidas guardadas - templates reutilizables
 model SavedMeal {
-  id              String   @id @default(cuid())
-  userId          String
-  name            String   // "Desayuno clasico", "Post-entreno", etc.
-  description     String?  // Descripcion breve
-  mealType        String   // breakfast, lunch, dinner, snack, other
-  foods           Json     // Array de DetectedFood (misma estructura que NutritionAnalysis)
-  totalCalories   Int
-  macronutrients  Json     // Macronutrients object
-  timesUsed       Int      @default(1)
-  lastUsedAt      DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  userId         String
+  name           String // "Desayuno clasico", "Post-entreno", etc.
+  description    String? // Descripcion breve
+  mealType       String // breakfast, lunch, dinner, snack, other
+  foods          Json // Array de DetectedFood (misma estructura que NutritionAnalysis)
+  totalCalories  Int
+  macronutrients Json // Macronutrients object
+  timesUsed      Int      @default(1)
+  lastUsedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -365,15 +368,15 @@ model SavedMeal {
 
 // Registro de costos de IA
 model AICostLog {
-  id            String   @id @default(cuid())
-  userId        String
-  service       String   // "food_analysis", "body_analysis", "physical_activity", "weight_photo"
-  model         String   // "gpt-4o", etc.
-  promptTokens  Int
+  id               String   @id @default(cuid())
+  userId           String
+  service          String // "food_analysis", "body_analysis", "physical_activity", "weight_photo"
+  model            String // "gpt-4o", etc.
+  promptTokens     Int
   completionTokens Int
-  totalTokens   Int
-  costUsd       Float    // Costo estimado en USD
-  createdAt     DateTime @default(now())
+  totalTokens      Int
+  costUsd          Float // Costo estimado en USD
+  createdAt        DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -384,10 +387,10 @@ model AICostLog {
 model NutritionistPlan {
   id           String   @id @default(cuid())
   userId       String
-  name         String                      // "Plan nutricionista Marzo 2026"
-  rawText      String?  @db.LongText       // Texto raw extraído por AI
-  parsedPlan   Json                        // Estructura semanal parseada
-  weeklyNotes  String?  @db.Text           // Notas generales o restricciones del PDF
+  name         String // "Plan nutricionista Marzo 2026"
+  rawText      String?  @db.LongText // Texto raw extraído por AI
+  parsedPlan   Json // Estructura semanal parseada
+  weeklyNotes  String?  @db.Text // Notas generales o restricciones del PDF
   pdfFilename  String?
   isActive     Boolean  @default(true)
   aiConfidence Float?
@@ -403,23 +406,23 @@ model NutritionistPlan {
 
 // Meal Prep semanal
 model MealPrep {
-  id                   String   @id @default(cuid())
-  userId               String
-  nutritionistPlanId   String?
-  weekStartDate        String                    // YYYY-MM-DD del lunes
-  weekEndDate          String                    // YYYY-MM-DD del domingo
-  name                 String?                   // "Semana del 10 Mar"
-  days                 Json                      // MealPrepWeek: 7 días × 4 slots
-  dailyTotals          Json?                     // Record<DayKey, MacroSummary>
-  weeklyTotals         Json?                     // MacroSummary
-  userContext          String?  @db.Text         // Input del usuario para generación
-  status               String   @default("active") // active | archived
-  aiCostUsd            Float?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  userId             String
+  nutritionistPlanId String?
+  weekStartDate      String // YYYY-MM-DD del lunes
+  weekEndDate        String // YYYY-MM-DD del domingo
+  name               String? // "Semana del 10 Mar"
+  days               Json // MealPrepWeek: 7 días × 4 slots
+  dailyTotals        Json? // Record<DayKey, MacroSummary>
+  weeklyTotals       Json? // MacroSummary
+  userContext        String?  @db.Text // Input del usuario para generación
+  status             String   @default("active") // active | archived
+  aiCostUsd          Float?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  nutritionistPlan  NutritionistPlan? @relation(fields: [nutritionistPlanId], references: [id])
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nutritionistPlan NutritionistPlan? @relation(fields: [nutritionistPlanId], references: [id])
 
   @@map("meal_preps")
 }
@@ -428,26 +431,26 @@ model MealPrep {
 // TASKS (To-Do List)
 // ==========================================
 model Task {
-  id              String    @id @default(cuid())
-  userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  title           String
-  description     String?   @db.Text
-  dueDate         String?   // YYYY-MM-DD (nullable = sin fecha limite)
-  dueTime         String?   // HH:mm (opcional, para tareas con hora especifica)
-  priority        String    @default("medium") // "low" | "medium" | "high" | "urgent"
-  status          String    @default("pending") // "pending" | "in_progress" | "completed"
-  completed       Boolean   @default(false)
-  completedAt     DateTime?
-  category        String?   // "work" | "personal" | "health" | "finance" | "study" | "other"
-  tags            String?   @db.Text // JSON array de strings
-  order           Int       @default(0)
-  isRecurring     Boolean   @default(false)
-  recurrenceRule  String?   @db.Text // JSON: { frequency, days?, endDate? }
+  title          String
+  description    String?   @db.Text
+  dueDate        String? // YYYY-MM-DD (nullable = sin fecha limite)
+  dueTime        String? // HH:mm (opcional, para tareas con hora especifica)
+  priority       String    @default("medium") // "low" | "medium" | "high" | "urgent"
+  status         String    @default("pending") // "pending" | "in_progress" | "completed"
+  completed      Boolean   @default(false)
+  completedAt    DateTime?
+  category       String? // "work" | "personal" | "health" | "finance" | "study" | "other"
+  tags           String?   @db.Text // JSON array de strings
+  order          Int       @default(0)
+  isRecurring    Boolean   @default(false)
+  recurrenceRule String?   @db.Text // JSON: { frequency, days?, endDate? }
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([userId, dueDate])
@@ -459,23 +462,23 @@ model Task {
 // CALENDAR EVENTS
 // ==========================================
 model CalendarEvent {
-  id              String    @id @default(cuid())
-  userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  googleEventId   String?   @unique
-  title           String
-  description     String?   @db.Text
-  location        String?
-  startTime       DateTime
-  endTime         DateTime
-  allDay          Boolean   @default(false)
-  color           String?
-  source          String    @default("manual") // "manual" | "google"
-  syncedAt        DateTime?
+  googleEventId String?   @unique
+  title         String
+  description   String?   @db.Text
+  location      String?
+  startTime     DateTime
+  endTime       DateTime
+  allDay        Boolean   @default(false)
+  color         String?
+  source        String    @default("manual") // "manual" | "google"
+  syncedAt      DateTime?
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([userId, startTime])
@@ -486,20 +489,20 @@ model CalendarEvent {
 // GOOGLE CALENDAR CONNECTION
 // ==========================================
 model GoogleCalendarConnection {
-  id              String    @id @default(cuid())
-  userId          String    @unique
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  accessToken     String    @db.Text
-  refreshToken    String    @db.Text
-  tokenExpiresAt  DateTime
-  calendarId      String    @default("primary")
-  syncEnabled     Boolean   @default(true)
-  lastSyncAt      DateTime?
-  syncToken       String?   @db.Text
+  accessToken    String    @db.Text
+  refreshToken   String    @db.Text
+  tokenExpiresAt DateTime
+  calendarId     String    @default("primary")
+  syncEnabled    Boolean   @default(true)
+  lastSyncAt     DateTime?
+  syncToken      String?   @db.Text
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("google_calendar_connections")
 }
@@ -508,27 +511,27 @@ model GoogleCalendarConnection {
 // DAY SCORE (Dia Ganado/Perdido)
 // ==========================================
 model DayScore {
-  id              String    @id @default(cuid())
-  userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  date            String    // YYYY-MM-DD
-  totalItems      Int
-  completedItems  Int
-  percentage      Float     // 0-100
-  status          String    // "won" | "partial" | "lost" | "no_data"
+  date           String // YYYY-MM-DD
+  totalItems     Int
+  completedItems Int
+  percentage     Float // 0-100
+  status         String // "won" | "partial" | "lost" | "no_data"
 
-  habitsTotal     Int       @default(0)
-  habitsCompleted Int       @default(0)
-  tasksTotal      Int       @default(0)
-  tasksCompleted  Int       @default(0)
-  nutritionLogged Boolean   @default(false)
-  exerciseLogged  Boolean   @default(false)
-  reflectionLogged Boolean  @default(false)
-  hydrationLogged  Boolean  @default(false)
+  habitsTotal      Int     @default(0)
+  habitsCompleted  Int     @default(0)
+  tasksTotal       Int     @default(0)
+  tasksCompleted   Int     @default(0)
+  nutritionLogged  Boolean @default(false)
+  exerciseLogged   Boolean @default(false)
+  reflectionLogged Boolean @default(false)
+  hydrationLogged  Boolean @default(false)
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, date])
   @@index([userId, date])
@@ -540,17 +543,17 @@ model DayScore {
 // HYDRATION TRACKING
 // ==========================================
 model HydrationLog {
-  id               String    @id @default(cuid())
-  userId           String
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  date             String    // YYYY-MM-DD
-  glassesConsumed  Int       @default(0)
-  mlConsumed       Int       @default(0)
-  goalReachedAt    DateTime?
+  date            String // YYYY-MM-DD
+  glassesConsumed Int       @default(0)
+  mlConsumed      Int       @default(0)
+  goalReachedAt   DateTime?
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, date])
   @@index([userId, date])
@@ -561,21 +564,21 @@ model HydrationLog {
 // SHOPPING LISTS
 // ==========================================
 model ShoppingList {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  name        String
-  source      String   @default("manual")    // "manual" | "ai_generated" | "meal_prep"
-  mealPrepId  String?
-  status      String   @default("active")    // "active" | "archived"
-  notes       String?  @db.Text
-  aiCostUsd   Float?
+  name       String
+  source     String  @default("manual") // "manual" | "ai_generated" | "meal_prep"
+  mealPrepId String?
+  status     String  @default("active") // "active" | "archived"
+  notes      String? @db.Text
+  aiCostUsd  Float?
 
-  items       ShoppingItem[]
+  items ShoppingItem[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId, status])
   @@map("shopping_lists")
@@ -586,16 +589,16 @@ model ShoppingItem {
   shoppingListId String
   shoppingList   ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
 
-  name           String
-  quantity       String?
-  category       String       @default("other") // produce | protein | dairy | grains | pantry | frozen | other
-  checked        Boolean      @default(false)
-  checkedAt      DateTime?
-  notes          String?
-  order          Int          @default(0)
+  name      String
+  quantity  String?
+  category  String    @default("other") // produce | protein | dairy | grains | pantry | frozen | other
+  checked   Boolean   @default(false)
+  checkedAt DateTime?
+  notes     String?
+  order     Int       @default(0)
 
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([shoppingListId, category])
   @@map("shopping_items")

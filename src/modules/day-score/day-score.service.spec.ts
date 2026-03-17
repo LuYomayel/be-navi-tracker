@@ -14,8 +14,8 @@ describe('DayScoreService', () => {
     id: 'score-1',
     userId,
     date: '2026-03-15',
-    totalItems: 6,
-    completedItems: 6,
+    totalItems: 7,
+    completedItems: 7,
     percentage: 100,
     status: 'won',
     habitsTotal: 2,
@@ -25,6 +25,7 @@ describe('DayScoreService', () => {
     nutritionLogged: true,
     exerciseLogged: true,
     reflectionLogged: true,
+    hydrationLogged: true,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -50,6 +51,12 @@ describe('DayScoreService', () => {
             },
             note: {
               count: jest.fn().mockResolvedValue(0),
+            },
+            hydrationLog: {
+              findUnique: jest.fn().mockResolvedValue(null),
+            },
+            userPreferences: {
+              findFirst: jest.fn().mockResolvedValue(null),
             },
             dayScore: {
               upsert: jest.fn(),
@@ -91,8 +98,8 @@ describe('DayScoreService', () => {
 
       const result = await service.calculate(userId, '2026-03-15');
 
-      // 0 habits + 0 tasks + 3 boolean modules = 3 total
-      expect(result.totalItems).toBe(3);
+      // 0 habits + 0 tasks + 4 boolean modules = 4 total
+      expect(result.totalItems).toBe(4);
       expect(result.completedItems).toBe(0);
       expect(result.status).toBe('lost');
     });
@@ -175,6 +182,8 @@ describe('DayScoreService', () => {
       (prisma.nutritionAnalysis.count as jest.Mock).mockResolvedValue(1);
       (prisma.physicalActivity.count as jest.Mock).mockResolvedValue(1);
       (prisma.note.count as jest.Mock).mockResolvedValue(1);
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue({ glassesConsumed: 8 });
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({ hydrationGoalGlasses: 8 });
       (prisma.dayScore.upsert as jest.Mock).mockImplementation(
         (args) => Promise.resolve({ id: 'score-1', userId, ...args.create }),
       );
@@ -188,34 +197,48 @@ describe('DayScoreService', () => {
     it('should calculate partial status at 50-99%', async () => {
       (prisma.nutritionAnalysis.count as jest.Mock).mockResolvedValue(1);
       (prisma.physicalActivity.count as jest.Mock).mockResolvedValue(1);
-      // note = 0 → 2/3 = 67%
+      // note=0, hydration=0 → 2/4 = 50%
       (prisma.dayScore.upsert as jest.Mock).mockImplementation(
         (args) => Promise.resolve({ id: 'score-1', userId, ...args.create }),
       );
 
       const result = await service.calculate(userId, '2026-03-15');
 
-      expect(result.percentage).toBe(67);
+      expect(result.percentage).toBe(50);
       expect(result.status).toBe('partial');
     });
 
     it('should calculate lost status at <50%', async () => {
       (prisma.nutritionAnalysis.count as jest.Mock).mockResolvedValue(1);
-      // 1/3 = 33%
+      // 1/4 = 25%
       (prisma.dayScore.upsert as jest.Mock).mockImplementation(
         (args) => Promise.resolve({ id: 'score-1', userId, ...args.create }),
       );
 
       const result = await service.calculate(userId, '2026-03-15');
 
-      expect(result.percentage).toBe(33);
+      expect(result.percentage).toBe(25);
       expect(result.status).toBe('lost');
+    });
+
+    it('should detect hydration logged', async () => {
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue({ glassesConsumed: 10 });
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({ hydrationGoalGlasses: 8 });
+      (prisma.dayScore.upsert as jest.Mock).mockImplementation(
+        (args) => Promise.resolve({ id: 'score-1', userId, ...args.create }),
+      );
+
+      const result = await service.calculate(userId, '2026-03-15');
+
+      expect(result.hydrationLogged).toBe(true);
     });
 
     it('should award 25 XP for won days', async () => {
       (prisma.nutritionAnalysis.count as jest.Mock).mockResolvedValue(1);
       (prisma.physicalActivity.count as jest.Mock).mockResolvedValue(1);
       (prisma.note.count as jest.Mock).mockResolvedValue(1);
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue({ glassesConsumed: 8 });
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({ hydrationGoalGlasses: 8 });
       (prisma.dayScore.upsert as jest.Mock).mockImplementation(
         (args) => Promise.resolve({ id: 'score-1', userId, ...args.create }),
       );
@@ -234,6 +257,8 @@ describe('DayScoreService', () => {
       (prisma.nutritionAnalysis.count as jest.Mock).mockResolvedValue(1);
       (prisma.physicalActivity.count as jest.Mock).mockResolvedValue(1);
       (prisma.note.count as jest.Mock).mockResolvedValue(1);
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue({ glassesConsumed: 8 });
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({ hydrationGoalGlasses: 8 });
       (prisma.xpLog.findFirst as jest.Mock).mockResolvedValue({
         id: 'xp-1',
         action: 'day_won',
@@ -250,7 +275,7 @@ describe('DayScoreService', () => {
     it('should not award XP for partial days below 75%', async () => {
       (prisma.nutritionAnalysis.count as jest.Mock).mockResolvedValue(1);
       (prisma.physicalActivity.count as jest.Mock).mockResolvedValue(1);
-      // 2/3 = 67% → partial but <75%
+      // 2/4 = 50% → partial but <75%
       (prisma.dayScore.upsert as jest.Mock).mockImplementation(
         (args) => Promise.resolve({ id: 'score-1', userId, ...args.create }),
       );
@@ -315,6 +340,7 @@ describe('DayScoreService', () => {
       expect(result[0].percentage).toBe(0);
       expect(result[0].habitsTotal).toBe(0);
       expect(result[0].nutritionLogged).toBe(false);
+      expect(result[0].hydrationLogged).toBe(false);
     });
 
     it('should use cached scores for past dates', async () => {
