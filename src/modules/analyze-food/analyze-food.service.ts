@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
 import { AICostService } from '../ai-cost/ai-cost.service';
@@ -84,6 +84,8 @@ export enum MealType {
 
 @Injectable()
 export class AnalyzeFoodService {
+  private readonly logger = new Logger(AnalyzeFoodService.name);
+
   private openai: OpenAI | null = null;
 
   constructor(private aiCostService: AICostService) {
@@ -116,7 +118,7 @@ export class AnalyzeFoodService {
     userId?: string,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
-      console.log('OpenAI no disponible, usando análisis de fallback');
+      this.logger.log('OpenAI no disponible, usando análisis de fallback');
       return this.getMockFoodAnalysis(mealType);
     }
 
@@ -197,12 +199,7 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
       try {
         parsed = JSON.parse(cleanedResponse);
       } catch (parseError) {
-        console.error(
-          'Error parseando respuesta de OpenAI Vision:',
-          parseError,
-        );
-        console.log('Respuesta original recibida:', response);
-        console.log('Respuesta limpiada:', cleanedResponse);
+        this.logger.error('Error parseando respuesta de OpenAI Vision', parseError);
         throw new Error('Respuesta de OpenAI Vision no válida');
       }
 
@@ -212,10 +209,9 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
         mealType,
       );
 
-      console.log('✅ Análisis de comida generado con OpenAI Vision');
       return { ...validatedAnalysis, aiCostUsd: costUsd };
     } catch (error) {
-      console.error('Error analizando imagen de comida con OpenAI:', error);
+      this.logger.error('Error analizando imagen de comida con OpenAI:', error);
       // Fallback a análisis predefinido
       return this.getMockFoodAnalysis(mealType);
     }
@@ -229,7 +225,7 @@ IMPORTANTE: Si detectas que es una receta, menciona en las recomendaciones que e
     userId?: string,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
-      console.log('OpenAI no disponible, usando análisis de fallback');
+      this.logger.log('OpenAI no disponible, usando análisis de fallback');
       return this.getMockFoodAnalysis(mealType);
     }
 
@@ -330,9 +326,7 @@ Por favor, estima las cantidades si no están especificadas y calcula las calor�
       try {
         parsed = JSON.parse(cleanedResponse);
       } catch (parseError) {
-        console.error('Error parseando respuesta de OpenAI:', parseError);
-        console.log('Respuesta original recibida:', response);
-        console.log('Respuesta limpiada:', cleanedResponse);
+        this.logger.error('Error parseando respuesta de OpenAI', parseError);
         throw new Error('Respuesta de OpenAI no válida');
       }
 
@@ -342,13 +336,9 @@ Por favor, estima las cantidades si no están especificadas y calcula las calor�
         mealType,
       );
 
-      console.log('✅ Análisis manual de comida generado con OpenAI');
       return { ...validatedAnalysis, aiCostUsd: costUsd };
     } catch (error) {
-      console.error(
-        'Error analizando ingredientes manuales con OpenAI:',
-        error,
-      );
+      this.logger.error('Error analizando ingredientes manuales con OpenAI', error);
       // Fallback a análisis predefinido
       return this.getMockFoodAnalysis(mealType);
     }
@@ -376,7 +366,7 @@ Por favor, estima las cantidades si no están especificadas y calcula las calor�
     userId?: string,
   ): Promise<FoodAnalysisResponse> {
     if (!this.openai) {
-      console.log('OpenAI no disponible, usando análisis de fallback');
+      this.logger.log('OpenAI no disponible, usando análisis de fallback');
       return this.getMockFoodAnalysis(mealType);
     }
 
@@ -433,9 +423,7 @@ ${this.generateFoodAnalysisPrompt(mealType)}`,
       try {
         parsed = JSON.parse(cleanedResponse);
       } catch (parseError) {
-        console.error('Error parseando respuesta de OpenAI:', parseError);
-        console.log('Respuesta original recibida:', response);
-        console.log('Respuesta limpiada:', cleanedResponse);
+        this.logger.error('Error parseando respuesta de OpenAI', parseError);
         throw new Error('Respuesta de OpenAI no válida');
       }
 
@@ -445,10 +433,9 @@ ${this.generateFoodAnalysisPrompt(mealType)}`,
         mealType,
       );
 
-      console.log('✅ Análisis de receta generado con OpenAI');
       return validatedAnalysis;
     } catch (error) {
-      console.error('Error analizando receta con OpenAI:', error);
+      this.logger.error('Error analizando receta con OpenAI:', error);
       // Fallback a análisis predefinido
       return this.getMockFoodAnalysis(mealType);
     }
@@ -531,8 +518,8 @@ IMPORTANTE:
   ): FoodAnalysisResponse {
     // Validar que existe el array de foods
     if (!analysis.foods || !Array.isArray(analysis.foods)) {
-      console.warn(
-        'Respuesta de OpenAI no tiene foods válidos, usando fallback',
+      this.logger.warn(
+      'Respuesta de OpenAI no tiene foods válidos, usando fallback',
       );
       return this.getMockFoodAnalysis(mealType);
     }

@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { ChatMessage } from '../../common/types';
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async getAll(userId: string, limit: number = 50): Promise<ChatMessage[]> {
@@ -15,7 +17,7 @@ export class ChatService {
       });
       return messages as any[];
     } catch (error) {
-      console.error('Error fetching chat messages:', error);
+      this.logger.error('Error fetching chat messages:', error);
       return [];
     }
   }
@@ -35,7 +37,7 @@ export class ChatService {
       });
       return message as any;
     } catch (error) {
-      console.error('Error creating chat message:', error);
+      this.logger.error('Error creating chat message:', error);
       throw new Error('Failed to create chat message');
     }
   }
@@ -47,7 +49,7 @@ export class ChatService {
       });
       return true;
     } catch (error) {
-      console.error('Error clearing chat messages:', error);
+      this.logger.error('Error clearing chat messages:', error);
       return false;
     }
   }

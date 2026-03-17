@@ -10,8 +10,7 @@ import {
   Req,
   UseGuards,
   HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+  HttpStatus, Logger } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CalendarService } from './calendar.service';
 import { GoogleCalendarService } from './google-calendar.service';
@@ -21,6 +20,8 @@ import { UpdateEventDto } from './dto/update-event.dto';
 @Controller('calendar')
 @UseGuards(JwtAuthGuard)
 export class CalendarController {
+  private readonly logger = new Logger(CalendarController.name);
+
   constructor(
     private readonly calendarService: CalendarService,
     private readonly googleCalendarService: GoogleCalendarService,
@@ -44,7 +45,7 @@ export class CalendarController {
       );
       return { success: true, data: events };
     } catch (error) {
-      console.error('Error fetching events:', error);
+      this.logger.error('Error fetching events:', error);
       return { success: false, error: 'Error fetching events' };
     }
   }
@@ -58,7 +59,7 @@ export class CalendarController {
       );
       return { success: true, data: event };
     } catch (error) {
-      console.error('Error creating event:', error);
+      this.logger.error('Error creating event:', error);
       throw new HttpException(
         'Error creating event',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -131,7 +132,7 @@ export class CalendarController {
       );
       return { success: true, data: result };
     } catch (error) {
-      console.error('Google Calendar callback error:', error);
+      this.logger.error('Google Calendar callback error:', error);
       throw new HttpException(
         'Error connecting Google Calendar',
         HttpStatus.INTERNAL_SERVER_ERROR,

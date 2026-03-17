@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../config/prisma.service';
 import { StreakService } from './streak.service';
 
 @Injectable()
 export class StreakCronService {
+  private readonly logger = new Logger(StreakCronService.name);
+
   constructor(
     private prisma: PrismaService,
     private streakService: StreakService,
@@ -15,7 +17,7 @@ export class StreakCronService {
    */
   @Cron('59 23 * * *') // 23:59 todos los días
   async checkEndOfDayStreaks() {
-    console.log('🔄 Verificando rachas al final del día...');
+    this.logger.log('Verificando rachas al final del día...');
 
     try {
       // Obtener todos los usuarios activos
@@ -28,25 +30,20 @@ export class StreakCronService {
       for (const user of users) {
         try {
           await this.streakService.checkEndOfDayStreaks(user.id, today);
-          console.log(`✅ Rachas verificadas para usuario ${user.id}`);
+          this.logger.log(`Rachas verificadas para usuario ${user.id}`);
         } catch (error) {
-          console.error(
-            `❌ Error verificando rachas para usuario ${user.id}:`,
+          this.logger.error(
+            `Error verificando rachas para usuario ${user.id}`,
             error,
           );
         }
       }
       const newDate = new Date();
-      console.log(
-        '✨ Verificación de rachas completada',
-        `{
-          date: ${newDate.toISOString()},
-          hours: ${newDate.getHours()},
-          minutes: ${newDate.getMinutes()},
-        }`,
+      this.logger.log(
+        `Verificación de rachas completada - date: ${newDate.toISOString()}, hours: ${newDate.getHours()}, minutes: ${newDate.getMinutes()}`,
       );
     } catch (error) {
-      console.error('❌ Error en verificación de rachas:', error);
+      this.logger.error('Error en verificación de rachas', error);
     }
   }
 
@@ -61,7 +58,7 @@ export class StreakCronService {
       return;
     }
 
-    console.log('🍽️ Verificando rachas de nutrición...');
+    this.logger.log('Verificando rachas de nutrición...');
 
     try {
       const users = await this.prisma.user.findMany({
@@ -75,16 +72,16 @@ export class StreakCronService {
           // Solo actualizar racha de nutrición si se completaron 3 comidas
           await this.streakService.updateNutritionStreak(user.id, today);
         } catch (error) {
-          console.error(
-            `❌ Error verificando racha de nutrición para usuario ${user.id}:`,
+          this.logger.error(
+            `Error verificando racha de nutrición para usuario ${user.id}`,
             error,
           );
         }
       }
 
-      console.log('✨ Verificación de rachas de nutrición completada');
+      this.logger.log('Verificación de rachas de nutrición completada');
     } catch (error) {
-      console.error('❌ Error en verificación de rachas de nutrición:', error);
+      this.logger.error('Error en verificación de rachas de nutrición', error);
     }
   }
 
@@ -93,7 +90,7 @@ export class StreakCronService {
    */
   @Cron('1 0 * * *') // 00:01 todos los días
   async resetBrokenStreaks() {
-    console.log('🔄 Verificando rachas rotas...');
+    this.logger.log('Verificando rachas rotas...');
 
     try {
       const users = await this.prisma.user.findMany({
@@ -115,16 +112,16 @@ export class StreakCronService {
           // Opcional: actividad física
           await this.streakService.updateActivityStreak(user.id, yesterdayStr);
         } catch (error) {
-          console.error(
-            `❌ Error reseteando rachas para usuario ${user.id}:`,
+          this.logger.error(
+            `Error reseteando rachas para usuario ${user.id}`,
             error,
           );
         }
       }
 
-      console.log('✨ Verificación de rachas rotas completada');
+      this.logger.log('Verificación de rachas rotas completada');
     } catch (error) {
-      console.error('❌ Error en reseteo de rachas:', error);
+      this.logger.error('Error en reseteo de rachas', error);
     }
   }
 }

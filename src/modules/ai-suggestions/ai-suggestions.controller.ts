@@ -7,8 +7,7 @@ import {
   HttpStatus,
   Query,
   UseGuards,
-  Req,
-} from '@nestjs/common';
+  Req, Logger } from '@nestjs/common';
 import { AiSuggestionsService } from './ai-suggestions.service';
 import { ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -22,6 +21,8 @@ interface SuggestionRequest {
 @Controller('ai-suggestions')
 @UseGuards(JwtAuthGuard)
 export class AiSuggestionsController {
+  private readonly logger = new Logger(AiSuggestionsController.name);
+
   constructor(private readonly aiSuggestionsService: AiSuggestionsService) {}
 
   @Post()
@@ -30,7 +31,6 @@ export class AiSuggestionsController {
     @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
-      console.log('request', request);
       const { message, chatHistory = [] } = request;
 
       if (!message) {
@@ -49,7 +49,7 @@ export class AiSuggestionsController {
         data: suggestion,
       };
     } catch (error) {
-      console.error('Error generating AI suggestion:', error);
+      this.logger.error('Error generating AI suggestion:', error);
       throw new HttpException(
         'Error generando sugerencia',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -66,7 +66,7 @@ export class AiSuggestionsController {
         data: status,
       };
     } catch (error) {
-      console.error('Error getting AI status:', error);
+      this.logger.error('Error getting AI status:', error);
       throw new HttpException(
         'Error obteniendo estado del servicio',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -125,7 +125,7 @@ export class AiSuggestionsController {
         data: filteredAnalyses,
       };
     } catch (error) {
-      console.error('Error getting recent analysis:', error);
+      this.logger.error('Error getting recent analysis:', error);
       return {
         success: false,
         data: [],

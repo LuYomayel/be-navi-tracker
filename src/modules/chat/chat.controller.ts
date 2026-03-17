@@ -8,8 +8,7 @@ import {
   Req,
   HttpException,
   HttpStatus,
-  UseGuards,
-} from '@nestjs/common';
+  UseGuards, Logger } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { ChatMessage, ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -17,6 +16,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
+  private readonly logger = new Logger(ChatController.name);
+
   constructor(private readonly chatService: ChatService) {}
 
   @Get()
@@ -34,7 +35,7 @@ export class ChatController {
       return { success: true, data: messages };
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      console.error('Error fetching chat messages:', error);
+      this.logger.error('Error fetching chat messages:', error);
       return {
         success: false,
         error: 'Failed to fetch chat messages',
@@ -69,7 +70,7 @@ export class ChatController {
       return { success: true, data: message };
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      console.error('Error creating chat message:', error);
+      this.logger.error('Error creating chat message:', error);
       throw new HttpException(
         'Failed to create chat message',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -88,7 +89,7 @@ export class ChatController {
       return { success, data: { cleared: success } };
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      console.error('Error clearing chat messages:', error);
+      this.logger.error('Error clearing chat messages:', error);
       throw new HttpException(
         'Failed to clear chat messages',
         HttpStatus.INTERNAL_SERVER_ERROR,

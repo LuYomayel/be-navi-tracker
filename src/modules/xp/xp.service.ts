@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import {
   AddXpDto,
@@ -11,6 +11,8 @@ import { StreakService, StreakResult } from './streak.service';
 
 @Injectable()
 export class XpService {
+  private readonly logger = new Logger(XpService.name);
+
   constructor(
     private prisma: PrismaService,
     private streakService: StreakService,
@@ -283,7 +285,7 @@ export class XpService {
         streakBonus: streakResult?.streakBonus || 0,
       };
     } catch (error) {
-      console.error('Error al agregar XP:', error);
+      this.logger.error('Error al agregar XP', error);
       throw error;
     }
   }

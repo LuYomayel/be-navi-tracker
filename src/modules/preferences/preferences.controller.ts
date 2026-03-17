@@ -7,8 +7,7 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
-  Req,
-} from '@nestjs/common';
+  Req, Logger } from '@nestjs/common';
 import {
   PreferencesService,
   PreferencesDTO,
@@ -21,6 +20,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('preferences')
 @UseGuards(JwtAuthGuard)
 export class PreferencesController {
+  private readonly logger = new Logger(PreferencesController.name);
+
   constructor(private readonly preferencesService: PreferencesService) {}
 
   @Get()
@@ -35,7 +36,7 @@ export class PreferencesController {
         data: preferences,
       };
     } catch (error) {
-      console.error('Error fetching preferences:', error);
+      this.logger.error('Error fetching preferences:', error);
       return {
         success: false,
         data: null,
@@ -50,15 +51,10 @@ export class PreferencesController {
     @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
-      console.log('🎯 Guardando preferencias y objetivos del usuario...');
-      console.log('📋 Request recibido:', JSON.stringify(request, null, 2));
-      console.log('📋 User ID:', req.user.userId);
       const savedPreferences = await this.preferencesService.setPreferences(
         request,
         req.user.userId,
       );
-      console.log(savedPreferences);
-      console.log('✅ Preferencias guardadas exitosamente');
       /*
       return {
         success: true,
@@ -92,7 +88,7 @@ export class PreferencesController {
         data: savedPreferences,
       };
     } catch (error) {
-      console.error('❌ Error saving preferences:', error);
+      this.logger.error('❌ Error saving preferences:', error);
       throw new HttpException(
         'Error guardando preferencias del usuario',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -120,7 +116,7 @@ export class PreferencesController {
         data: goals,
       };
     } catch (error) {
-      console.error('Error fetching current goals:', error);
+      this.logger.error('Error fetching current goals:', error);
       return {
         success: false,
         data: null,
@@ -149,7 +145,7 @@ export class PreferencesController {
         data: progressData,
       };
     } catch (error) {
-      console.error('Error fetching progress data:', error);
+      this.logger.error('Error fetching progress data:', error);
       return {
         success: false,
         data: null,
@@ -169,16 +165,13 @@ export class PreferencesController {
     },
     @Req() req: any,
   ): Promise<ApiResponse<any>> {
-    console.log(req.user.userId);
     try {
-      console.log('🎯 Actualizando objetivos nutricionales...');
 
       const updatedPreferences = await this.preferencesService.updateGoals(
         request,
         req.user.userId,
       );
 
-      console.log('✅ Objetivos actualizados exitosamente');
 
       return {
         success: true,
@@ -191,7 +184,7 @@ export class PreferencesController {
         },
       };
     } catch (error) {
-      console.error('❌ Error updating goals:', error);
+      this.logger.error('❌ Error updating goals:', error);
       throw new HttpException(
         'Error actualizando objetivos nutricionales',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -218,7 +211,6 @@ export class PreferencesController {
     @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
-      console.log('👤 Actualizando datos personales...');
 
       const updatedPreferences =
         await this.preferencesService.updatePersonalData(
@@ -226,7 +218,6 @@ export class PreferencesController {
           req.user.userId,
         );
 
-      console.log('✅ Datos personales actualizados exitosamente');
 
       return {
         success: true,
@@ -241,7 +232,7 @@ export class PreferencesController {
         },
       };
     } catch (error) {
-      console.error('❌ Error updating personal data:', error);
+      this.logger.error('❌ Error updating personal data:', error);
       throw new HttpException(
         'Error actualizando datos personales',
         HttpStatus.INTERNAL_SERVER_ERROR,

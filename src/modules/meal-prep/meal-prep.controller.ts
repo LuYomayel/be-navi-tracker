@@ -9,8 +9,7 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
-  Req,
-} from '@nestjs/common';
+  Req, Logger } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { MealPrepService } from './meal-prep.service';
 import { ApiResponse } from '../../common/types';
@@ -28,6 +27,8 @@ import {
 @Controller('meal-prep')
 @UseGuards(JwtAuthGuard)
 export class MealPrepController {
+  private readonly logger = new Logger(MealPrepController.name);
+
   constructor(private readonly mealPrepService: MealPrepService) {}
 
   // ═══════════════════════════════════════════════════════════
@@ -52,7 +53,7 @@ export class MealPrepController {
 
       return { success: true, data: plan };
     } catch (error) {
-      console.error('Error importando plan del nutricionista:', error);
+      this.logger.error('Error importando plan del nutricionista:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         error instanceof Error
@@ -77,7 +78,7 @@ export class MealPrepController {
 
       return { success: true, data: plans };
     } catch (error) {
-      console.error('Error obteniendo planes:', error);
+      this.logger.error('Error obteniendo planes:', error);
       return { success: false, data: [], error: 'Error obteniendo planes' };
     }
   }
@@ -96,7 +97,7 @@ export class MealPrepController {
 
       return { success: true, data: plan };
     } catch (error) {
-      console.error('Error obteniendo plan activo:', error);
+      this.logger.error('Error obteniendo plan activo:', error);
       return {
         success: false,
         data: null,
@@ -124,7 +125,7 @@ export class MealPrepController {
 
       return { success: true, data: plan };
     } catch (error) {
-      console.error('Error actualizando plan:', error);
+      this.logger.error('Error actualizando plan:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         'Error actualizando plan',
@@ -147,7 +148,7 @@ export class MealPrepController {
 
       return { success: true, data: true };
     } catch (error) {
-      console.error('Error eliminando plan:', error);
+      this.logger.error('Error eliminando plan:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         'Error eliminando plan',
@@ -171,7 +172,7 @@ export class MealPrepController {
 
       return { success: true, data: preps };
     } catch (error) {
-      console.error('Error obteniendo meal preps:', error);
+      this.logger.error('Error obteniendo meal preps:', error);
       return {
         success: false,
         data: [],
@@ -191,7 +192,7 @@ export class MealPrepController {
 
       return { success: true, data: prep };
     } catch (error) {
-      console.error('Error obteniendo meal prep activo:', error);
+      this.logger.error('Error obteniendo meal prep activo:', error);
       return {
         success: false,
         data: null,
@@ -240,15 +241,13 @@ export class MealPrepController {
       if (!userId)
         throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
 
-      console.log('🍽️ Generando meal prep con IA...');
 
       const prep = await this.mealPrepService.generateMealPrep(dto, userId);
 
-      console.log('✅ Meal prep generado:', prep.id);
 
       return { success: true, data: prep };
     } catch (error) {
-      console.error('Error generando meal prep:', error);
+      this.logger.error('Error generando meal prep:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         error instanceof Error
@@ -273,7 +272,7 @@ export class MealPrepController {
 
       return { success: true, data: prep };
     } catch (error) {
-      console.error('Error creando meal prep:', error);
+      this.logger.error('Error creando meal prep:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         'Error creando meal prep',
@@ -301,7 +300,7 @@ export class MealPrepController {
 
       return { success: true, data: prep };
     } catch (error) {
-      console.error('Error actualizando meal prep:', error);
+      this.logger.error('Error actualizando meal prep:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         'Error actualizando meal prep',
@@ -325,7 +324,7 @@ export class MealPrepController {
 
       return { success: true, data: prep };
     } catch (error) {
-      console.error('Error actualizando slot:', error);
+      this.logger.error('Error actualizando slot:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         'Error actualizando slot',
@@ -353,7 +352,7 @@ export class MealPrepController {
 
       return { success: true, data: result };
     } catch (error) {
-      console.error('Error marcando comida:', error);
+      this.logger.error('Error marcando comida:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         error instanceof Error
@@ -378,7 +377,7 @@ export class MealPrepController {
 
       return { success: true, data: true };
     } catch (error) {
-      console.error('Error eliminando meal prep:', error);
+      this.logger.error('Error eliminando meal prep:', error);
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         'Error eliminando meal prep',

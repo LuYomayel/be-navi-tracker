@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Req, Logger } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { XpService } from './xp.service';
 import { StreakService } from './streak.service';
@@ -8,6 +8,8 @@ import { ApiResponse } from '../../common/types';
 @Controller('xp')
 @UseGuards(JwtAuthGuard)
 export class XpController {
+  private readonly logger = new Logger(XpController.name);
+
   constructor(
     private readonly xpService: XpService,
     private readonly streakService: StreakService,
@@ -22,7 +24,7 @@ export class XpController {
         data: data,
       };
     } catch (error) {
-      console.error('Error fetching XP stats:', error);
+      this.logger.error('Error fetching XP stats', error);
       return {
         success: false,
         error: 'Failed to fetch XP stats',
@@ -42,7 +44,7 @@ export class XpController {
         data: data,
       };
     } catch (error) {
-      console.error('Error adding XP:', error);
+      this.logger.error('Error adding XP', error);
       return {
         success: false,
         error: 'Failed to add XP',
@@ -66,7 +68,7 @@ export class XpController {
         data: data,
       };
     } catch (error) {
-      console.error('Error adding habit XP:', error);
+      this.logger.error('Error adding habit XP', error);
       return {
         success: false,
         error: 'Failed to add habit XP',
@@ -90,7 +92,7 @@ export class XpController {
         data: data,
       };
     } catch (error) {
-      console.error('Error adding nutrition XP:', error);
+      this.logger.error('Error adding nutrition XP', error);
       return {
         success: false,
         error: 'Failed to add nutrition XP',
@@ -113,7 +115,7 @@ export class XpController {
         data: data,
       };
     } catch (error) {
-      console.error('Error adding daily comment XP:', error);
+      this.logger.error('Error adding daily comment XP', error);
       return {
         success: false,
         error: 'Failed to add daily comment XP',
@@ -130,7 +132,7 @@ export class XpController {
         data: streaks,
       };
     } catch (error) {
-      console.error('Error fetching streaks:', error);
+      this.logger.error('Error fetching streaks', error);
       return {
         success: false,
         error: 'Failed to fetch streaks',

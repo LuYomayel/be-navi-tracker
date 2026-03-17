@@ -6,8 +6,7 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
-  Req,
-} from '@nestjs/common';
+  Req, Logger } from '@nestjs/common';
 import { CompletionsService } from './completions.service';
 import { DailyCompletion, ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -15,6 +14,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('completions')
 @UseGuards(JwtAuthGuard)
 export class CompletionsController {
+  private readonly logger = new Logger(CompletionsController.name);
+
   constructor(private readonly completionsService: CompletionsService) {}
 
   @Get()
@@ -27,7 +28,7 @@ export class CompletionsController {
       const completions = await this.completionsService.getAll(userId);
       return { success: true, data: completions };
     } catch (error) {
-      console.error('Error fetching completions:', error);
+      this.logger.error('Error fetching completions:', error);
       return {
         success: false,
         error: 'Failed to fetch completions',
@@ -53,7 +54,7 @@ export class CompletionsController {
       );
       return { success: true, data: completion };
     } catch (error) {
-      console.error('Error toggling completion:', error);
+      this.logger.error('Error toggling completion:', error);
       throw new HttpException(
         'Failed to toggle completion',
         HttpStatus.INTERNAL_SERVER_ERROR,

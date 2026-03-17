@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Post, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, UseGuards, Req, Logger } from '@nestjs/common';
 import { AnalysisService } from './analysis.service';
 import { ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -21,6 +21,8 @@ interface ContentRecommendationRequest {
 @Controller('analysis')
 @UseGuards(JwtAuthGuard)
 export class AnalysisController {
+  private readonly logger = new Logger(AnalysisController.name);
+
   constructor(private readonly analysisService: AnalysisService) {}
 
   @Post('content-recommendations')
@@ -65,7 +67,7 @@ export class AnalysisController {
         data: recommendations,
       };
     } catch (error) {
-      console.error('Error getting content recommendations:', error);
+      this.logger.error('Error getting content recommendations:', error);
       return {
         success: false,
         data: [],
@@ -100,7 +102,7 @@ export class AnalysisController {
         data: recommendations,
       };
     } catch (error) {
-      console.error('Error getting book recommendations:', error);
+      this.logger.error('Error getting book recommendations:', error);
       return {
         success: false,
         data: [],
@@ -127,7 +129,7 @@ export class AnalysisController {
         data: analyses,
       };
     } catch (error) {
-      console.error('Error getting recent analysis:', error);
+      this.logger.error('Error getting recent analysis:', error);
       return {
         success: false,
         data: [],
@@ -150,7 +152,7 @@ export class AnalysisController {
         data: patterns,
       };
     } catch (error) {
-      console.error('Error detecting patterns:', error);
+      this.logger.error('Error detecting patterns:', error);
       return {
         success: false,
         data: {},

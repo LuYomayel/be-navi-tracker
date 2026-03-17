@@ -10,8 +10,7 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
-  Req,
-} from '@nestjs/common';
+  Req, Logger } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { BodyAnalysisService } from './body-analysis.service';
 import { ApiResponse } from '../../common/types';
@@ -42,6 +41,8 @@ interface PersonalDataRequest {
 @UseGuards(JwtAuthGuard)
 @Throttle({ default: { ttl: 60000, limit: 10 } })
 export class BodyAnalysisController {
+  private readonly logger = new Logger(BodyAnalysisController.name);
+
   constructor(private readonly bodyAnalysisService: BodyAnalysisService) {}
 
   @Post()
@@ -73,7 +74,6 @@ export class BodyAnalysisController {
         );
       }
 
-      console.log('🔬 Iniciando análisis corporal con OpenAI Vision...');
 
       const analysisResult =
         await this.bodyAnalysisService.analyzeBody(request, userId);
@@ -92,7 +92,6 @@ export class BodyAnalysisController {
         rawAnalysis: analysisResult as any,
       } as any);
 
-      console.log('✅ Análisis corporal completado y guardado:', saved.id);
 
       return {
         success: true,
@@ -102,7 +101,7 @@ export class BodyAnalysisController {
         },
       };
     } catch (error) {
-      console.error('❌ Error en análisis corporal:', error);
+      this.logger.error('❌ Error en análisis corporal:', error);
 
       if (error instanceof HttpException) {
         throw error;
@@ -146,19 +145,17 @@ export class BodyAnalysisController {
         );
       }
 
-      console.log('🔬 Iniciando análisis corporal (sin guardar)...');
 
       const analysisResult =
         await this.bodyAnalysisService.analyzeBody(request, userId);
 
-      console.log('✅ Análisis corporal completado (no guardado)');
 
       return {
         success: true,
         data: analysisResult,
       };
     } catch (error) {
-      console.error('❌ Error en análisis corporal:', error);
+      this.logger.error('❌ Error en análisis corporal:', error);
 
       if (error instanceof HttpException) {
         throw error;
@@ -179,7 +176,7 @@ export class BodyAnalysisController {
       const analysis = await this.bodyAnalysisService.save(request, req.user.userId);
       return { success: true, data: analysis };
     } catch (error) {
-      console.error('Error al guardar análisis corporal:', error);
+      this.logger.error('Error al guardar análisis corporal:', error);
 
       throw new HttpException(
         'Error guardando análisis corporal',
@@ -205,7 +202,7 @@ export class BodyAnalysisController {
         data: analyses,
       };
     } catch (error) {
-      console.error('Error al obtener análisis corporales:', error);
+      this.logger.error('Error al obtener análisis corporales:', error);
       return {
         success: false,
         data: [],
@@ -232,7 +229,7 @@ export class BodyAnalysisController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error al obtener último análisis corporal:', error);
+      this.logger.error('Error al obtener último análisis corporal:', error);
       return {
         success: false,
         data: null,
@@ -258,7 +255,7 @@ export class BodyAnalysisController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error al obtener análisis corporal por id:', error);
+      this.logger.error('Error al obtener análisis corporal por id:', error);
 
       if (error instanceof HttpException) {
         throw error;
@@ -291,7 +288,7 @@ export class BodyAnalysisController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error al actualizar análisis corporal:', error);
+      this.logger.error('Error al actualizar análisis corporal:', error);
 
       if (error instanceof HttpException) {
         throw error;
@@ -321,7 +318,7 @@ export class BodyAnalysisController {
         data: true,
       };
     } catch (error) {
-      console.error('Error al eliminar análisis corporal:', error);
+      this.logger.error('Error al eliminar análisis corporal:', error);
 
       if (error instanceof HttpException) {
         throw error;
@@ -361,7 +358,7 @@ export class BodyAnalysisController {
         data: summary,
       };
     } catch (error) {
-      console.error('Error al obtener resumen de estadísticas:', error);
+      this.logger.error('Error al obtener resumen de estadísticas:', error);
       return {
         success: false,
         data: {},
@@ -375,7 +372,6 @@ export class BodyAnalysisController {
     @Body() request: PersonalDataRequest,
   ): Promise<ApiResponse<any>> {
     try {
-      console.log('🎯 Calculando objetivos nutricionales...');
 
       // Obtener análisis corporal si se proporciona ID
       let bodyAnalysis = null;
@@ -483,14 +479,13 @@ export class BodyAnalysisController {
           : null,
       };
 
-      console.log('✅ Objetivos nutricionales calculados');
 
       return {
         success: true,
         data: result,
       };
     } catch (error) {
-      console.error('❌ Error calculating goals:', error);
+      this.logger.error('❌ Error calculating goals:', error);
       throw new HttpException(
         'Error calculando objetivos nutricionales',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -529,7 +524,7 @@ export class BodyAnalysisController {
         },
       };
     } catch (error) {
-      console.error('Error al obtener estado del servicio:', error);
+      this.logger.error('Error al obtener estado del servicio:', error);
       return {
         success: false,
         data: {},

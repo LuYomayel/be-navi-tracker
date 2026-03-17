@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { PhysicalActivity, ApiResponse } from '../../common/types';
 import { CreatePhysicalActivityDto } from './dto/create-physical-activity.dto';
@@ -8,6 +8,8 @@ import { AICostService } from '../ai-cost/ai-cost.service';
 
 @Injectable()
 export class PhysicalActivitiesService {
+  private readonly logger = new Logger(PhysicalActivitiesService.name);
+
   private openai: OpenAI | null = null;
   constructor(private prisma: PrismaService, private aiCostService: AICostService) {
     if (process.env.OPENAI_API_KEY) {
@@ -26,7 +28,7 @@ export class PhysicalActivitiesService {
 
       return activities;
     } catch (error) {
-      console.error('Error al obtener actividades físicas:', error);
+      this.logger.error('Error al obtener actividades físicas:', error);
       return [];
     }
   }
@@ -37,7 +39,7 @@ export class PhysicalActivitiesService {
     userId?: string,
   ): Promise<(PhysicalActivity & { aiCostUsd?: number | null }) | null> {
     if (!this.openai) {
-      console.log('OpenAI no disponible, usando análisis de fallback');
+      this.logger.log('OpenAI no disponible, usando análisis de fallback');
       return null;
     }
 
@@ -113,15 +115,13 @@ export class PhysicalActivitiesService {
         validatedResponse.aiConfidence &&
         validatedResponse.screenshotUrl &&
         validatedResponse.source;
-      console.log('validatedResponse', validatedResponse);
       if (!isResponseValid) {
         throw new Error('La respuesta de OpenAI Vision no es válida');
       }
 
-      console.log('✅ Análisis de actividad física generado con OpenAI Vision');
       return { ...validatedResponse, aiCostUsd: costUsd };
     } catch (error) {
-      console.error('Error analizando imagen de comida con OpenAI:', error);
+      this.logger.error('Error analizando imagen de comida con OpenAI:', error);
       // Fallback a análisis predefinido
       return null;
     }
@@ -165,7 +165,7 @@ export class PhysicalActivitiesService {
         ...activity,
       };
     } catch (error) {
-      console.error('Error al crear actividad física:', error);
+      this.logger.error('Error al crear actividad física:', error);
       throw new Error('Error al crear actividad física');
     }
   }
@@ -191,7 +191,7 @@ export class PhysicalActivitiesService {
         ...activity,
       };
     } catch (error) {
-      console.error('Error al actualizar actividad física:', error);
+      this.logger.error('Error al actualizar actividad física:', error);
       return null;
     }
   }
@@ -203,7 +203,7 @@ export class PhysicalActivitiesService {
       });
       return true;
     } catch (error) {
-      console.error('Error al eliminar actividad física:', error);
+      this.logger.error('Error al eliminar actividad física:', error);
       return false;
     }
   }

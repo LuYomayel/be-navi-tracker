@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { Activity, ApiResponse } from '../../common/types';
 
 @Injectable()
 export class ActivitiesService {
+  private readonly logger = new Logger(ActivitiesService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async getAll(userId: string, archived: boolean = false): Promise<Activity[]> {
@@ -21,7 +23,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       }));
     } catch (error) {
-      console.error('Error al obtener actividades:', error);
+      this.logger.error('Error al obtener actividades', error);
       return [];
     }
   }
@@ -50,7 +52,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error('Error al crear actividad:', error);
+      this.logger.error('Error al crear actividad', error);
       throw new Error('Error al crear actividad');
     }
   }
@@ -76,7 +78,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error('Error al actualizar actividad:', error);
+      this.logger.error('Error al actualizar actividad', error);
       return null;
     }
   }
@@ -96,7 +98,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error('Error al archivar actividad:', error);
+      this.logger.error('Error al archivar actividad', error);
       return null;
     }
   }
@@ -116,7 +118,7 @@ export class ActivitiesService {
         days: activity.days as boolean[],
       };
     } catch (error) {
-      console.error('Error al restaurar actividad:', error);
+      this.logger.error('Error al restaurar actividad', error);
       return null;
     }
   }
@@ -128,7 +130,7 @@ export class ActivitiesService {
       });
       return true;
     } catch (error) {
-      console.error('Error al eliminar actividad:', error);
+      this.logger.error('Error al eliminar actividad', error);
       return false;
     }
   }

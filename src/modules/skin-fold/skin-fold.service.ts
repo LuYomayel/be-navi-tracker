@@ -1,8 +1,7 @@
 import {
   Injectable,
   NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+  BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import {
   CreateSkinFoldRecordDto,
@@ -74,6 +73,8 @@ export interface AnthropometryAnalysis {
 
 @Injectable()
 export class SkinFoldService {
+  private readonly logger = new Logger(SkinFoldService.name);
+
   private openai: OpenAI | null = null;
 
   constructor(private prisma: PrismaService, private aiCostService: AICostService) {
@@ -92,7 +93,7 @@ export class SkinFoldService {
       });
       return records as SkinFoldRecord[];
     } catch (error) {
-      console.error('Error fetching skin fold records:', error);
+      this.logger.error('Error fetching skin fold records:', error);
       throw new BadRequestException(
         'Error al obtener registros de pliegues cutáneos',
       );
@@ -119,7 +120,7 @@ export class SkinFoldService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      console.error('Error fetching skin fold record by id:', error);
+      this.logger.error('Error fetching skin fold record by id:', error);
       throw new BadRequestException(
         'Error al obtener registro de pliegues cutáneos',
       );
@@ -168,7 +169,7 @@ export class SkinFoldService {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      console.error('Error creating skin fold record:', error);
+      this.logger.error('Error creating skin fold record:', error);
       throw new BadRequestException(
         'Error al crear registro de pliegues cutáneos',
       );
@@ -216,7 +217,7 @@ export class SkinFoldService {
       ) {
         throw error;
       }
-      console.error('Error updating skin fold record:', error);
+      this.logger.error('Error updating skin fold record:', error);
       throw new BadRequestException(
         'Error al actualizar registro de pliegues cutáneos',
       );
@@ -237,7 +238,7 @@ export class SkinFoldService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      console.error('Error deleting skin fold record:', error);
+      this.logger.error('Error deleting skin fold record:', error);
       throw new BadRequestException(
         'Error al eliminar registro de pliegues cutáneos',
       );
@@ -260,7 +261,7 @@ export class SkinFoldService {
       );
     }
 
-    console.log(
+    this.logger.log(
       `Analizando PDF de antropometría con ${images.length} página(s)...`,
     );
 
@@ -389,7 +390,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 
       const analysis: AnthropometryAnalysis = JSON.parse(cleaned.trim());
 
-      console.log('Análisis de antropometría completado exitosamente');
+      this.logger.log('Análisis de antropometría completado exitosamente');
 
       // Map skin fold values from the analysis to the SkinFoldSite format
       const skinFoldValues: Partial<Record<SkinFoldSite, number>> = {};
@@ -422,7 +423,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
       if (error instanceof BadRequestException) {
         throw error;
       }
-      console.error('Error analyzing anthropometry PDF:', error);
+      this.logger.error('Error analyzing anthropometry PDF:', error);
       throw new BadRequestException(
         'Error al analizar el PDF de antropometría. Verifique que las imágenes sean legibles.',
       );
@@ -461,7 +462,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
         sitesFrequency: sitesFrequency as Record<SkinFoldSite, number>,
       };
     } catch (error) {
-      console.error('Error getting skin fold statistics:', error);
+      this.logger.error('Error getting skin fold statistics:', error);
       throw new BadRequestException(
         'Error al obtener estadísticas de pliegues cutáneos',
       );
@@ -506,7 +507,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 
       return null;
     } catch (error) {
-      console.error('Error calculating body fat percentage:', error);
+      this.logger.error('Error calculating body fat percentage:', error);
       return null;
     }
   }

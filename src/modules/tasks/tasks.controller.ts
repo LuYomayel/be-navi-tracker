@@ -10,8 +10,7 @@ import {
   Req,
   UseGuards,
   HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+  HttpStatus, Logger } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -20,6 +19,8 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 @Controller('tasks')
 @UseGuards(JwtAuthGuard)
 export class TasksController {
+  private readonly logger = new Logger(TasksController.name);
+
   constructor(private readonly tasksService: TasksService) {}
 
   @Get()
@@ -41,7 +42,7 @@ export class TasksController {
       });
       return { success: true, data: tasks };
     } catch (error) {
-      console.error('Error fetching tasks:', error);
+      this.logger.error('Error fetching tasks:', error);
       return { success: false, error: 'Error fetching tasks' };
     }
   }
@@ -65,7 +66,7 @@ export class TasksController {
       const task = await this.tasksService.create(req.user.userId, dto);
       return { success: true, data: task };
     } catch (error) {
-      console.error('Error creating task:', error);
+      this.logger.error('Error creating task:', error);
       throw new HttpException(
         'Error creating task',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -83,7 +84,7 @@ export class TasksController {
       );
       return { success: true, data: result };
     } catch (error) {
-      console.error('Error reordering tasks:', error);
+      this.logger.error('Error reordering tasks:', error);
       throw new HttpException(
         'Error reordering tasks',
         HttpStatus.INTERNAL_SERVER_ERROR,

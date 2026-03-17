@@ -1,8 +1,7 @@
 import {
   Injectable,
   UnauthorizedException,
-  ConflictException,
-} from '@nestjs/common';
+  ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../config/prisma.service';
 import * as bcrypt from 'bcryptjs';
@@ -16,6 +15,8 @@ import {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -112,7 +113,6 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
-    console.log('user', user);
     if (!user) {
       throw new UnauthorizedException('Credenciales inválidas');
     }

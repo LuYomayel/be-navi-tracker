@@ -6,8 +6,7 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
-  Req,
-} from '@nestjs/common';
+  Req, Logger } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AnalyzeFoodService } from './analyze-food.service';
 import { ApiResponse } from '../../common/types';
@@ -38,6 +37,8 @@ interface FoodAnalysisManualRequest {
 @UseGuards(JwtAuthGuard)
 @Throttle({ default: { ttl: 60000, limit: 10 } })
 export class AnalyzeFoodController {
+  private readonly logger = new Logger(AnalyzeFoodController.name);
+
   constructor(private readonly analyzeFoodService: AnalyzeFoodService) {}
 
   @Post('image')
@@ -65,7 +66,7 @@ export class AnalyzeFoodController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error analyzing food:', error);
+      this.logger.error('Error analyzing food:', error);
       throw new HttpException(
         'Error analizando la comida',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -102,7 +103,7 @@ export class AnalyzeFoodController {
         data: analysis,
       };
     } catch (error) {
-      console.error('Error analyzing manual food:', error);
+      this.logger.error('Error analyzing manual food:', error);
       throw new HttpException(
         'Error analizando la comida manual',
         HttpStatus.INTERNAL_SERVER_ERROR,

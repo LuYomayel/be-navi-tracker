@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import {
   ImportNutritionistPlanDto,
@@ -39,6 +39,8 @@ const MEAL_SLOT_KEYS: MealSlotKey[] = [
 
 @Injectable()
 export class MealPrepService {
+  private readonly logger = new Logger(MealPrepService.name);
+
   private openai: OpenAI | null = null;
 
   constructor(
@@ -97,7 +99,7 @@ export class MealPrepService {
         completion,
       );
     } catch (e) {
-      console.error('Error logging AI cost:', e);
+      this.logger.error('Error logging AI cost:', e);
     }
 
     // Desactivar planes anteriores
@@ -152,10 +154,9 @@ export class MealPrepService {
 
       if (Object.keys(goals).length > 0) {
         await this.preferencesService.updateGoals(goals, userId);
-        console.log('✅ Objetivos nutricionales actualizados desde plan:', goals);
       }
     } catch (error) {
-      console.error('Error auto-syncing nutrition goals from plan:', error);
+      this.logger.error('Error auto-syncing nutrition goals from plan:', error);
       // Non-blocking: plan import succeeds even if goal sync fails
     }
 
@@ -296,7 +297,7 @@ export class MealPrepService {
         completion,
       );
     } catch (e) {
-      console.error('Error logging AI cost:', e);
+      this.logger.error('Error logging AI cost:', e);
     }
 
     // Aplicar fixed slots
@@ -716,7 +717,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
         completion,
       };
     } catch (e) {
-      console.error('Error parseando respuesta PDF:', cleaned);
+      this.logger.error('Error parseando respuesta PDF');
       throw new BadRequestException(
         'Error parseando la respuesta del análisis del PDF',
       );
@@ -846,13 +847,13 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
       return { week: parsed, completion };
     } catch (e) {
       // Intentar reparar JSON truncado: cerrar llaves/corchetes faltantes
-      console.warn('JSON truncado, intentando reparar...', cleaned.slice(-100));
+      this.logger.warn('JSON truncado, intentando reparar...');
       try {
         const repaired = this.repairTruncatedJson(cleaned);
         const parsed = JSON.parse(repaired) as MealPrepWeek;
         return { week: parsed, completion };
       } catch (e2) {
-        console.error('Error parseando respuesta meal prep (irreparable):', cleaned.slice(-200));
+        this.logger.error('Error parseando respuesta meal prep (irreparable)');
         throw new BadRequestException(
           'Error parseando la respuesta de generación del meal prep. La respuesta de la IA fue demasiado larga.',
         );

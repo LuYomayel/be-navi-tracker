@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
 import {
@@ -20,6 +20,8 @@ try {
 
 @Injectable()
 export class ShoppingListService {
+  private readonly logger = new Logger(ShoppingListService.name);
+
   private openai: any;
 
   constructor(
@@ -349,7 +351,7 @@ Responde UNICAMENTE con JSON valido:
 
       return { items: parsed.items || [], completion };
     } catch (error) {
-      console.error('Error generating shopping list with AI:', error);
+      this.logger.error('Error generating shopping list with AI:', error);
       return { items: this.fallbackGenerate(foods), completion: null };
     }
   }

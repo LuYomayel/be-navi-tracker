@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { DailyCompletion } from '../../common/types';
 import { XpService } from '../xp/xp.service';
 
 @Injectable()
 export class CompletionsService {
+  private readonly logger = new Logger(CompletionsService.name);
+
   constructor(
     private prisma: PrismaService,
     private xpService: XpService,
@@ -19,7 +21,7 @@ export class CompletionsService {
         orderBy: { date: 'desc' },
       });
     } catch (error) {
-      console.error('Error fetching completions:', error);
+      this.logger.error('Error fetching completions:', error);
       return [];
     }
   }
@@ -69,16 +71,15 @@ export class CompletionsService {
 
           // Agregar XP por completar hábito (ahora con sistema de rachas mejorado)
           await this.xpService.addHabitXp(userId, habitName, date);
-          console.log(`✨ XP agregada por completar hábito: ${habitName}`);
         } catch (xpError) {
-          console.error('❌ Error agregando XP:', xpError);
+          this.logger.error('Error agregando XP', xpError);
           // No fallar la completación si hay error con XP
         }
       }
 
       return completion;
     } catch (error) {
-      console.error('Error toggling completion:', error);
+      this.logger.error('Error toggling completion:', error);
       // Fallback
       const fallbackId = `${activityId}-${date}-${Date.now()}`;
       return {
@@ -108,7 +109,7 @@ export class CompletionsService {
         },
       });
     } catch (error) {
-      console.error('Error fetching activity completions:', error);
+      this.logger.error('Error fetching activity completions:', error);
       return [];
     }
   }

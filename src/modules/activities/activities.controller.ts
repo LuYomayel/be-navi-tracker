@@ -10,8 +10,7 @@ import {
   HttpException,
   UseGuards,
   Req,
-  Param,
-} from '@nestjs/common';
+  Param, Logger } from '@nestjs/common';
 import { ActivitiesService } from './activities.service';
 import { Activity, ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -19,6 +18,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 @Controller('activities')
 @UseGuards(JwtAuthGuard)
 export class ActivitiesController {
+  private readonly logger = new Logger(ActivitiesController.name);
+
   constructor(private readonly activitiesService: ActivitiesService) {}
 
   @Get()
@@ -33,7 +34,7 @@ export class ActivitiesController {
       );
       return { success: true, data: activities };
     } catch (error) {
-      console.error('Error al obtener actividades:', error);
+      this.logger.error('Error al obtener actividades:', error);
       return {
         success: false,
         error: 'Error al obtener actividades',
@@ -53,7 +54,7 @@ export class ActivitiesController {
       );
       return { success: true, data: activity };
     } catch (error) {
-      console.error('Error al crear actividad:', error);
+      this.logger.error('Error al crear actividad:', error);
       throw new HttpException(
         'Error al crear actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -75,7 +76,7 @@ export class ActivitiesController {
       );
       return { success: true, data: activity };
     } catch (error) {
-      console.error('Error al actualizar actividad:', error);
+      this.logger.error('Error al actualizar actividad:', error);
       throw new HttpException(
         'Error al actualizar actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -94,7 +95,7 @@ export class ActivitiesController {
       );
       return { success: true, data: activity };
     } catch (error) {
-      console.error('Error al archivar actividad:', error);
+      this.logger.error('Error al archivar actividad:', error);
       throw new HttpException(
         'Error al archivar actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -114,7 +115,7 @@ export class ActivitiesController {
       );
       return { success: true, data: activity };
     } catch (error) {
-      console.error('Error al restaurar actividad:', error);
+      this.logger.error('Error al restaurar actividad:', error);
       throw new HttpException(
         'Error al restaurar actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -138,7 +139,7 @@ export class ActivitiesController {
       const success = await this.activitiesService.delete(id, req.user.userId);
       return { success, data: { deleted: success } };
     } catch (error) {
-      console.error('Error al eliminar actividad:', error);
+      this.logger.error('Error al eliminar actividad:', error);
       throw new HttpException(
         'Error al eliminar actividad',
         HttpStatus.INTERNAL_SERVER_ERROR,

@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 
 @Injectable()
 export class AICostService {
+  private readonly logger = new Logger(AICostService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async logCost(data: {
@@ -44,7 +46,7 @@ export class AICostService {
       });
     } catch (error) {
       // Never fail the parent operation because of cost logging
-      console.error('Error logging AI cost:', error);
+      this.logger.error('Error logging AI cost:', error);
     }
   }
 

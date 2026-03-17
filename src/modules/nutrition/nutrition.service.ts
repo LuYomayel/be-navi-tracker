@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import {
   NutritionAnalysis,
@@ -12,6 +12,8 @@ import { AICostService } from '../ai-cost/ai-cost.service';
 
 @Injectable()
 export class NutritionService {
+  private readonly logger = new Logger(NutritionService.name);
+
   private openai: OpenAI | null = null;
   constructor(private prisma: PrismaService, private aiCostService: AICostService) {
     if (process.env.OPENAI_API_KEY) {
@@ -108,7 +110,7 @@ export class NutritionService {
       });
       return analyses as any[];
     } catch (error) {
-      console.error('Error al obtener análisis nutricionales:', error);
+      this.logger.error('Error al obtener análisis nutricionales:', error);
       return [];
     }
   }
@@ -121,7 +123,7 @@ export class NutritionService {
       });
       return analyses as any[];
     } catch (error) {
-      console.error('Error al obtener análisis nutricionales por fecha:', error);
+      this.logger.error('Error al obtener análisis nutricionales por fecha:', error);
       return [];
     }
   }
@@ -155,7 +157,7 @@ export class NutritionService {
       };
       return analysis;
     } catch (error) {
-      console.error('Error al crear análisis nutricional:', error);
+      this.logger.error('Error al crear análisis nutricional:', error);
       throw new Error('Error al crear análisis nutricional');
     }
   }
@@ -184,7 +186,7 @@ export class NutritionService {
       };
       return analysis;
     } catch (error) {
-      console.error('Error al actualizar análisis nutricional:', error);
+      this.logger.error('Error al actualizar análisis nutricional:', error);
       throw new Error('Error al actualizar análisis nutricional');
     }
   }
@@ -196,7 +198,7 @@ export class NutritionService {
       });
       return true;
     } catch (error) {
-      console.error('Error al eliminar análisis nutricional:', error);
+      this.logger.error('Error al eliminar análisis nutricional:', error);
       return false;
     }
   }
@@ -214,11 +216,10 @@ export class NutritionService {
         result = await this.checkDailyNutritionGoals(user.id, dateStr);
       }
 
-      console.log('✅ Evaluación nutricional diaria:', result);
 
       return result; // Devolver para controlador si lo necesita
     } catch (error) {
-      console.error('Error al actualizar análisis nutricional:', error);
+      this.logger.error('Error al actualizar análisis nutricional:', error);
       throw new Error('Error al actualizar análisis nutricional');
     }
   }
@@ -339,7 +340,7 @@ export class NutritionService {
       });
       return entries as any[];
     } catch (error) {
-      console.error('Error al obtener entradas de peso:', error);
+      this.logger.error('Error al obtener entradas de peso:', error);
       return [];
     }
   }
@@ -355,7 +356,7 @@ export class NutritionService {
       });
       return entries as any[];
     } catch (error) {
-      console.error('Error al obtener entradas de peso por fecha:', error);
+      this.logger.error('Error al obtener entradas de peso por fecha:', error);
       return [];
     }
   }
@@ -370,7 +371,7 @@ export class NutritionService {
       });
       return entry as any;
     } catch (error) {
-      console.error('Error al obtener entrada de peso por id:', error);
+      this.logger.error('Error al obtener entrada de peso por id:', error);
       return null;
     }
   }
@@ -397,7 +398,7 @@ export class NutritionService {
       });
       return updated as any;
     } catch (error) {
-      console.error('Error al actualizar entrada de peso:', error);
+      this.logger.error('Error al actualizar entrada de peso:', error);
       return null;
     }
   }
@@ -409,7 +410,7 @@ export class NutritionService {
       });
       return true;
     } catch (error) {
-      console.error('Error al eliminar entrada de peso:', error);
+      this.logger.error('Error al eliminar entrada de peso:', error);
       return false;
     }
   }
@@ -499,7 +500,7 @@ export class NutritionService {
         weightChangePercentage: Math.round(weightChangePercentage * 100) / 100,
       };
     } catch (error) {
-      console.error('Error al calcular estadísticas de peso:', error);
+      this.logger.error('Error al calcular estadísticas de peso:', error);
       return null;
     }
   }
@@ -580,13 +581,13 @@ export class NutritionService {
         progressToTarget: Math.round(progressToTarget * 100) / 100,
       };
     } catch (error) {
-      console.error('Error al calcular análisis de peso:', error);
+      this.logger.error('Error al calcular análisis de peso:', error);
       return null;
     }
   }
   async analyzeWeightImage(imageBase64: string, userId: string): Promise<any> {
     if (!this.openai) {
-      console.log('OpenAI no disponible, usando análisis de fallback');
+      this.logger.log('OpenAI no disponible, usando análisis de fallback');
       return null;
     }
 
@@ -657,12 +658,7 @@ export class NutritionService {
       try {
         parsed = JSON.parse(cleanedResponse);
       } catch (parseError) {
-        console.error(
-          'Error parseando respuesta de OpenAI Vision:',
-          parseError,
-        );
-        console.log('Respuesta original recibida:', response);
-        console.log('Respuesta limpiada:', cleanedResponse);
+        this.logger.error('Error parseando respuesta de OpenAI Vision', parseError);
         throw new Error('Respuesta de OpenAI Vision no válida');
       }
 
@@ -671,7 +667,6 @@ export class NutritionService {
         parsed,
         userId,
       );
-      console.log('✅ Análisis de peso generado con OpenAI Vision');
 
       const created = await this.prisma.weightEntry.create({
         data: validatedAnalysis,
@@ -679,7 +674,7 @@ export class NutritionService {
 
       return parsed;
     } catch (error) {
-      console.error('Error analizando imagen de peso con OpenAI:', error);
+      this.logger.error('Error analizando imagen de peso con OpenAI:', error);
       // Fallback a análisis predefinido
       return null;
     }
@@ -701,7 +696,7 @@ export class NutritionService {
 
       return created;
     } catch (error) {
-      console.error('Error analizando peso manual con OpenAI:', error);
+      this.logger.error('Error analizando peso manual con OpenAI:', error);
       return null;
     }
   }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { UserPreferences } from '../../common/types';
 
@@ -107,6 +107,8 @@ export interface SetPreferencesRequest {
 
 @Injectable()
 export class PreferencesService {
+  private readonly logger = new Logger(PreferencesService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async getPreferences(userId: string): Promise<UserPreferences | null> {
@@ -116,7 +118,7 @@ export class PreferencesService {
       });
       return preferences as UserPreferences;
     } catch (error) {
-      console.error('Error getting preferences:', error);
+      this.logger.error('Error getting preferences:', error);
       throw new Error('Failed to get preferences');
     }
   }
@@ -148,7 +150,6 @@ export class PreferencesService {
         createdAt: new Date(),
         updatedAt: new Date(),
       };
-      console.log('🔍 User preferences:', userPreferences);
       // Usar upsert para crear o actualizar evitando conflicto de clave única
       const savedPreferences = await this.prisma.userPreferences.upsert({
         where: { userId },
@@ -163,7 +164,7 @@ export class PreferencesService {
 
       return savedPreferences as UserPreferences;
     } catch (error) {
-      console.error('Error setting preferences:', error);
+      this.logger.error('Error setting preferences:', error);
       throw new Error('Failed to set preferences');
     }
   }
@@ -191,7 +192,7 @@ export class PreferencesService {
       });
       return updatedPreferences as UserPreferences;
     } catch (error) {
-      console.error('Error updating goals:', error);
+      this.logger.error('Error updating goals:', error);
       throw new Error('Failed to update goals');
     }
   }
@@ -221,7 +222,7 @@ export class PreferencesService {
       });
       return updatedPreferences as UserPreferences;
     } catch (error) {
-      console.error('Error updating personal data:', error);
+      this.logger.error('Error updating personal data:', error);
       throw new Error('Failed to update personal data');
     }
   }

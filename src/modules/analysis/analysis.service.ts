@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import OpenAI from 'openai';
 import { AICostService } from '../ai-cost/ai-cost.service';
@@ -29,6 +29,8 @@ interface ContentRequest {
 
 @Injectable()
 export class AnalysisService {
+  private readonly logger = new Logger(AnalysisService.name);
+
   private openai: OpenAI | null = null;
 
   constructor(private prisma: PrismaService, private aiCostService: AICostService) {
@@ -93,14 +95,14 @@ REGLAS IMPORTANTES:
       try {
         parsed = JSON.parse(response);
       } catch {
-        console.error('Error al parsear respuesta de OpenAI');
+        this.logger.error('Error al parsear respuesta de OpenAI');
         throw new Error('Respuesta de OpenAI no válida');
       }
 
       const recommendations = parsed.recommendations || [];
       return this.validateAndCleanRecommendations(recommendations);
     } catch (error) {
-      console.error('Error al obtener recomendaciones de contenido:', error);
+      this.logger.error('Error al obtener recomendaciones de contenido:', error);
       return this.getFallbackRecommendations(request);
     }
   }
@@ -567,7 +569,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
         });
       }
     } catch (error) {
-      console.error('Error fetching recent analysis:', error);
+      this.logger.error('Error fetching recent analysis:', error);
     }
 
     return results;
@@ -718,7 +720,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
         needs_improvement: needsImprovement,
       };
     } catch (error) {
-      console.error('Error detecting patterns:', error);
+      this.logger.error('Error detecting patterns:', error);
       return {
         streaks: { current_longest: 0, habit: 'Ninguno' },
         trends: {},

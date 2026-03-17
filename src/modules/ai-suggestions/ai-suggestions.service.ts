@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { AICostService } from '../ai-cost/ai-cost.service';
 
@@ -19,6 +19,8 @@ interface AISuggestionResponse {
 
 @Injectable()
 export class AiSuggestionsService {
+  private readonly logger = new Logger(AiSuggestionsService.name);
+
   private openai: OpenAI | null = null;
 
   constructor(private aiCostService: AICostService) {
@@ -151,7 +153,7 @@ Ejemplos de NO:
         .toUpperCase();
       return response === 'SI';
     } catch (error) {
-      console.error('Error detectando intención:', error);
+      this.logger.error('Error detectando intención:', error);
       // Fallback: detectar palabras clave
       const keywords = [
         'agreg',
@@ -226,7 +228,7 @@ Reglas:
       const extractedData = JSON.parse(jsonMatch[0]);
       return extractedData;
     } catch (error) {
-      console.error('Error extrayendo hábito:', error);
+      this.logger.error('Error extrayendo hábito:', error);
 
       // Fallback: extracción manual básica
       return {
@@ -304,7 +306,7 @@ El usuario NO está pidiendo agregar un hábito, solo quiere consejos o informac
         suggestions: this.generateQuickSuggestions(message),
       };
     } catch (error) {
-      console.error('Error generando respuesta de chat:', error);
+      this.logger.error('Error generando respuesta de chat:', error);
       return this.findBestResponse(message);
     }
   }
@@ -513,10 +515,8 @@ El usuario NO está pidiendo agregar un hábito, solo quiere consejos o informac
   ): Promise<AISuggestionResponse> {
     // 🚀 Usar OpenAI si está disponible, sino fallback
     if (this.openai && process.env.OPENAI_API_KEY) {
-      console.log('🤖 Usando OpenAI para generar respuesta...');
       return await this.generateWithOpenAI(message, chatHistory, userId);
     } else {
-      console.log('⚠️ OpenAI no configurado, usando respuestas predefinidas');
       // Detectar si hay una tabla de hábitos
       if (this.containsHabitTable(message)) {
         const extractedActivities = this.parseHabitTable(message);

@@ -9,8 +9,7 @@ import {
   HttpStatus,
   HttpException,
   UseGuards,
-  Req,
-} from '@nestjs/common';
+  Req, Logger } from '@nestjs/common';
 import { NotesService } from './notes.service';
 import { DailyNote, ApiResponse } from '../../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -19,6 +18,8 @@ import { SaveNoteDto } from './dto/save-note.dto';
 @Controller('notes')
 @UseGuards(JwtAuthGuard)
 export class NotesController {
+  private readonly logger = new Logger(NotesController.name);
+
   constructor(private readonly notesService: NotesService) {}
 
   @Get()
@@ -27,7 +28,7 @@ export class NotesController {
       const notes = await this.notesService.getAll(req.user.userId);
       return { success: true, data: notes };
     } catch (error) {
-      console.error('Error fetching notes:', error);
+      this.logger.error('Error fetching notes:', error);
       return {
         success: false,
         error: 'Failed to fetch notes',
@@ -41,14 +42,13 @@ export class NotesController {
     @Req() req: any,
   ): Promise<ApiResponse<DailyNote>> {
     try {
-      console.log('noteData', noteData, req.user.userId);
       const note = await this.notesService.create(
         noteData as SaveNoteDto,
         req.user.userId,
       );
       return { success: true, data: note };
     } catch (error) {
-      console.error('Error creating note:', error);
+      this.logger.error('Error creating note:', error);
       throw new HttpException(
         'Failed to create note',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -66,7 +66,7 @@ export class NotesController {
       const note = await this.notesService.update(id, updates, req.user.userId);
       return { success: true, data: note };
     } catch (error) {
-      console.error('Error updating note:', error);
+      this.logger.error('Error updating note:', error);
       throw new HttpException(
         'Failed to update note',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -87,7 +87,7 @@ export class NotesController {
       const success = await this.notesService.delete(id, req.user.userId);
       return { success, data: { deleted: success } };
     } catch (error) {
-      console.error('Error deleting note:', error);
+      this.logger.error('Error deleting note:', error);
       throw new HttpException(
         'Failed to delete note',
         HttpStatus.INTERNAL_SERVER_ERROR,

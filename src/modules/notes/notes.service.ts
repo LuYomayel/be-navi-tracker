@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { DailyNote, ApiResponse } from '../../common/types';
 import { SaveNoteDto } from './dto/save-note.dto';
 
 @Injectable()
 export class NotesService {
+  private readonly logger = new Logger(NotesService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async getAll(userId: string): Promise<DailyNote[]> {
@@ -20,7 +22,7 @@ export class NotesService {
         customComment: note.customComment ?? undefined,
       }));
     } catch (error) {
-      console.error('Error al obtener notas:', error);
+      this.logger.error('Error al obtener notas:', error);
       return [];
     }
   }
@@ -45,7 +47,7 @@ export class NotesService {
         customComment: note.customComment ?? undefined,
       };
     } catch (error) {
-      console.error('Error al crear nota:', error);
+      this.logger.error('Error al crear nota:', error);
       throw new Error('Error al crear nota');
     }
   }
@@ -73,7 +75,7 @@ export class NotesService {
         customComment: note.customComment ?? undefined,
       };
     } catch (error) {
-      console.error('Error al actualizar nota:', error);
+      this.logger.error('Error al actualizar nota:', error);
       return null;
     }
   }
@@ -85,7 +87,7 @@ export class NotesService {
       });
       return true;
     } catch (error) {
-      console.error('Error al eliminar nota:', error);
+      this.logger.error('Error al eliminar nota:', error);
       return false;
     }
   }
