@@ -75,6 +75,8 @@ model Activity {
   user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   completions DailyCompletion[]
 
+  @@index([userId])
+  @@index([userId, archived])
   @@map("activities")
 }
 
@@ -112,6 +114,7 @@ model NutritionAnalysis {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, date])
   @@map("nutrition_analyses")
 }
 
@@ -255,6 +258,7 @@ model Note {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, date])
   @@map("notes")
 }
 
@@ -271,6 +275,8 @@ model XpLog {
   // Relaciones
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, date])
+  @@index([userId, action, date])
   @@map("xp_logs")
 }
 
@@ -294,6 +300,7 @@ model PhysicalActivity {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, date])
   @@map("physical_activities")
 }
 

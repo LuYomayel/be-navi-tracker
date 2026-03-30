@@ -326,6 +326,45 @@ describe('DayScoreService', () => {
       // Should have called calculate (which calls activity.findMany)
       expect(prisma.activity.findMany).toHaveBeenCalled();
     });
+
+    it('should use in-memory cache for today (second call skips DB queries)', async () => {
+      const today = new Date().toISOString().split('T')[0];
+      const mockScore = { ...mockDayScore, date: today };
+      (prisma.dayScore.upsert as jest.Mock).mockResolvedValue(mockScore);
+
+      // First call: calculates and populates in-memory cache
+      const first = await service.getOrCalculate(userId, today);
+      expect(first).toEqual(mockScore);
+      expect(prisma.activity.findMany).toHaveBeenCalledTimes(1);
+
+      // Second call: should return from in-memory cache, no DB queries
+      const second = await service.getOrCalculate(userId, today);
+      expect(second).toEqual(mockScore);
+      expect(prisma.activity.findMany).toHaveBeenCalledTimes(1); // still 1
+    });
+
+    it('should bypass in-memory cache after TTL expires', async () => {
+      jest.useFakeTimers();
+      const today = new Date().toISOString().split('T')[0];
+      const mockScore = { ...mockDayScore, date: today };
+      (prisma.dayScore.upsert as jest.Mock).mockResolvedValue(mockScore);
+
+      // First call: populate cache
+      await service.getOrCalculate(userId, today);
+      expect(prisma.activity.findMany).toHaveBeenCalledTimes(1);
+
+      // Advance past 30s TTL
+      jest.advanceTimersByTime(31_000);
+
+      // Re-setup mocks after timer advance
+      (prisma.dayScore.upsert as jest.Mock).mockResolvedValue(mockScore);
+
+      // Second call: cache expired → should recalculate
+      await service.getOrCalculate(userId, today);
+      expect(prisma.activity.findMany).toHaveBeenCalledTimes(2);
+
+      jest.useRealTimers();
+    });
   });
 
   describe('getRange', () => {

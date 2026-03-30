@@ -3,8 +3,15 @@ import { PrismaService } from '../../config/prisma.service';
 import { XpService } from '../xp/xp.service';
 import { XpAction } from '../xp/dto/xp.dto';
 
+const CACHE_TTL_MS = 30_000; // 30 seconds
+
 @Injectable()
 export class DayScoreService {
+  private readonly todayCache = new Map<
+    string,
+    { score: any; expiry: number }
+  >();
+
   constructor(
     private prisma: PrismaService,
     private xpService: XpService,
@@ -15,18 +22,47 @@ export class DayScoreService {
     const dayOfWeek = new Date(date + 'T12:00:00').getDay(); // 0=Sun
     const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 0=Mon
 
-    const activities = await this.prisma.activity.findMany({
-      where: {
-        userId,
-        archived: false,
-        createdAt: { lte: new Date(date + 'T23:59:59') },
-      },
-      include: {
-        completions: {
-          where: { date },
+    // Run all DB queries in parallel instead of sequentially
+    const [
+      activities,
+      tasks,
+      nutritionCount,
+      exerciseCount,
+      noteCount,
+      hydrationLog,
+      prefs,
+    ] = await Promise.all([
+      this.prisma.activity.findMany({
+        where: {
+          userId,
+          archived: false,
+          createdAt: { lte: new Date(date + 'T23:59:59') },
         },
-      },
-    });
+        include: {
+          completions: {
+            where: { date },
+          },
+        },
+      }),
+      this.prisma.task.findMany({
+        where: { userId, dueDate: date },
+      }),
+      this.prisma.nutritionAnalysis.count({
+        where: { userId, date },
+      }),
+      this.prisma.physicalActivity.count({
+        where: { userId, date },
+      }),
+      this.prisma.note.count({
+        where: { userId, date },
+      }),
+      this.prisma.hydrationLog.findUnique({
+        where: { userId_date: { userId, date } },
+      }),
+      this.prisma.userPreferences.findFirst({
+        where: { userId },
+      }),
+    ]);
 
     const scheduledActivities = activities.filter((a) => {
       const days =
@@ -39,38 +75,13 @@ export class DayScoreService {
       a.completions.some((c) => c.completed),
     ).length;
 
-    // 2. TASKS: due this day
-    const tasks = await this.prisma.task.findMany({
-      where: { userId, dueDate: date },
-    });
     const tasksTotal = tasks.length;
     const tasksCompleted = tasks.filter((t) => t.completed).length;
 
-    // 3. NUTRITION: at least one meal logged
-    const nutritionCount = await this.prisma.nutritionAnalysis.count({
-      where: { userId, date },
-    });
     const nutritionLogged = nutritionCount > 0;
-
-    // 4. EXERCISE: at least one physical activity
-    const exerciseCount = await this.prisma.physicalActivity.count({
-      where: { userId, date },
-    });
     const exerciseLogged = exerciseCount > 0;
-
-    // 5. REFLECTION: at least one note
-    const noteCount = await this.prisma.note.count({
-      where: { userId, date },
-    });
     const reflectionLogged = noteCount > 0;
 
-    // 6. HYDRATION: daily goal reached
-    const hydrationLog = await this.prisma.hydrationLog.findUnique({
-      where: { userId_date: { userId, date } },
-    });
-    const prefs = await this.prisma.userPreferences.findFirst({
-      where: { userId },
-    });
     const hydrationGoal = prefs?.hydrationGoalGlasses ?? 8;
     const hydrationLogged =
       (hydrationLog?.glassesConsumed ?? 0) >= hydrationGoal;
@@ -134,6 +145,15 @@ export class DayScoreService {
       },
     });
 
+    // Update in-memory cache for today
+    const today = new Date().toISOString().split('T')[0];
+    if (date === today) {
+      this.todayCache.set(`${userId}:${date}`, {
+        score: dayScore,
+        expiry: Date.now() + CACHE_TTL_MS,
+      });
+    }
+
     // Award XP (deduplicate: only if no XP log exists for this date+action)
     if (status === 'won' || (status === 'partial' && percentage >= 75)) {
       const action =
@@ -167,12 +187,17 @@ export class DayScoreService {
   async getOrCalculate(userId: string, date: string) {
     const today = new Date().toISOString().split('T')[0];
 
-    // Always recalculate today (data may have changed)
+    // For today: check in-memory cache first
     if (date === today) {
+      const cacheKey = `${userId}:${date}`;
+      const cached = this.todayCache.get(cacheKey);
+      if (cached && Date.now() < cached.expiry) {
+        return cached.score;
+      }
       return await this.calculate(userId, date);
     }
 
-    // For past days, use cache
+    // For past days, use DB cache
     const cached = await this.prisma.dayScore.findUnique({
       where: { userId_date: { userId, date } },
     });
