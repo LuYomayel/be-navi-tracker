@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { getLocalDateString } from '../../common/utils/date.utils';
 import { XpService } from '../xp/xp.service';
 import { XpAction } from '../xp/dto/xp.dto';
 
@@ -146,7 +147,7 @@ export class DayScoreService {
     });
 
     // Update in-memory cache for today
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     if (date === today) {
       this.todayCache.set(`${userId}:${date}`, {
         score: dayScore,
@@ -185,7 +186,7 @@ export class DayScoreService {
   }
 
   async getOrCalculate(userId: string, date: string) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
 
     // For today: check in-memory cache first
     if (date === today) {
@@ -209,7 +210,7 @@ export class DayScoreService {
   }
 
   async getRange(userId: string, from: string, to: string) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const allDates = this.generateDateRange(from, to);
 
     // Fetch all existing scores in one query
@@ -301,7 +302,7 @@ export class DayScoreService {
   }
 
   async getWinStreak(userId: string) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const scores = await this.prisma.dayScore.findMany({
       where: { userId, date: { lte: today } },
       orderBy: { date: 'desc' },

@@ -24,6 +24,7 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { XpAction } from '../xp/dto/xp.dto';
+import { getLocalDateString } from '../../common/utils/date.utils';
 import { XpService } from '../xp/xp.service';
 import { CreateWeightEntryManualDto } from './dto/create-weight-entry.dto';
 
@@ -354,7 +355,7 @@ export class NutritionController {
     try {
       const userId = req?.user?.userId;
       if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
-      const today = date || new Date().toISOString().split('T')[0];
+      const today = date || getLocalDateString();
 
       const balance = await this.nutritionService.getDailyNutritionBalance(
         userId,

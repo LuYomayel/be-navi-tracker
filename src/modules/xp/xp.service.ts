@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { getLocalDateString } from '../../common/utils/date.utils';
 import {
   AddXpDto,
   XpAction,
@@ -118,7 +119,7 @@ export class XpService {
     date?: string,
   ): Promise<LevelUpResponse> {
     try {
-      const currentDate = date || new Date().toISOString().split('T')[0];
+      const currentDate = date || getLocalDateString();
 
       const user = await this.prisma.user.findUnique({
         where: { id: userId },

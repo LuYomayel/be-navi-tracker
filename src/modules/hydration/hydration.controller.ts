@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { HydrationService } from './hydration.service';
+import { getLocalDateString } from '../../common/utils/date.utils';
 import {
   AdjustHydrationDto,
   SetHydrationDto,
@@ -24,7 +25,7 @@ export class HydrationController {
   @Get()
   async getByDate(@Request() req, @Query('date') date?: string) {
     const targetDate =
-      date || new Date().toISOString().split('T')[0];
+      date || getLocalDateString();
     const data = await this.hydrationService.getByDate(
       req.user.userId,
       targetDate,

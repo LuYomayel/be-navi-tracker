@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { getLocalDateString } from '../../common/utils/date.utils';
 import {
   NutritionAnalysis,
   WeightEntry,
@@ -49,7 +50,7 @@ export class NutritionService {
     const validatedWeight: Omit<WeightEntry, 'id' | 'createdAt' | 'updatedAt'> =
       {
         userId: userId,
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         weight: this.clampNumber(analysis.weight, 20, 300, analysis.weight),
         bodyFatPercentage: analysis.bodyFatPercentage
           ? this.clampNumber(
@@ -207,7 +208,7 @@ export class NutritionService {
     try {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const dateStr = new Date().toISOString().split('T')[0]; // Por ahora usamos hoy
+      const dateStr = getLocalDateString();
 
       // TODO: Iterate over all active users
       const users = await this.prisma.user.findMany({ where: { isActive: true }, select: { id: true } });

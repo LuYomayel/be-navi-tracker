@@ -5,6 +5,7 @@ import { CreatePhysicalActivityDto } from './dto/create-physical-activity.dto';
 import { OpenAI } from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { getLocalDateString } from '../../common/utils/date.utils';
 
 @Injectable()
 export class PhysicalActivitiesService {
@@ -54,7 +55,7 @@ export class PhysicalActivitiesService {
             role: 'system',
             content: `Vas a analizar una foto de una actividad física y vas a devolver un objeto con los datos de la actividad física.
             - Probablemente la imagen sea de alguna aplicacion al estilo de Strava, Nike Run Club, etc.
-            - La fecha de hoy es: ${todayDate || new Date().toISOString().split('T')[0]}. Si no podés determinar la fecha exacta de la actividad desde la imagen, usá esta fecha.
+            - La fecha de hoy es: ${todayDate || getLocalDateString()}. Si no podés determinar la fecha exacta de la actividad desde la imagen, usá esta fecha.
             - Devolver unicamente un objeto con la siguiente estructura:
             {
               date: string; // yyyy-MM-dd (UTC 00:00)

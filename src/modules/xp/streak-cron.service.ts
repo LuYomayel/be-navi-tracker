@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../config/prisma.service';
 import { StreakService } from './streak.service';
+import { getLocalDateString, getLocalHour, toLocalDateString } from '../../common/utils/date.utils';
 
 @Injectable()
 export class StreakCronService {
@@ -13,19 +14,19 @@ export class StreakCronService {
   ) {}
 
   /**
-   * Ejecuta al final del día (23:59) para verificar rachas
+   * Ejecuta al final del día Argentina (23:59 ART = 02:59 UTC).
+   * Cron en UTC: '59 2 * * *'
    */
-  @Cron('59 23 * * *') // 23:59 todos los días
+  @Cron('59 2 * * *') // 23:59 hora Argentina (UTC-3)
   async checkEndOfDayStreaks() {
-    this.logger.log('Verificando rachas al final del día...');
+    this.logger.log('Verificando rachas al final del día (hora Argentina)...');
 
     try {
-      // Obtener todos los usuarios activos
       const users = await this.prisma.user.findMany({
         where: { isActive: true },
       });
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
 
       for (const user of users) {
         try {
@@ -38,9 +39,8 @@ export class StreakCronService {
           );
         }
       }
-      const newDate = new Date();
       this.logger.log(
-        `Verificación de rachas completada - date: ${newDate.toISOString()}, hours: ${newDate.getHours()}, minutes: ${newDate.getMinutes()}`,
+        `Verificación de rachas completada - fecha local: ${today}`,
       );
     } catch (error) {
       this.logger.error('Error en verificación de rachas', error);
@@ -48,28 +48,28 @@ export class StreakCronService {
   }
 
   /**
-   * Ejecuta cada hora para verificar rachas de nutrición (3 comidas)
+   * Ejecuta cada hora para verificar rachas de nutrición (3 comidas).
+   * Compara con hora local Argentina.
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @Cron('0 * * * *') // Cada hora en punto
   async checkNutritionStreaks() {
-    // Solo verificar en horas de comida (8, 13, 20)
-    const currentHour = new Date().getHours();
+    // Verificar en horas de comida Argentina: 8, 13, 20
+    const currentHour = getLocalHour();
     if (![8, 13, 20].includes(currentHour)) {
       return;
     }
 
-    this.logger.log('Verificando rachas de nutrición...');
+    this.logger.log('Verificando rachas de nutrición (hora Argentina)...');
 
     try {
       const users = await this.prisma.user.findMany({
         where: { isActive: true },
       });
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
 
       for (const user of users) {
         try {
-          // Solo actualizar racha de nutrición si se completaron 3 comidas
           await this.streakService.updateNutritionStreak(user.id, today);
         } catch (error) {
           this.logger.error(
@@ -86,30 +86,27 @@ export class StreakCronService {
   }
 
   /**
-   * Resetear rachas rotas al inicio del día (00:01)
+   * Resetear rachas rotas al inicio del día Argentina (00:01 ART = 03:01 UTC).
+   * Cron en UTC: '1 3 * * *'
    */
-  @Cron('1 0 * * *') // 00:01 todos los días
+  @Cron('1 3 * * *') // 00:01 hora Argentina (UTC-3)
   async resetBrokenStreaks() {
-    this.logger.log('Verificando rachas rotas...');
+    this.logger.log('Verificando rachas rotas (hora Argentina)...');
 
     try {
       const users = await this.prisma.user.findMany({
         where: { isActive: true },
       });
 
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      // Ayer en hora local Argentina
+      const yesterdayDate = new Date();
+      yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+      const yesterdayStr = toLocalDateString(yesterdayDate);
 
       for (const user of users) {
         try {
-          // Actualizar/Resetear racha de hábitos según el día de ayer
           await this.streakService.updateHabitStreak(user.id, yesterdayStr);
-
-          // Actualizar/Resetear racha de nutrición para el día de ayer
           await this.streakService.updateNutritionStreak(user.id, yesterdayStr);
-
-          // Opcional: actividad física
           await this.streakService.updateActivityStreak(user.id, yesterdayStr);
         } catch (error) {
           this.logger.error(

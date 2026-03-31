@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import OpenAI from 'openai';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { toLocalDateString } from '../../common/utils/date.utils';
 
 interface ContentRecommendation {
   title: string;
@@ -448,7 +449,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
   async getRecentAnalysis(userId: string, days: number = 7): Promise<any[]> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
-    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+    const cutoffDateStr = toLocalDateString(cutoffDate);
 
     const results: any[] = [];
 
@@ -582,7 +583,7 @@ Responde ÚNICAMENTE con un JSON válido en este formato exacto:
     try {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const cutoffDateStr = sevenDaysAgo.toISOString().split('T')[0];
+      const cutoffDateStr = toLocalDateString(sevenDaysAgo);
 
       // Get streaks
       const userStreaks = await this.prisma.userStreak.findMany({

@@ -19,6 +19,7 @@ import { AICostService } from '../ai-cost/ai-cost.service';
 import { PreferencesService } from '../preferences/preferences.service';
 import OpenAI from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
+import { getLocalDateString } from '../../common/utils/date.utils';
 
 const DAY_KEYS: DayKey[] = [
   'monday',
@@ -218,7 +219,7 @@ export class MealPrepService {
   }
 
   async getActiveMealPrep(userId: string) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     return this.prisma.mealPrep.findFirst({
       where: {
         userId,
