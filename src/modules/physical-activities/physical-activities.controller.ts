@@ -41,6 +41,7 @@ export class PhysicalActivitiesController {
             dto.screenshotUrl,
             (dto as any).context,
             userId,
+            dto.date,
           );
         if (!activity) {
           throw new HttpException(

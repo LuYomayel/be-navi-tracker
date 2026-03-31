@@ -37,6 +37,7 @@ export class PhysicalActivitiesService {
     imageBase64: string,
     context?: string,
     userId?: string,
+    todayDate?: string,
   ): Promise<(PhysicalActivity & { aiCostUsd?: number | null }) | null> {
     if (!this.openai) {
       this.logger.log('OpenAI no disponible, usando análisis de fallback');
@@ -53,6 +54,7 @@ export class PhysicalActivitiesService {
             role: 'system',
             content: `Vas a analizar una foto de una actividad física y vas a devolver un objeto con los datos de la actividad física.
             - Probablemente la imagen sea de alguna aplicacion al estilo de Strava, Nike Run Club, etc.
+            - La fecha de hoy es: ${todayDate || new Date().toISOString().split('T')[0]}. Si no podés determinar la fecha exacta de la actividad desde la imagen, usá esta fecha.
             - Devolver unicamente un objeto con la siguiente estructura:
             {
               date: string; // yyyy-MM-dd (UTC 00:00)
