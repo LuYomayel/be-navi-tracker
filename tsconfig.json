@@ -10,6 +10,14 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
+    "paths": {
+      "@modelcontextprotocol/sdk/server/mcp.js": [
+        "node_modules/@modelcontextprotocol/sdk/dist/cjs/server/mcp"
+      ],
+      "@modelcontextprotocol/sdk/server/streamableHttp.js": [
+        "node_modules/@modelcontextprotocol/sdk/dist/cjs/server/streamableHttp"
+      ]
+    },
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": false,

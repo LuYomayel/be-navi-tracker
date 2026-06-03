@@ -8,5 +8,6 @@ import { XpModule } from '../xp/xp.module';
   imports: [XpModule],
   controllers: [CompletionsController],
   providers: [CompletionsService, PrismaService],
+  exports: [CompletionsService],
 })
 export class CompletionsModule {}

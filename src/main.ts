@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
 
@@ -38,8 +38,26 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  // Configurar prefijo global para la API
-  app.setGlobalPrefix('api');
+  // Configurar prefijo global para la API.
+  // El connector MCP (Streamable HTTP) y su OAuth Authorization Server deben
+  // vivir en la raiz (Claude espera /mcp y /.well-known/oauth-*), por eso se
+  // excluyen del prefijo /api.
+  app.setGlobalPrefix('api', {
+    exclude: [
+      { path: 'mcp', method: RequestMethod.ALL },
+      {
+        path: '.well-known/oauth-protected-resource',
+        method: RequestMethod.GET,
+      },
+      {
+        path: '.well-known/oauth-authorization-server',
+        method: RequestMethod.GET,
+      },
+      { path: 'oauth/authorize', method: RequestMethod.ALL },
+      { path: 'oauth/token', method: RequestMethod.POST },
+      { path: 'oauth/register', method: RequestMethod.POST },
+    ],
+  });
 
   const port = process.env.PORT || 4000;
   await app.listen(port);
