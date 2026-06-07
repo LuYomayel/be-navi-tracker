@@ -29,6 +29,7 @@ import { HydrationModule } from './modules/hydration/hydration.module';
 import { ShoppingListModule } from './modules/shopping-list/shopping-list.module';
 import { McpModule } from './modules/mcp/mcp.module';
 import { GoalModule } from './modules/goal/goal.module';
+import { BriefingModule } from './modules/briefing/briefing.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([{
@@ -60,6 +61,7 @@ import { GoalModule } from './modules/goal/goal.module';
     ShoppingListModule,
     McpModule,
     GoalModule,
+    BriefingModule,
   ],
   controllers: [AppController],
   providers: [

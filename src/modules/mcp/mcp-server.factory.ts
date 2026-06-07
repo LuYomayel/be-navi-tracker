@@ -11,6 +11,8 @@ import { DayScoreService } from '../day-score/day-score.service';
 import { TasksService } from '../tasks/tasks.service';
 import { SavedMealsService } from '../saved-meals/saved-meals.service';
 import { GoalService } from '../goal/goal.service';
+import { BriefingService } from '../briefing/briefing.service';
+import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
@@ -53,6 +55,8 @@ export class McpServerFactory {
     private readonly tasks: TasksService,
     private readonly savedMeals: SavedMealsService,
     private readonly goal: GoalService,
+    private readonly briefing: BriefingService,
+    private readonly analyzeFood: AnalyzeFoodService,
   ) {}
 
   /**
@@ -119,10 +123,28 @@ export class McpServerFactory {
           grasa_g: z.number().optional().describe('Grasa en gramos'),
           fibra_g: z.number().optional().describe('Fibra en gramos'),
           notas: z.string().optional().describe('Notas / contexto adicional'),
+          confirmar: z
+            .boolean()
+            .optional()
+            .describe(
+              'Pasá true para registrar igual aunque ya exista una comida de ese tipo ese dia (evita duplicados por reintento).',
+            ),
         },
       },
       async (a) => {
         const fecha = a.fecha || getLocalDateString();
+        const mealType = MEAL_TYPE_MAP[a.tipo] || 'other';
+        if (!a.confirmar) {
+          const dup = await this.prisma.nutritionAnalysis.findFirst({
+            where: { userId, date: fecha, mealType },
+          });
+          if (dup) {
+            const prev = (dup.foods as any)?.[0]?.name || '';
+            return text(
+              `Ya hay un ${a.tipo} registrado para ${fecha}${prev ? ` ("${prev}", ${dup.totalCalories} kcal)` : ''}. Si querés agregar otro igual, repetí con confirmar=true.`,
+            );
+          }
+        }
         const calorias = a.calorias ?? 0;
         const analysis = await this.nutrition.create(
           {
@@ -589,6 +611,105 @@ export class McpServerFactory {
         return text(`Comida guardada borrada: "${target.name}".`);
       },
     );
+
+    add(
+      'generar_briefing',
+      {
+        title: 'Generar el briefing del dia',
+        description:
+          'Genera (o regenera) y persiste el briefing del dia: resumen de habitos, tareas, nutricion, day-score, hidratacion y objetivo. Con enviar=true tambien lo manda por mail.',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+          enviar: z
+            .boolean()
+            .optional()
+            .describe('Si true, manda el briefing por mail.'),
+        },
+      },
+      async (a) => {
+        if (a.enviar) {
+          const { briefing, emailSent } =
+            await this.briefing.generateAndSend(userId, a.fecha);
+          return text(
+            `${briefing.text}\n\n${emailSent ? '📧 Enviado por mail.' : '(mail no enviado: falta configurar RESEND_API_KEY)'}`,
+          );
+        }
+        const briefing = await this.briefing.generate(userId, a.fecha);
+        return text(briefing.text);
+      },
+    );
+
+    add(
+      'analizar_comida',
+      {
+        title: 'Analizar y loguear una comida (IA)',
+        description:
+          'Estima calorias y macros de una comida descrita en texto libre (con IA) y la registra en el diario. Ideal para loguear rapido cuando no sabes los gramos/macros (ej: "milanesa con pure").',
+        inputSchema: {
+          tipo: z
+            .enum(['Desayuno', 'Almuerzo', 'Merienda', 'Cena', 'Snack'])
+            .describe('Tipo de comida'),
+          detalle: z.string().describe('Que comiste, en texto libre'),
+          porciones: z
+            .number()
+            .optional()
+            .describe('Numero de porciones (default 1)'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const fecha = a.fecha || getLocalDateString();
+        const mealType = MEAL_TYPE_MAP[a.tipo] || 'other';
+        const r = await this.analyzeFood.analyzeManualFood(
+          a.detalle,
+          a.porciones || 1,
+          mealType as any,
+          undefined,
+          userId,
+        );
+        const m = r.macronutrients;
+        const analysis = await this.nutrition.create(
+          {
+            date: fecha,
+            mealType,
+            foods: r.foods,
+            totalCalories: Math.round(r.totalCalories),
+            macronutrients: m,
+            aiConfidence: r.confidence ?? 1,
+          } as any,
+          userId,
+        );
+        return text(
+          `Comida analizada y registrada (${a.tipo}, ${fecha}): ~${Math.round(r.totalCalories)} kcal · P ${Math.round(m.protein)} / C ${Math.round(m.carbs)} / G ${Math.round(m.fat)} g. id ${analysis.id}. (confianza ${Math.round((r.confidence ?? 1) * 100)}%)`,
+        );
+      },
+    );
+
+    add(
+      'borrar_comida',
+      {
+        title: 'Borrar una comida registrada',
+        description:
+          'Borra una comida del diario por su id (usa list_comidas_dia para obtener los ids). Util para sacar duplicados o errores.',
+        inputSchema: {
+          id: z.string().describe('id de la comida (de list_comidas_dia)'),
+        },
+      },
+      async (a) => {
+        const ok = await this.nutrition.delete(a.id, userId);
+        return text(
+          ok
+            ? `Comida borrada (id ${a.id}).`
+            : `No se pudo borrar la comida ${a.id} (no existe o no es tuya).`,
+        );
+      },
+    );
   }
 
   // ────────────────────────────────────────────────────────────
@@ -901,6 +1022,115 @@ export class McpServerFactory {
         return text(lines.join('\n'));
       },
     );
+
+    add(
+      'get_briefing',
+      {
+        title: 'Briefing del dia',
+        description:
+          'Devuelve el briefing del dia (resumen de habitos, tareas, nutricion, score, hidratacion y objetivo). Si todavia no se genero, lo genera al vuelo.',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const existing = await this.briefing.getByDate(userId, a.fecha);
+        if (existing) return text(existing.text);
+        const generated = await this.briefing.generate(userId, a.fecha);
+        return text(generated.text);
+      },
+    );
+
+    add(
+      'list_comidas_dia',
+      {
+        title: 'Listar comidas de un dia',
+        description:
+          'Lista las comidas registradas en una fecha con su id, tipo y calorias. Util para corregir o borrar duplicados (con borrar_comida).',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const fecha = a.fecha || getLocalDateString();
+        const comidas = await this.nutrition.getByDate(fecha, userId);
+        if (!comidas.length)
+          return text(`Sin comidas registradas para ${fecha}.`);
+        const lines = (comidas as any[]).map(
+          (c) =>
+            `• [${c.id}] ${c.mealType} — ${(c.foods as any)?.[0]?.name || 's/d'} (${c.totalCalories} kcal)`,
+        );
+        return text(`Comidas de ${fecha}:\n${lines.join('\n')}`);
+      },
+    );
+
+    add(
+      'informe_nutricion',
+      {
+        title: 'Informe nutricional por rango',
+        description:
+          'Agrega la nutricion de un rango de fechas: dias con registro, promedio diario de calorias y macros, y adherencia a los objetivos. Util para el informe de la nutricionista.',
+        inputSchema: {
+          desde: z.string().describe('Fecha inicio YYYY-MM-DD'),
+          hasta: z.string().describe('Fecha fin YYYY-MM-DD'),
+        },
+      },
+      async (a) => {
+        const dates = this.dateRange(a.desde, a.hasta);
+        const sum = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+        let days = 0;
+        let goals: any = null;
+        for (const d of dates) {
+          const bal = await this.nutrition
+            .getDailyNutritionBalance(userId, d)
+            .catch(() => null);
+          if (!bal || (bal.nutritionAnalyses?.length || 0) === 0) continue;
+          days++;
+          sum.calories += bal.consumed.calories;
+          sum.protein += bal.consumed.protein;
+          sum.carbs += bal.consumed.carbs;
+          sum.fat += bal.consumed.fat;
+          sum.fiber += bal.consumed.fiber;
+          goals = bal.goals;
+        }
+        if (days === 0)
+          return text(`Sin comidas registradas entre ${a.desde} y ${a.hasta}.`);
+        const avg = (x: number) => Math.round(x / days);
+        const lines = [
+          `📊 Informe nutricional ${a.desde} → ${a.hasta}`,
+          `Dias con registro: ${days}`,
+          `Promedio diario: ${avg(sum.calories)} kcal · P ${avg(sum.protein)} / C ${avg(sum.carbs)} / G ${avg(sum.fat)} / fibra ${avg(sum.fiber)} g`,
+        ];
+        if (goals) {
+          lines.push(
+            `Objetivo: ${goals.dailyCalorieGoal} kcal · proteina ${goals.proteinGoal} g`,
+            `Adherencia: calorias ${Math.round((avg(sum.calories) / goals.dailyCalorieGoal) * 100)}% · proteina ${Math.round((avg(sum.protein) / goals.proteinGoal) * 100)}%`,
+          );
+        }
+        return text(lines.join('\n'));
+      },
+    );
+  }
+
+  /** Genera las fechas YYYY-MM-DD entre `from` y `to` inclusive (max 366). */
+  private dateRange(from: string, to: string): string[] {
+    const out: string[] = [];
+    const start = new Date(from + 'T12:00:00');
+    const end = new Date(to + 'T12:00:00');
+    const cur = new Date(start);
+    let guard = 0;
+    while (cur <= end && guard < 366) {
+      out.push(cur.toISOString().slice(0, 10));
+      cur.setDate(cur.getDate() + 1);
+      guard++;
+    }
+    return out;
   }
 
   /** Indice de dia de la semana para el array `days` ([L,M,X,J,V,S,D]). */
