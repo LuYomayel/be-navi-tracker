@@ -55,6 +55,7 @@ model User {
   shoppingLists            ShoppingList[]
   userPreferences          UserPreferences?
   goals                    Goal[]
+  briefings                Briefing[]
 
   @@map("users")
 }
@@ -648,4 +649,26 @@ model ShoppingItem {
 
   @@index([shoppingListId, category])
   @@map("shopping_items")
+}
+
+/// Briefing diario generado por NaviTracker: resumen del dia (habitos, tareas,
+/// nutricion, day-score, hidratacion, objetivo NZ). Se persiste 1 por dia, se
+/// puede enviar por mail y consultar desde la app / el MCP.
+model Briefing {
+  id          String    @id @default(cuid())
+  userId      String
+  date        String // YYYY-MM-DD (zona Argentina)
+  content     Json // secciones estructuradas
+  text        String    @db.Text // render en texto plano
+  html        String    @db.Text // render HTML (para el mail)
+  emailSent   Boolean   @default(false)
+  emailSentAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("briefings")
 }

@@ -11,6 +11,7 @@ import { DayScoreService } from '../day-score/day-score.service';
 import { TasksService } from '../tasks/tasks.service';
 import { SavedMealsService } from '../saved-meals/saved-meals.service';
 import { GoalService } from '../goal/goal.service';
+import { BriefingService } from '../briefing/briefing.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
@@ -53,6 +54,7 @@ export class McpServerFactory {
     private readonly tasks: TasksService,
     private readonly savedMeals: SavedMealsService,
     private readonly goal: GoalService,
+    private readonly briefing: BriefingService,
   ) {}
 
   /**
@@ -589,6 +591,36 @@ export class McpServerFactory {
         return text(`Comida guardada borrada: "${target.name}".`);
       },
     );
+
+    add(
+      'generar_briefing',
+      {
+        title: 'Generar el briefing del dia',
+        description:
+          'Genera (o regenera) y persiste el briefing del dia: resumen de habitos, tareas, nutricion, day-score, hidratacion y objetivo. Con enviar=true tambien lo manda por mail.',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+          enviar: z
+            .boolean()
+            .optional()
+            .describe('Si true, manda el briefing por mail.'),
+        },
+      },
+      async (a) => {
+        if (a.enviar) {
+          const { briefing, emailSent } =
+            await this.briefing.generateAndSend(userId, a.fecha);
+          return text(
+            `${briefing.text}\n\n${emailSent ? '📧 Enviado por mail.' : '(mail no enviado: falta configurar RESEND_API_KEY)'}`,
+          );
+        }
+        const briefing = await this.briefing.generate(userId, a.fecha);
+        return text(briefing.text);
+      },
+    );
   }
 
   // ────────────────────────────────────────────────────────────
@@ -899,6 +931,27 @@ export class McpServerFactory {
           }
         }
         return text(lines.join('\n'));
+      },
+    );
+
+    add(
+      'get_briefing',
+      {
+        title: 'Briefing del dia',
+        description:
+          'Devuelve el briefing del dia (resumen de habitos, tareas, nutricion, score, hidratacion y objetivo). Si todavia no se genero, lo genera al vuelo.',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const existing = await this.briefing.getByDate(userId, a.fecha);
+        if (existing) return text(existing.text);
+        const generated = await this.briefing.generate(userId, a.fecha);
+        return text(generated.text);
       },
     );
   }
