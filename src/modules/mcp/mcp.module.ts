@@ -30,8 +30,10 @@ import { McpServerFactory } from './mcp-server.factory';
 @Module({
   imports: [
     JwtModule.register({
-      secret:
-        process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production',
+      // El secreto real se pasa explicito en cada sign/verify de McpAuthService;
+      // este es solo el default del modulo. En produccion JWT_SECRET es
+      // obligatorio (validado en main.ts); el fallback es solo para dev/test.
+      secret: process.env.JWT_SECRET || 'dev-only-insecure-jwt-secret',
     }),
     AuthModule,
     NutritionModule,
