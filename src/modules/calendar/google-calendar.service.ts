@@ -37,15 +37,18 @@ export class GoogleCalendarService {
     }
   }
 
-  async getAuthUrl(userId: string) {
+  async getAuthUrl(userId: string, platform?: string) {
     this.ensureConfigured();
+    // En mobile marcamos el state para que la pagina de callback rebote el
+    // code a la app via deep link (navitracker://oauth-callback).
+    const isNative = platform === 'ios' || platform === 'android';
     const url = this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: [
         'https://www.googleapis.com/auth/calendar.readonly',
         'https://www.googleapis.com/auth/calendar.events',
       ],
-      state: userId,
+      state: isNative ? `${userId}:native` : userId,
       prompt: 'consent',
     });
     return { url };

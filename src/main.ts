@@ -36,6 +36,10 @@ async function bootstrap() {
       'http://127.0.0.1:3000',
       'https://navi-tracker.netlify.app',
       'https://navi-tracker.luciano-yomayel.com',
+      // Origins del WebView de Capacitor (app mobile):
+      'capacitor://localhost', // iOS
+      'https://localhost', // Android (androidScheme: https)
+      'http://localhost', // Android (fallback)
       process.env.CORS_ORIGIN,
     ].filter(Boolean),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

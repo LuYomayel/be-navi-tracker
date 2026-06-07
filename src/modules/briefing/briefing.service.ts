@@ -11,6 +11,7 @@ import { CalendarService } from '../calendar/calendar.service';
 import { TrelloService } from '../trello/trello.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
 import { EmailService } from './email.service';
+import { PushService } from '../device-tokens/push.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 /** Secciones estructuradas del briefing del dia. */
@@ -55,6 +56,7 @@ export class BriefingService {
     private readonly trello: TrelloService,
     private readonly aiCost: AICostService,
     private readonly email: EmailService,
+    private readonly push: PushService,
   ) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -107,6 +109,18 @@ export class BriefingService {
         });
       }
     }
+
+    // Push a los dispositivos del usuario (no-op si no hay FCM configurado).
+    const score = (briefing.content as any)?.score?.percentage;
+    await this.push.sendToUser(userId, {
+      title: '🌅 Tu plan de hoy está listo',
+      body:
+        typeof score === 'number'
+          ? `Arrancá el día. Ayer cerraste en ${score}%.`
+          : 'Abrí NaviTracker y mirá tu plan del día.',
+      data: { route: '/briefing' },
+    });
+
     return { briefing, emailSent };
   }
 

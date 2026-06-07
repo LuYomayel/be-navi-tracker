@@ -18,7 +18,12 @@ export type DayKey =
   | 'saturday'
   | 'sunday';
 
-export type MealSlotKey = 'breakfast' | 'lunch' | 'snack' | 'dinner';
+export type MealSlotKey =
+  | 'breakfast'
+  | 'lunch'
+  | 'merienda'
+  | 'snack'
+  | 'dinner';
 
 export interface MealPrepSlot {
   name: string;
@@ -40,7 +45,8 @@ export interface MealPrepSlot {
 }
 
 export interface MealPrepDay {
-  slots: Record<MealSlotKey, MealPrepSlot | null>;
+  // Partial: la data previa a "merienda" tiene 4 slots; un dia puede no tener todos.
+  slots: Partial<Record<MealSlotKey, MealPrepSlot | null>>;
 }
 
 export interface MealPrepWeek {

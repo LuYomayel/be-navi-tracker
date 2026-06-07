@@ -34,6 +34,7 @@ const DAY_KEYS: DayKey[] = [
 const MEAL_SLOT_KEYS: MealSlotKey[] = [
   'breakfast',
   'lunch',
+  'merienda',
   'snack',
   'dinner',
 ];
@@ -142,7 +143,13 @@ export class MealPrepService {
           const day = parsedPlan.days[dayKey];
           if (day) {
             let dayCal = 0;
-            for (const slot of ['breakfast', 'lunch', 'snack', 'dinner']) {
+            for (const slot of [
+              'breakfast',
+              'lunch',
+              'merienda',
+              'snack',
+              'dinner',
+            ]) {
               dayCal += day[slot]?.estimatedCalories || 0;
             }
             if (dayCal > 0) dailyCals.push(dayCal);
@@ -656,7 +663,7 @@ export class MealPrepService {
 
 El plan puede contener:
 - Plan semanal con días de la semana
-- Comidas del día: desayuno, almuerzo, merienda, cena
+- Comidas del día: desayuno, almuerzo, merienda, snack/colación, cena
 - Alimentos con cantidades específicas
 - Calorías estimadas por comida o totales diarios
 - Restricciones alimentarias o notas generales
@@ -674,6 +681,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
     "monday": {
       "breakfast": { "name": "string", "description": "string|null", "foods": ["string"], "estimatedCalories": "number|null", "notes": "string|null" },
       "lunch": { ... } ,
+      "merienda": { ... } ,
       "snack": { ... } ,
       "dinner": { ... }
     },
@@ -806,6 +814,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
           "macronutrients": { "protein": 0, "carbs": 0, "fat": 0, "fiber": 0 }
         },
         "lunch": { "name": "...", "foods": [...], "totalCalories": 0, "macronutrients": {...} },
+        "merienda": { "name": "...", "foods": [...], "totalCalories": 0, "macronutrients": {...} },
         "snack": { "name": "...", "foods": [...], "totalCalories": 0, "macronutrients": {...} },
         "dinner": { "name": "...", "foods": [...], "totalCalories": 0, "macronutrients": {...} }
       }

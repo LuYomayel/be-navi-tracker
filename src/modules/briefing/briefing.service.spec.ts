@@ -11,6 +11,7 @@ import { CalendarService } from '../calendar/calendar.service';
 import { TrelloService } from '../trello/trello.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
 import { EmailService } from './email.service';
+import { PushService } from '../device-tokens/push.service';
 
 describe('BriefingService', () => {
   let service: BriefingService;
@@ -122,6 +123,10 @@ describe('BriefingService', () => {
           useValue: { logFromCompletion: jest.fn().mockResolvedValue(undefined) },
         },
         { provide: EmailService, useValue: email },
+        {
+          provide: PushService,
+          useValue: { sendToUser: jest.fn().mockResolvedValue(0) },
+        },
       ],
     }).compile();
 

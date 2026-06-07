@@ -23,10 +23,10 @@ function text(message: string) {
 }
 
 /** Mapea el tipo de comida en español al `mealType` del modelo. */
-const MEAL_TYPE_MAP: Record<string, string> = {
+export const MEAL_TYPE_MAP: Record<string, string> = {
   Desayuno: 'breakfast',
   Almuerzo: 'lunch',
-  Merienda: 'snack',
+  Merienda: 'merienda',
   Cena: 'dinner',
   Snack: 'snack',
 };

@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 export enum MealType {
   BREAKFAST = 'breakfast',
   LUNCH = 'lunch',
+  MERIENDA = 'merienda',
   DINNER = 'dinner',
   SNACK = 'snack',
   OTHER = 'other',

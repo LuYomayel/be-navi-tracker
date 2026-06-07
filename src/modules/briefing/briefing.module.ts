@@ -9,6 +9,7 @@ import { GoalModule } from '../goal/goal.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { TrelloModule } from '../trello/trello.module';
 import { AICostModule } from '../ai-cost/ai-cost.module';
+import { DeviceTokensModule } from '../device-tokens/device-tokens.module';
 
 import { BriefingService } from './briefing.service';
 import { EmailService } from './email.service';
@@ -31,6 +32,7 @@ import { BriefingCronService } from './briefing-cron.service';
     CalendarModule,
     TrelloModule,
     AICostModule,
+    DeviceTokensModule,
   ],
   controllers: [BriefingController],
   providers: [

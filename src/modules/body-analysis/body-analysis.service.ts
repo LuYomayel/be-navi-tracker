@@ -32,6 +32,7 @@ export enum NutritionGoal {
 export enum MealType {
   BREAKFAST = 'breakfast',
   LUNCH = 'lunch',
+  MERIENDA = 'merienda',
   DINNER = 'dinner',
   SNACK = 'snack',
   OTHER = 'other',

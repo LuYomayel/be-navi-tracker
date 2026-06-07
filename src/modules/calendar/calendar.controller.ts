@@ -106,10 +106,11 @@ export class CalendarController {
   // ==========================================
 
   @Get('google/auth-url')
-  async getGoogleAuthUrl(@Req() req: any) {
+  async getGoogleAuthUrl(@Req() req: any, @Query('platform') platform?: string) {
     try {
       const data = await this.googleCalendarService.getAuthUrl(
         req.user.userId,
+        platform,
       );
       return { success: true, data };
     } catch (error) {

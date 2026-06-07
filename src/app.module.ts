@@ -30,6 +30,7 @@ import { ShoppingListModule } from './modules/shopping-list/shopping-list.module
 import { McpModule } from './modules/mcp/mcp.module';
 import { GoalModule } from './modules/goal/goal.module';
 import { BriefingModule } from './modules/briefing/briefing.module';
+import { DeviceTokensModule } from './modules/device-tokens/device-tokens.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([{
@@ -62,6 +63,7 @@ import { BriefingModule } from './modules/briefing/briefing.module';
     McpModule,
     GoalModule,
     BriefingModule,
+    DeviceTokensModule,
   ],
   controllers: [AppController],
   providers: [

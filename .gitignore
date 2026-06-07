@@ -54,3 +54,4 @@ ecosystem.config.js
 *.backup
 *.bak
 *.tmp
+.gstack/

@@ -453,6 +453,29 @@ describe('MealPrepService', () => {
       expect(dailyTotals.monday.calories).toBe(1260);
       expect(dailyTotals.monday.protein).toBe(9 + 35 + 10 + 20); // 74
     });
+
+    it('cuenta merienda y snack como slots distintos en los totales', async () => {
+      const week = buildMockWeek();
+      (week.days.monday.slots as any).merienda = {
+        ...mockEmptySlot,
+        name: 'Mate con tostadas',
+        totalCalories: 200,
+        macronutrients: { protein: 8, carbs: 30, fat: 5, fiber: 2 },
+      };
+      (prisma.mealPrep.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+      (prisma.mealPrep.create as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'prep-new', ...data }),
+      );
+
+      const result = await service.createMealPrep(
+        { weekStartDate: '2026-03-16', days: week },
+        userId,
+      );
+
+      // breakfast(310)+lunch(450)+merienda(200)+snack(150)+dinner(350)=1460
+      const dailyTotals = JSON.parse(JSON.stringify(result.dailyTotals));
+      expect(dailyTotals.monday.calories).toBe(1460);
+    });
   });
 
   describe('updateMealPrep', () => {
@@ -605,6 +628,35 @@ describe('MealPrepService', () => {
           totalCalories: 310,
           context: 'Meal prep: Avena con frutas',
         }),
+        userId,
+      );
+    });
+
+    it('marca una merienda como comida con mealType "merienda" (distinto de snack)', async () => {
+      const week = buildMockWeek();
+      (week.days.monday.slots as any).merienda = {
+        ...mockSlot,
+        name: 'Mate con tostadas',
+        totalCalories: 200,
+      };
+      const existingPrep = { ...mockMealPrep, days: week.days };
+      (prisma.mealPrep.findFirst as jest.Mock).mockResolvedValue(existingPrep);
+      (nutritionService.create as jest.Mock).mockResolvedValue({
+        id: 'nutr-m',
+        date: '2026-03-16',
+      });
+      (prisma.mealPrep.update as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ ...existingPrep, ...data }),
+      );
+
+      await service.markSlotEaten(
+        'prep-1',
+        { day: 'monday', mealType: 'merienda', date: '2026-03-16' },
+        userId,
+      );
+
+      expect(nutritionService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ mealType: 'merienda', totalCalories: 200 }),
         userId,
       );
     });
