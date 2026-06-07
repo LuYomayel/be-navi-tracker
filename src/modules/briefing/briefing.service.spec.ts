@@ -7,17 +7,28 @@ import { TasksService } from '../tasks/tasks.service';
 import { ActivitiesService } from '../activities/activities.service';
 import { HydrationService } from '../hydration/hydration.service';
 import { GoalService } from '../goal/goal.service';
+import { CalendarService } from '../calendar/calendar.service';
+import { TrelloService } from '../trello/trello.service';
+import { AICostService } from '../ai-cost/ai-cost.service';
 import { EmailService } from './email.service';
 
 describe('BriefingService', () => {
   let service: BriefingService;
   let prisma: any;
   let email: any;
+  const OLD_ENV = process.env;
 
   const userId = 'u1';
   const date = '2026-06-07';
 
+  afterEach(() => {
+    process.env = OLD_ENV;
+  });
+
   beforeEach(async () => {
+    // Sin OpenAI en tests: la narrativa queda null (determinístico, sin red).
+    process.env = { ...OLD_ENV };
+    delete process.env.OPENAI_API_KEY;
     prisma = {
       briefing: {
         upsert: jest.fn().mockImplementation(({ create }) => ({
@@ -98,6 +109,18 @@ describe('BriefingService', () => {
             }),
           },
         },
+        {
+          provide: CalendarService,
+          useValue: { getEvents: jest.fn().mockResolvedValue([]) },
+        },
+        {
+          provide: TrelloService,
+          useValue: { getTicketsSummary: jest.fn().mockResolvedValue('') },
+        },
+        {
+          provide: AICostService,
+          useValue: { logFromCompletion: jest.fn().mockResolvedValue(undefined) },
+        },
         { provide: EmailService, useValue: email },
       ],
     }).compile();
@@ -174,7 +197,10 @@ describe('BriefingService', () => {
     it('incluye dia, habitos, tareas e hidratacion', () => {
       const text = service.renderText({
         date,
+        narrative: null,
         score: { percentage: 80, status: 'partial' },
+        calendar: [],
+        tickets: null,
         nutrition: null,
         habits: [{ name: 'Gym', done: false }],
         tasks: [{ title: 'Comprar', done: true }],

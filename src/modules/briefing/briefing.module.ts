@@ -6,6 +6,9 @@ import { TasksModule } from '../tasks/tasks.module';
 import { ActivitiesModule } from '../activities/activities.module';
 import { HydrationModule } from '../hydration/hydration.module';
 import { GoalModule } from '../goal/goal.module';
+import { CalendarModule } from '../calendar/calendar.module';
+import { TrelloModule } from '../trello/trello.module';
+import { AICostModule } from '../ai-cost/ai-cost.module';
 
 import { BriefingService } from './briefing.service';
 import { EmailService } from './email.service';
@@ -25,6 +28,9 @@ import { BriefingCronService } from './briefing-cron.service';
     ActivitiesModule,
     HydrationModule,
     GoalModule,
+    CalendarModule,
+    TrelloModule,
+    AICostModule,
   ],
   controllers: [BriefingController],
   providers: [
