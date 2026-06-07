@@ -1,3 +1,7 @@
+// Cargar .env al process.env de forma deterministica, antes de cualquier otro
+// import (asi todas las env vars — JWT_SECRET, RESEND_API_KEY, etc. — estan
+// disponibles para el fail-fast y los servicios, sin depender de pm2/Prisma).
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { AppModule } from './app.module';
