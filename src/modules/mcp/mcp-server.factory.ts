@@ -10,6 +10,7 @@ import { ActivitiesService } from '../activities/activities.service';
 import { DayScoreService } from '../day-score/day-score.service';
 import { TasksService } from '../tasks/tasks.service';
 import { SavedMealsService } from '../saved-meals/saved-meals.service';
+import { GoalService } from '../goal/goal.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
@@ -51,6 +52,7 @@ export class McpServerFactory {
     private readonly dayScore: DayScoreService,
     private readonly tasks: TasksService,
     private readonly savedMeals: SavedMealsService,
+    private readonly goal: GoalService,
   ) {}
 
   /**
@@ -386,6 +388,207 @@ export class McpServerFactory {
         );
       },
     );
+
+    add(
+      'create_objetivo_nz',
+      {
+        title: 'Crear el objetivo / fondo de ahorro',
+        description:
+          'Crea un objetivo de ahorro para el usuario (ej: el fondo para Nueva Zelanda). Indica nombre, meta en USD y, opcionalmente, fecha objetivo y monto ya ahorrado.',
+        inputSchema: {
+          nombre: z
+            .string()
+            .describe(
+              'Nombre del objetivo (ej: "Nueva Zelanda + Imprimime 3D")',
+            ),
+          meta_usd: z.number().describe('Meta del fondo en USD (ej: 8000)'),
+          fecha_objetivo: z
+            .string()
+            .optional()
+            .describe('Fecha objetivo YYYY-MM-DD'),
+          monto_inicial_usd: z
+            .number()
+            .optional()
+            .describe('Monto ya ahorrado al crear el objetivo (USD)'),
+          descripcion: z.string().optional().describe('Descripcion / contexto'),
+        },
+      },
+      async (a) => {
+        const g = await this.goal.create(
+          {
+            name: a.nombre,
+            targetUsd: a.meta_usd,
+            currentUsd: a.monto_inicial_usd,
+            targetDate: a.fecha_objetivo,
+            description: a.descripcion,
+          },
+          userId,
+        );
+        return text(
+          `Objetivo creado: "${g.name}" — meta USD ${Math.round(g.targetUsd)}` +
+            (g.targetDate ? ` para ${g.targetDate}` : '') +
+            `. id ${g.id}.`,
+        );
+      },
+    );
+
+    add(
+      'log_contribucion',
+      {
+        title: 'Registrar un aporte al fondo',
+        description:
+          'Suma un aporte al fondo del objetivo activo del usuario (ej: la ganancia de una venta de lamparas). Usa monto negativo para corregir o restar.',
+        inputSchema: {
+          monto_usd: z
+            .number()
+            .describe('Monto del aporte en USD (negativo para restar)'),
+          descripcion: z
+            .string()
+            .optional()
+            .describe('De donde salio (ej: "venta 2 lamparas")'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const res = await this.goal.logContribution(userId, {
+          amountUsd: a.monto_usd,
+          description: a.descripcion,
+          date: a.fecha,
+        });
+        if (!res) {
+          return text(
+            'El usuario no tiene un objetivo activo. Crealo primero con create_objetivo_nz.',
+          );
+        }
+        const g = res.goal;
+        const pct =
+          g.targetUsd > 0 ? Math.min(100, (g.currentUsd / g.targetUsd) * 100) : 0;
+        const achieved = g.status === 'achieved' ? ' 🎉 ¡Meta alcanzada!' : '';
+        return text(
+          `Aporte de USD ${a.monto_usd} registrado en "${g.name}". ` +
+            `Acumulado: USD ${Math.round(g.currentUsd)} / ${Math.round(g.targetUsd)} (${Math.round(pct)}%).${achieved}`,
+        );
+      },
+    );
+
+    add(
+      'crear_comida_guardada',
+      {
+        title: 'Crear una comida guardada (plantilla)',
+        description:
+          'Crea una plantilla de comida reutilizable (ej: "Desayuno de siempre") con sus calorias y macros, para despues loguearla rapido con log_comida_guardada.',
+        inputSchema: {
+          nombre: z
+            .string()
+            .describe('Nombre de la plantilla (ej: "Merienda de siempre")'),
+          tipo: z
+            .enum(['Desayuno', 'Almuerzo', 'Merienda', 'Cena', 'Snack'])
+            .describe('Tipo de comida'),
+          calorias: z.number().describe('Calorias totales (kcal)'),
+          proteina_g: z.number().optional().describe('Proteina en gramos'),
+          carbos_g: z.number().optional().describe('Carbohidratos en gramos'),
+          grasa_g: z.number().optional().describe('Grasa en gramos'),
+          fibra_g: z.number().optional().describe('Fibra en gramos'),
+          descripcion: z.string().optional().describe('Descripcion breve'),
+        },
+      },
+      async (a) => {
+        const meal = await this.savedMeals.create(
+          {
+            name: a.nombre,
+            description: a.descripcion,
+            mealType: MEAL_TYPE_MAP[a.tipo] || 'other',
+            foods: [
+              {
+                name: a.nombre,
+                quantity: 1,
+                unit: 'porcion',
+                calories: a.calorias,
+                confidence: 1,
+              },
+            ],
+            totalCalories: Math.round(a.calorias),
+            macronutrients: {
+              protein: a.proteina_g ?? 0,
+              carbs: a.carbos_g ?? 0,
+              fat: a.grasa_g ?? 0,
+              fiber: a.fibra_g ?? 0,
+            },
+          },
+          userId,
+        );
+        return text(
+          `Comida guardada creada: "${meal.name}" (${a.tipo}) — ${meal.totalCalories} kcal. id ${meal.id}.`,
+        );
+      },
+    );
+
+    add(
+      'editar_comida_guardada',
+      {
+        title: 'Editar una comida guardada',
+        description:
+          'Cambia el nombre o la descripcion de una comida guardada existente, identificada por su nombre actual.',
+        inputSchema: {
+          nombre: z.string().describe('Nombre actual de la comida guardada'),
+          nuevo_nombre: z.string().optional().describe('Nuevo nombre'),
+          descripcion: z.string().optional().describe('Nueva descripcion'),
+        },
+      },
+      async (a) => {
+        const meals = await this.savedMeals.getAll(userId);
+        const q = a.nombre.toLowerCase();
+        const target =
+          (meals as any[]).find((m) => m.name?.toLowerCase() === q) ||
+          (meals as any[]).find((m) => m.name?.toLowerCase().includes(q));
+        if (!target) {
+          const names = (meals as any[]).map((m) => m.name).join(', ');
+          return text(
+            `No encontre una comida guardada llamada "${a.nombre}". Guardadas: ${names || '(ninguna)'}.`,
+          );
+        }
+        await this.savedMeals.update(
+          target.id,
+          { name: a.nuevo_nombre, description: a.descripcion },
+          userId,
+        );
+        return text(
+          `Comida guardada actualizada: "${a.nuevo_nombre || target.name}".`,
+        );
+      },
+    );
+
+    add(
+      'borrar_comida_guardada',
+      {
+        title: 'Borrar una comida guardada',
+        description:
+          'Elimina una comida guardada (plantilla) del usuario, identificada por su nombre.',
+        inputSchema: {
+          nombre: z
+            .string()
+            .describe('Nombre de la comida guardada a borrar'),
+        },
+      },
+      async (a) => {
+        const meals = await this.savedMeals.getAll(userId);
+        const q = a.nombre.toLowerCase();
+        const target =
+          (meals as any[]).find((m) => m.name?.toLowerCase() === q) ||
+          (meals as any[]).find((m) => m.name?.toLowerCase().includes(q));
+        if (!target) {
+          const names = (meals as any[]).map((m) => m.name).join(', ');
+          return text(
+            `No encontre una comida guardada llamada "${a.nombre}". Guardadas: ${names || '(ninguna)'}.`,
+          );
+        }
+        await this.savedMeals.delete(target.id, userId);
+        return text(`Comida guardada borrada: "${target.name}".`);
+      },
+    );
   }
 
   // ────────────────────────────────────────────────────────────
@@ -643,6 +846,59 @@ export class McpServerFactory {
             `nutricion ${score.nutritionLogged ? 'sí' : 'no'}, ` +
             `hidratacion ${score.hydrationLogged ? 'sí' : 'no'}.`,
         );
+      },
+    );
+
+    add(
+      'get_objetivo_nz',
+      {
+        title: 'Ver el objetivo / fondo',
+        description:
+          'Devuelve el estado del objetivo de ahorro del usuario (ej: fondo Nueva Zelanda): meta, acumulado, porcentaje, USD restantes y dias hasta la fecha objetivo.',
+      },
+      async () => {
+        const p = await this.goal.getProgress(userId);
+        if (!p) {
+          return text(
+            'El usuario todavia no tiene un objetivo cargado. Se puede crear con create_objetivo_nz.',
+          );
+        }
+        const g = p.goal;
+        const dias =
+          p.daysRemaining != null
+            ? ` · ${p.daysRemaining} dias hasta ${g.targetDate}`
+            : '';
+        return text(
+          `🎯 ${g.name}: USD ${Math.round(g.currentUsd)} / ${Math.round(g.targetUsd)} ` +
+            `(${Math.round(p.percentage)}%) — faltan USD ${Math.round(p.remainingUsd)}${dias}. ` +
+            `Estado: ${g.status}.`,
+        );
+      },
+    );
+
+    add(
+      'get_progreso_nz',
+      {
+        title: 'Progreso del objetivo',
+        description:
+          'Devuelve el progreso del fondo: porcentaje, USD restantes, dias hasta la fecha objetivo y cuanto habria que ahorrar por mes para llegar a tiempo.',
+      },
+      async () => {
+        const p = await this.goal.getProgress(userId);
+        if (!p) return text('El usuario todavia no tiene un objetivo cargado.');
+        const lines: string[] = [
+          `🎯 ${p.goal.name}`,
+          `Progreso: ${Math.round(p.percentage)}% (USD ${Math.round(p.goal.currentUsd)} / ${Math.round(p.goal.targetUsd)})`,
+          `Faltan: USD ${Math.round(p.remainingUsd)}`,
+        ];
+        if (p.daysRemaining != null) {
+          lines.push(`Dias hasta ${p.goal.targetDate}: ${p.daysRemaining}`);
+          if (p.daysRemaining > 0 && p.remainingUsd > 0) {
+            const perMonth = p.remainingUsd / (p.daysRemaining / 30);
+            lines.push(`Ritmo necesario: ~USD ${Math.round(perMonth)}/mes`);
+          }
+        }
+        return text(lines.join('\n'));
       },
     );
   }

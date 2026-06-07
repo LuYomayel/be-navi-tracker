@@ -54,6 +54,7 @@ model User {
   hydrationLogs            HydrationLog[]
   shoppingLists            ShoppingList[]
   userPreferences          UserPreferences?
+  goals                    Goal[]
 
   @@map("users")
 }
@@ -371,6 +372,44 @@ model SavedMeal {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("saved_meals")
+}
+
+// Objetivos / metas con seguimiento de fondo (ej: fondo Nueva Zelanda USD 8.000)
+model Goal {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String // "Nueva Zelanda + Imprimime 3D"
+  description String?  @db.Text
+  targetUsd   Float // Meta del fondo en USD (ej: 8000)
+  currentUsd  Float    @default(0) // Avance acumulado en USD
+  startDate   String? // YYYY-MM-DD
+  targetDate  String? // YYYY-MM-DD (fecha objetivo)
+  status      String   @default("active") // active | paused | achieved | archived
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions GoalContribution[]
+
+  @@index([userId])
+  @@map("goals")
+}
+
+// Aportes al fondo de un objetivo (historial de contribuciones)
+model GoalContribution {
+  id          String   @id @default(cuid())
+  goalId      String
+  userId      String
+  amountUsd   Float // Monto del aporte en USD (negativo para correcciones)
+  description String? // De donde salio (ej: "venta 2 lamparas")
+  date        String // YYYY-MM-DD
+  createdAt   DateTime @default(now())
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+  @@index([userId])
+  @@map("goal_contributions")
 }
 
 // Registro de costos de IA

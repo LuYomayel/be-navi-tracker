@@ -9,6 +9,16 @@ if (!global.crypto) {
   global.crypto = webcrypto;
 }
 async function bootstrap() {
+  // Fail-fast: en produccion los secretos JWT son obligatorios. Sin ellos el
+  // MCP/Auth caeria a un fallback conocido y cualquiera podria forjar tokens.
+  if (process.env.NODE_ENV === 'production') {
+    for (const key of ['JWT_SECRET', 'JWT_REFRESH_SECRET']) {
+      if (!process.env[key]) {
+        throw new Error(`Variable de entorno requerida faltante: ${key}`);
+      }
+    }
+  }
+
   const app = await NestFactory.create(AppModule);
 
   // Configurar límites de tamaño para imágenes base64

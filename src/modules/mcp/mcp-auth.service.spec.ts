@@ -154,4 +154,95 @@ describe('McpAuthService', () => {
       expect(ctx?.userId).toBe('demo');
     });
   });
+
+  describe('hardening de JWT_SECRET (P0)', () => {
+    const OLD_ENV = process.env;
+    afterEach(() => {
+      process.env = OLD_ENV;
+    });
+
+    it('falla al emitir tokens en produccion si falta JWT_SECRET', async () => {
+      process.env = { ...OLD_ENV, NODE_ENV: 'production' };
+      delete process.env.JWT_SECRET;
+      delete process.env.JWT_REFRESH_SECRET;
+      await expect(makeService().issueTokens('u1')).rejects.toThrow(
+        /JWT_SECRET/,
+      );
+    });
+  });
+
+  describe('authless bloqueado en produccion (P0)', () => {
+    const OLD_ENV = process.env;
+    afterEach(() => {
+      process.env = OLD_ENV;
+    });
+
+    it('ignora MCP_AUTH_MODE=none en produccion (authMode=oauth)', () => {
+      process.env = {
+        ...OLD_ENV,
+        NODE_ENV: 'production',
+        MCP_AUTH_MODE: 'none',
+        MCP_STATIC_USER_ID: 'demo',
+      };
+      expect(makeService().authMode).toBe('oauth');
+    });
+
+    it('no resuelve al usuario estatico sin token en produccion', async () => {
+      process.env = {
+        ...OLD_ENV,
+        NODE_ENV: 'production',
+        MCP_AUTH_MODE: 'none',
+        MCP_STATIC_USER_ID: 'demo',
+      };
+      expect(await makeService().resolveBearer(undefined)).toBeNull();
+    });
+
+    it('ignora MCP_STATIC_TOKEN en produccion', async () => {
+      process.env = {
+        ...OLD_ENV,
+        NODE_ENV: 'production',
+        JWT_SECRET: 'x',
+        MCP_STATIC_TOKEN: 'fijo',
+        MCP_STATIC_USER_ID: 'demo',
+      };
+      expect(await makeService().resolveBearer('fijo')).toBeNull();
+    });
+
+    it('sigue permitiendo authless fuera de produccion', () => {
+      process.env = { ...OLD_ENV, NODE_ENV: 'test', MCP_AUTH_MODE: 'none' };
+      expect(makeService().authMode).toBe('none');
+    });
+  });
+
+  describe('allowlist de redirect_uri (P0)', () => {
+    it('rechaza un redirect_uri no registrado para un cliente DCR', () => {
+      const svc = makeService();
+      const client = svc.registerClient({
+        redirect_uris: ['https://claude.ai/cb'],
+      });
+      expect(
+        svc.isRedirectUriRegistered(client.clientId, 'https://evil.com/cb'),
+      ).toBe(false);
+      expect(
+        svc.isRedirectUriRegistered(client.clientId, 'https://claude.ai/cb'),
+      ).toBe(true);
+    });
+
+    it('acepta (pinea) el redirect_uri de un cliente manual no registrado', () => {
+      expect(
+        makeService().isRedirectUriRegistered('manual', 'https://claude.ai/cb'),
+      ).toBe(true);
+    });
+
+    it('ensureClient no expande los redirect_uris de un cliente ya registrado', () => {
+      const svc = makeService();
+      const client = svc.registerClient({
+        redirect_uris: ['https://claude.ai/cb'],
+      });
+      svc.ensureClient(client.clientId, 'https://evil.com/cb');
+      expect(svc.getClient(client.clientId)?.redirectUris).toEqual([
+        'https://claude.ai/cb',
+      ]);
+    });
+  });
 });

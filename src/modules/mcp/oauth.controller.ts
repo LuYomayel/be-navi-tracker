@@ -8,7 +8,7 @@ import {
   Query,
   Logger,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { McpAuthService } from './mcp-auth.service';
@@ -29,8 +29,11 @@ function esc(value: unknown): string {
  * autenticacion del resource owner y emite JWT de la app como access token.
  *
  * Estas rutas viven en la raiz (sin el prefijo global `/api`), ver main.ts.
+ *
+ * Throttling: la metadata de discovery se deja sin limite (Claude la consulta
+ * seguido); los endpoints sensibles (login, token, registro) llevan un limite
+ * estricto para evitar fuerza bruta de contraseña / abuso.
  */
-@SkipThrottle()
 @Controller()
 export class OAuthController {
   private readonly logger = new Logger(OAuthController.name);
@@ -39,6 +42,7 @@ export class OAuthController {
 
   // ── Discovery metadata ──────────────────────────────────────
 
+  @SkipThrottle()
   @Public()
   @Get('.well-known/oauth-protected-resource')
   protectedResource(@Req() req: Request) {
@@ -49,6 +53,7 @@ export class OAuthController {
     };
   }
 
+  @SkipThrottle()
   @Public()
   @Get('.well-known/oauth-authorization-server')
   authServerMetadata(@Req() req: Request) {
@@ -68,6 +73,7 @@ export class OAuthController {
 
   // ── Dynamic Client Registration (RFC 7591) ──────────────────
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Public()
   @Post('oauth/register')
   register(@Body() body: any, @Res() res: Response) {
@@ -88,7 +94,8 @@ export class OAuthController {
   @Public()
   @Get('oauth/authorize')
   authorizeForm(@Query() q: any, @Res() res: Response) {
-    const error = this.validateAuthorizeParams(q);
+    const error =
+      this.validateAuthorizeParams(q) || this.validateRedirectUri(q);
     if (error) {
       res.status(400).send(`Solicitud de autorizacion invalida: ${esc(error)}`);
       return;
@@ -96,6 +103,7 @@ export class OAuthController {
     res.status(200).type('html').send(this.renderLogin(q));
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Public()
   @Post('oauth/authorize')
   async authorizeSubmit(
@@ -103,7 +111,8 @@ export class OAuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const error = this.validateAuthorizeParams(body);
+    const error =
+      this.validateAuthorizeParams(body) || this.validateRedirectUri(body);
     if (error) {
       res.status(400).send(`Solicitud de autorizacion invalida: ${esc(error)}`);
       return;
@@ -145,6 +154,7 @@ export class OAuthController {
 
   // ── Token endpoint ──────────────────────────────────────────
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Public()
   @Post('oauth/token')
   async token(@Body() body: any, @Res() res: Response) {
@@ -218,6 +228,18 @@ export class OAuthController {
     if (!p.code_challenge) return 'falta code_challenge (PKCE obligatorio)';
     if (p.code_challenge_method && p.code_challenge_method !== 'S256') {
       return 'code_challenge_method debe ser S256';
+    }
+    return null;
+  }
+
+  /**
+   * Valida que el redirect_uri pertenezca a la lista registrada del cliente
+   * (exact match, OAuth 2.1). Para clientes manuales no registrados se pinea en
+   * el primer uso (ver McpAuthService.isRedirectUriRegistered / ensureClient).
+   */
+  private validateRedirectUri(p: any): string | null {
+    if (!this.auth.isRedirectUriRegistered(p.client_id, p.redirect_uri)) {
+      return 'redirect_uri no registrado para este cliente';
     }
     return null;
   }

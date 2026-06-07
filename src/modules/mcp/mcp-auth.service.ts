@@ -43,12 +43,6 @@ interface AuthCodeRecord {
   expiresAt: number;
 }
 
-const JWT_SECRET =
-  process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production';
-const JWT_REFRESH_SECRET =
-  process.env.JWT_REFRESH_SECRET ||
-  'super-secret-refresh-key-change-in-production';
-
 @Injectable()
 export class McpAuthService {
   private readonly logger = new Logger(McpAuthService.name);
@@ -73,8 +67,39 @@ export class McpAuthService {
   //  Configuracion
   // ────────────────────────────────────────────────────────────
 
+  /**
+   * Secreto JWT requerido. En produccion NO hay fallback: si falta la env var
+   * lanza (fail-fast) para no firmar/validar tokens con un secreto conocido.
+   * Fuera de produccion usa un fallback explicito SOLO para dev/test.
+   */
+  private secret(name: 'JWT_SECRET' | 'JWT_REFRESH_SECRET'): string {
+    const value = process.env[name];
+    if (value) return value;
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        `Falta la variable de entorno ${name} (requerida en produccion)`,
+      );
+    }
+    return name === 'JWT_SECRET'
+      ? 'dev-only-insecure-jwt-secret'
+      : 'dev-only-insecure-jwt-refresh-secret';
+  }
+
+  /**
+   * Solo en dev/test (o con MCP_ALLOW_INSECURE=true) se habilitan los atajos
+   * inseguros: modo authless y token estatico. En produccion nunca.
+   */
+  private get insecureAllowed(): boolean {
+    return (
+      process.env.NODE_ENV !== 'production' ||
+      process.env.MCP_ALLOW_INSECURE === 'true'
+    );
+  }
+
   get authMode(): 'oauth' | 'none' {
-    return process.env.MCP_AUTH_MODE === 'none' ? 'none' : 'oauth';
+    return process.env.MCP_AUTH_MODE === 'none' && this.insecureAllowed
+      ? 'none'
+      : 'oauth';
   }
 
   private get accessTtl(): number {
@@ -121,8 +146,9 @@ export class McpAuthService {
 
     if (!token) return null;
 
-    // Token estatico opcional para pruebas.
+    // Token estatico opcional para pruebas (nunca en produccion).
     if (
+      this.insecureAllowed &&
       process.env.MCP_STATIC_TOKEN &&
       token === process.env.MCP_STATIC_TOKEN &&
       process.env.MCP_STATIC_USER_ID
@@ -133,7 +159,7 @@ export class McpAuthService {
     // Token OAuth = JWT firmado por NaviTracker.
     try {
       const payload: any = await this.jwtService.verifyAsync(token, {
-        secret: JWT_SECRET,
+        secret: this.secret('JWT_SECRET'),
       });
       if (payload?.typ === 'refresh') return null; // un refresh no sirve como access
       const user = await this.authService.validateUserById(payload.sub);
@@ -185,16 +211,28 @@ export class McpAuthService {
   ensureClient(clientId: string, redirectUri?: string): OAuthClient {
     let client = this.clients.get(clientId);
     if (!client) {
+      // Cliente manual (no registrado via DCR): se pinea su redirect_uri en el
+      // primer uso. NO se amplian las URIs de un cliente ya existente (evita
+      // open-redirect del authorization code).
       client = {
         clientId,
         redirectUris: redirectUri ? [redirectUri] : [],
         createdAt: Date.now(),
       };
       this.clients.set(clientId, client);
-    } else if (redirectUri && !client.redirectUris.includes(redirectUri)) {
-      client.redirectUris.push(redirectUri);
     }
     return client;
+  }
+
+  /**
+   * Valida un redirect_uri contra los registrados del cliente (exact match,
+   * OAuth 2.1). Para un cliente desconocido o sin URIs registradas (cliente
+   * manual) devuelve true: se pinea en el primer uso via ensureClient.
+   */
+  isRedirectUriRegistered(clientId: string, redirectUri: string): boolean {
+    const client = this.clients.get(clientId);
+    if (!client || client.redirectUris.length === 0) return true;
+    return client.redirectUris.includes(redirectUri);
   }
 
   // ────────────────────────────────────────────────────────────
@@ -272,12 +310,12 @@ export class McpAuthService {
       scope,
     };
     const access_token = await this.jwtService.signAsync(base, {
-      secret: JWT_SECRET,
+      secret: this.secret('JWT_SECRET'),
       expiresIn: this.accessTtl,
     });
     const refresh_token = await this.jwtService.signAsync(
       { sub: userId, typ: 'refresh', scope },
-      { secret: JWT_REFRESH_SECRET, expiresIn: this.refreshTtl },
+      { secret: this.secret('JWT_REFRESH_SECRET'), expiresIn: this.refreshTtl },
     );
     return {
       access_token,
@@ -291,7 +329,7 @@ export class McpAuthService {
   async refreshTokens(refreshToken: string) {
     try {
       const payload: any = await this.jwtService.verifyAsync(refreshToken, {
-        secret: JWT_REFRESH_SECRET,
+        secret: this.secret('JWT_REFRESH_SECRET'),
       });
       if (payload?.typ !== 'refresh') return null;
       const user = await this.authService.validateUserById(payload.sub);

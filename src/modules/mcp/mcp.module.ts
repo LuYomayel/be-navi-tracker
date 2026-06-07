@@ -10,6 +10,7 @@ import { ActivitiesModule } from '../activities/activities.module';
 import { DayScoreModule } from '../day-score/day-score.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { SavedMealsModule } from '../saved-meals/saved-meals.module';
+import { GoalModule } from '../goal/goal.module';
 
 import { McpController } from './mcp.controller';
 import { OAuthController } from './oauth.controller';
@@ -29,8 +30,10 @@ import { McpServerFactory } from './mcp-server.factory';
 @Module({
   imports: [
     JwtModule.register({
-      secret:
-        process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production',
+      // El secreto real se pasa explicito en cada sign/verify de McpAuthService;
+      // este es solo el default del modulo. En produccion JWT_SECRET es
+      // obligatorio (validado en main.ts); el fallback es solo para dev/test.
+      secret: process.env.JWT_SECRET || 'dev-only-insecure-jwt-secret',
     }),
     AuthModule,
     NutritionModule,
@@ -40,6 +43,7 @@ import { McpServerFactory } from './mcp-server.factory';
     DayScoreModule,
     TasksModule,
     SavedMealsModule,
+    GoalModule,
   ],
   controllers: [McpController, OAuthController],
   providers: [McpAuthService, McpServerFactory, PrismaService],
