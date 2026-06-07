@@ -8,5 +8,6 @@ import { AICostModule } from '../ai-cost/ai-cost.module';
   imports: [AICostModule],
   controllers: [AnalyzeFoodController],
   providers: [AnalyzeFoodService, PrismaService],
+  exports: [AnalyzeFoodService],
 })
 export class AnalyzeFoodModule {}

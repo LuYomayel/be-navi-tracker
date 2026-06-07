@@ -11,6 +11,7 @@ import { DayScoreModule } from '../day-score/day-score.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { SavedMealsModule } from '../saved-meals/saved-meals.module';
 import { BriefingModule } from '../briefing/briefing.module';
+import { AnalyzeFoodModule } from '../analyze-food/analyze-food.module';
 import { GoalModule } from '../goal/goal.module';
 
 import { McpController } from './mcp.controller';
@@ -46,6 +47,7 @@ import { McpServerFactory } from './mcp-server.factory';
     SavedMealsModule,
     GoalModule,
     BriefingModule,
+    AnalyzeFoodModule,
   ],
   controllers: [McpController, OAuthController],
   providers: [McpAuthService, McpServerFactory, PrismaService],
