@@ -13,6 +13,7 @@ import { SavedMealsService } from '../saved-meals/saved-meals.service';
 import { GoalService } from '../goal/goal.service';
 import { BriefingService } from '../briefing/briefing.service';
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
+import { TrelloService } from '../trello/trello.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
@@ -57,6 +58,7 @@ export class McpServerFactory {
     private readonly goal: GoalService,
     private readonly briefing: BriefingService,
     private readonly analyzeFood: AnalyzeFoodService,
+    private readonly trello: TrelloService,
   ) {}
 
   /**
@@ -1114,6 +1116,19 @@ export class McpServerFactory {
           );
         }
         return text(lines.join('\n'));
+      },
+    );
+
+    add(
+      'get_tickets',
+      {
+        title: 'Tickets de trabajo (Trello)',
+        description:
+          'Devuelve los tickets prioritarios de trabajo desde Trello (boards Stampia, EaseTrain y Platform Dev): en curso, en revisión, próximos y los vencidos / por vencer. Read-only.',
+      },
+      async () => {
+        const summary = await this.trello.getTicketsSummary();
+        return text(summary || 'Sin tickets prioritarios.');
       },
     );
   }
