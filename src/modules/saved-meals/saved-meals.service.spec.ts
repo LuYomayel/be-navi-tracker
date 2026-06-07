@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SavedMealsService } from './saved-meals.service';
 import { PrismaService } from '../../config/prisma.service';
+import { NutritionService } from '../nutrition/nutrition.service';
 
 describe('SavedMealsService', () => {
   let service: SavedMealsService;
   let prisma: PrismaService;
+  let nutrition: NutritionService;
 
   const userId = 'user-1';
 
@@ -40,11 +42,18 @@ describe('SavedMealsService', () => {
             },
           },
         },
+        {
+          provide: NutritionService,
+          useValue: {
+            create: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
     service = module.get<SavedMealsService>(SavedMealsService);
     prisma = module.get<PrismaService>(PrismaService);
+    nutrition = module.get<NutritionService>(NutritionService);
   });
 
   describe('getAll', () => {
@@ -147,6 +156,59 @@ describe('SavedMealsService', () => {
         where: { id: 'meal-1', userId },
         data: { name: 'New name' },
       });
+    });
+  });
+
+  describe('logAsNutrition', () => {
+    it('should create a nutrition analysis from the saved meal and increment usage', async () => {
+      (prisma.savedMeal.findFirst as jest.Mock).mockResolvedValue(mockMeal);
+      (prisma.savedMeal.update as jest.Mock).mockResolvedValue({
+        ...mockMeal,
+        timesUsed: 4,
+      });
+      (nutrition.create as jest.Mock).mockResolvedValue({ id: 'na-1' });
+
+      const result = await service.logAsNutrition('meal-1', userId, '2026-06-07');
+
+      expect(nutrition.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          date: '2026-06-07',
+          mealType: mockMeal.mealType,
+          foods: mockMeal.foods,
+          totalCalories: mockMeal.totalCalories,
+          macronutrients: mockMeal.macronutrients,
+        }),
+        userId,
+      );
+      expect(prisma.savedMeal.update).toHaveBeenCalledWith({
+        where: { id: 'meal-1' },
+        data: {
+          timesUsed: { increment: 1 },
+          lastUsedAt: expect.any(Date),
+        },
+      });
+      expect(result).toEqual({ meal: mockMeal, analysis: { id: 'na-1' } });
+    });
+
+    it('should default to today (YYYY-MM-DD) when no date is given', async () => {
+      (prisma.savedMeal.findFirst as jest.Mock).mockResolvedValue(mockMeal);
+      (prisma.savedMeal.update as jest.Mock).mockResolvedValue(mockMeal);
+      (nutrition.create as jest.Mock).mockResolvedValue({ id: 'na-2' });
+
+      await service.logAsNutrition('meal-1', userId);
+
+      const arg = (nutrition.create as jest.Mock).mock.calls[0][0];
+      expect(arg.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it('should return null and not log if meal not found (ownership)', async () => {
+      (prisma.savedMeal.findFirst as jest.Mock).mockResolvedValue(null);
+
+      const result = await service.logAsNutrition('nonexistent', userId);
+
+      expect(result).toBeNull();
+      expect(nutrition.create).not.toHaveBeenCalled();
+      expect(prisma.savedMeal.update).not.toHaveBeenCalled();
     });
   });
 });
