@@ -17,18 +17,20 @@ export class BriefingController {
 
   /** Briefing persistido del dia (o de `?date=YYYY-MM-DD`). */
   @Get()
-  today(@Req() req: any, @Query('date') date?: string) {
-    return this.briefing.getByDate(req.user.userId, date);
+  async today(@Req() req: any, @Query('date') date?: string) {
+    const data = await this.briefing.getByDate(req.user.userId, date);
+    return { success: true, data };
   }
 
   /** Historial de briefings en un rango. */
   @Get('range')
-  range(
+  async range(
     @Req() req: any,
     @Query('from') from: string,
     @Query('to') to: string,
   ) {
-    return this.briefing.getRange(req.user.userId, from, to);
+    const data = await this.briefing.getRange(req.user.userId, from, to);
+    return { success: true, data };
   }
 
   /**
@@ -41,10 +43,9 @@ export class BriefingController {
     @Body() body: { date?: string; send?: boolean },
   ) {
     const userId = req.user.userId;
-    if (body?.send) {
-      return this.briefing.generateAndSend(userId, body?.date);
-    }
-    const briefing = await this.briefing.generate(userId, body?.date);
-    return { briefing, emailSent: false };
+    const data = body?.send
+      ? await this.briefing.generateAndSend(userId, body?.date)
+      : { briefing: await this.briefing.generate(userId, body?.date), emailSent: false };
+    return { success: true, data };
   }
 }
