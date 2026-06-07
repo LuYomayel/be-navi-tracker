@@ -17,16 +17,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Build project
+      # Verifica que compila. Corre en push y en PR (chequeo de CI).
+      - name: Build project (CI check)
         run: npm run build
 
+      # Solo deploya en push a main, nunca en pull_request.
       - name: Deploy to Production Server
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.PROD_HOST }}
@@ -34,33 +37,38 @@ jobs:
           key: ${{ secrets.PROD_SSH_KEY }}
           port: ${{ secrets.PROD_PORT || 22 }}
           script: |
-            echo "🚀 Iniciando despliegue en producción..."
+            set -e
+            echo "🚀 Deploy NaviTracker backend..."
 
-            # Navegar al directorio del proyecto
-            cd ${{ secrets.PROD_PROJECT_PATH || '/var/www/habit-tracker-backend' }}
+            # El shell SSH no-interactivo NO carga nvm por defecto, asi que
+            # node/npm/npx/pm2 no estan en el PATH. Cargar nvm a mano. (Bug
+            # historico: sin esto, install/build/restart fallaban en silencio.)
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-            echo "📥 Descargando últimos cambios..."
-            git pull origin main
+            cd ${{ secrets.PROD_PROJECT_PATH || '/home/be-navi-tracker' }}
+            echo "📂 $(pwd) | node $(node -v) | pm2 $(pm2 -v)"
+
+            echo "📥 Sincronizando con origin/main (reset duro, evita locks de ref)..."
+            git fetch origin main
+            git reset --hard origin/main
 
             echo "📦 Instalando dependencias..."
             npm install
 
-            echo "🔧 Generando cliente de Prisma..."
+            echo "🔧 Prisma generate..."
             npx prisma generate
 
-            echo "🗃️ Ejecutando migraciones de base de datos..."
-            DATABASE_URL="mysql://${{ secrets.DB_USERNAME }}:${{ secrets.DB_PASSWORD }}@${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }}" npx prisma db push
+            echo "🗃️ Prisma db push (usa DATABASE_URL del .env del server)..."
+            npx prisma db push
 
-            echo "🏗️ Construyendo proyecto..."
+            echo "🏗️ Build..."
             npm run build
 
-            echo "🔄 Reiniciando aplicación con PM2..."
-            pm2 restart ${{ secrets.PM2_APP_ID || '6' }}
+            # Restart por NOMBRE (no por id: el id 6 era otra app, be-easetrain-test).
+            echo "🔄 Restart PM2..."
+            pm2 restart ${{ secrets.PM2_APP_NAME || 'be-navi-tracker' }} --update-env
+            pm2 save
 
-            echo "✅ Despliegue completado exitosamente!"
-
-            # Verificar el estado de la aplicación
-            echo "📊 Estado de la aplicación:"
-            pm2 show ${{ secrets.PM2_APP_ID || '6' }}
-
-            echo "🎉 Aplicación desplegada y funcionando correctamente!"
+            echo "✅ Deploy OK"
+            pm2 describe ${{ secrets.PM2_APP_NAME || 'be-navi-tracker' }} | head -20
