@@ -9,6 +9,7 @@ import { CompletionsModule } from '../completions/completions.module';
 import { ActivitiesModule } from '../activities/activities.module';
 import { DayScoreModule } from '../day-score/day-score.module';
 import { TasksModule } from '../tasks/tasks.module';
+import { SavedMealsModule } from '../saved-meals/saved-meals.module';
 
 import { McpController } from './mcp.controller';
 import { OAuthController } from './oauth.controller';
@@ -38,6 +39,7 @@ import { McpServerFactory } from './mcp-server.factory';
     ActivitiesModule,
     DayScoreModule,
     TasksModule,
+    SavedMealsModule,
   ],
   controllers: [McpController, OAuthController],
   providers: [McpAuthService, McpServerFactory, PrismaService],

@@ -9,6 +9,7 @@ import { CompletionsService } from '../completions/completions.service';
 import { ActivitiesService } from '../activities/activities.service';
 import { DayScoreService } from '../day-score/day-score.service';
 import { TasksService } from '../tasks/tasks.service';
+import { SavedMealsService } from '../saved-meals/saved-meals.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
@@ -49,6 +50,7 @@ export class McpServerFactory {
     private readonly activities: ActivitiesService,
     private readonly dayScore: DayScoreService,
     private readonly tasks: TasksService,
+    private readonly savedMeals: SavedMealsService,
   ) {}
 
   /**
@@ -341,6 +343,49 @@ export class McpServerFactory {
         );
       },
     );
+
+    add(
+      'log_comida_guardada',
+      {
+        title: 'Loguear una comida guardada',
+        description:
+          'Registra en el diario nutricional una de las comidas guardadas del usuario (plantillas tipo "Desayuno de siempre"), identificada por su nombre. Crea el registro con sus calorias y macros ya conocidos, sin tener que detallarlos. Usa list_comidas_guardadas si no sabes los nombres disponibles.',
+        inputSchema: {
+          nombre: z
+            .string()
+            .describe(
+              'Nombre de la comida guardada (ej: "Desayuno de siempre")',
+            ),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const meals = await this.savedMeals.getAll(userId);
+        const q = a.nombre.toLowerCase();
+        const target =
+          (meals as any[]).find((m) => m.name?.toLowerCase() === q) ||
+          (meals as any[]).find((m) => m.name?.toLowerCase().includes(q));
+        if (!target) {
+          const names = (meals as any[]).map((m) => m.name).join(', ');
+          return text(
+            `No encontre una comida guardada llamada "${a.nombre}". Guardadas: ${names || '(ninguna)'}.`,
+          );
+        }
+        const res = await this.savedMeals.logAsNutrition(
+          target.id,
+          userId,
+          a.fecha,
+        );
+        if (!res) return text(`No se pudo loguear "${target.name}".`);
+        const fecha = a.fecha || getLocalDateString();
+        return text(
+          `Comida guardada registrada (${fecha}): "${target.name}" — ${target.totalCalories} kcal. id ${res.analysis.id}.`,
+        );
+      },
+    );
   }
 
   // ────────────────────────────────────────────────────────────
@@ -373,6 +418,25 @@ export class McpServerFactory {
           return `• ${h.name}${h.category ? ` [${h.category}]` : ''} (${days || 'sin dias'})`;
         });
         return text(`Habitos:\n${lines.join('\n')}`);
+      },
+    );
+
+    add(
+      'list_comidas_guardadas',
+      {
+        title: 'Listar comidas guardadas',
+        description:
+          'Devuelve las comidas guardadas del usuario (plantillas reutilizables tipo "Desayuno de siempre") con su nombre, tipo y calorias. Util para saber que nombre pasar a log_comida_guardada.',
+      },
+      async () => {
+        const meals = await this.savedMeals.getAll(userId);
+        if (!meals.length)
+          return text('El usuario no tiene comidas guardadas.');
+        const lines = (meals as any[]).map(
+          (m) =>
+            `• ${m.name}${m.mealType ? ` [${m.mealType}]` : ''} — ${m.totalCalories} kcal`,
+        );
+        return text(`Comidas guardadas:\n${lines.join('\n')}`);
       },
     );
 
