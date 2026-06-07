@@ -27,6 +27,7 @@ import { CalendarModule } from './modules/calendar/calendar.module';
 import { DayScoreModule } from './modules/day-score/day-score.module';
 import { HydrationModule } from './modules/hydration/hydration.module';
 import { ShoppingListModule } from './modules/shopping-list/shopping-list.module';
+import { McpModule } from './modules/mcp/mcp.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([{
@@ -56,6 +57,7 @@ import { ShoppingListModule } from './modules/shopping-list/shopping-list.module
     DayScoreModule,
     HydrationModule,
     ShoppingListModule,
+    McpModule,
   ],
   controllers: [AppController],
   providers: [
