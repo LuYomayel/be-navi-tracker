@@ -14,6 +14,7 @@ import { BriefingModule } from '../briefing/briefing.module';
 import { AnalyzeFoodModule } from '../analyze-food/analyze-food.module';
 import { TrelloModule } from '../trello/trello.module';
 import { GoalModule } from '../goal/goal.module';
+import { NotesModule } from '../notes/notes.module';
 
 import { McpController } from './mcp.controller';
 import { OAuthController } from './oauth.controller';
@@ -50,6 +51,7 @@ import { McpServerFactory } from './mcp-server.factory';
     BriefingModule,
     AnalyzeFoodModule,
     TrelloModule,
+    NotesModule,
   ],
   controllers: [McpController, OAuthController],
   providers: [McpAuthService, McpServerFactory, PrismaService],

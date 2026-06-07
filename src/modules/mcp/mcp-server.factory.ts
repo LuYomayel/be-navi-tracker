@@ -14,6 +14,7 @@ import { GoalService } from '../goal/goal.service';
 import { BriefingService } from '../briefing/briefing.service';
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { TrelloService } from '../trello/trello.service';
+import { NotesService } from '../notes/notes.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
@@ -59,6 +60,7 @@ export class McpServerFactory {
     private readonly briefing: BriefingService,
     private readonly analyzeFood: AnalyzeFoodService,
     private readonly trello: TrelloService,
+    private readonly notes: NotesService,
   ) {}
 
   /**
@@ -92,6 +94,7 @@ export class McpServerFactory {
 
     this.registerWriteTools(server, userId, add);
     this.registerReadTools(server, userId, add);
+    this.registerNotesAndTasksTools(server, userId, add);
     return server;
   }
 
@@ -1149,6 +1152,141 @@ export class McpServerFactory {
   }
 
   /** Indice de dia de la semana para el array `days` ([L,M,X,J,V,S,D]). */
+  // ────────────────────────────────────────────────────────────
+  //  Tools de notas y tareas (captura libre + gestión de pendientes)
+  // ────────────────────────────────────────────────────────────
+
+  private registerNotesAndTasksTools(
+    _server: McpServer,
+    userId: string,
+    add: (n: string, c: ToolConfig, h: (a: any) => Promise<any>) => void,
+  ) {
+    add(
+      'crear_nota',
+      {
+        title: 'Guardar una nota / idea / decisión',
+        description:
+          'Guarda una nota libre del usuario: una idea, una decisión, algo para documentar. Para pendientes accionables usá crear_tarea; esto es para capturar texto libre.',
+        inputSchema: {
+          contenido: z.string().describe('El texto de la nota'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const fecha = a.fecha || getLocalDateString();
+        const note = await this.notes.create(
+          { date: fecha, content: a.contenido, mood: 3 } as any,
+          userId,
+        );
+        return text(
+          `Nota guardada (${fecha}): "${a.contenido}". id ${note.id}.`,
+        );
+      },
+    );
+
+    add(
+      'get_notas',
+      {
+        title: 'Listar notas',
+        description:
+          'Devuelve las notas / ideas / decisiones guardadas del usuario (las últimas, o filtradas por fecha).',
+        inputSchema: {
+          fecha: z.string().optional().describe('Filtrar por fecha YYYY-MM-DD'),
+        },
+      },
+      async (a) => {
+        const all = (await this.notes.getAll(userId)) as any[];
+        const filtered = a.fecha ? all.filter((n) => n.date === a.fecha) : all;
+        const recent = filtered.slice(-15);
+        if (!recent.length) {
+          return text(
+            a.fecha ? `Sin notas para ${a.fecha}.` : 'No hay notas guardadas.',
+          );
+        }
+        const lines = recent.map(
+          (n) =>
+            `• [${n.date}] ${n.content}${n.customComment ? ` — ${n.customComment}` : ''}`,
+        );
+        return text(
+          `Notas${a.fecha ? ` (${a.fecha})` : ' (últimas)'}:\n${lines.join('\n')}`,
+        );
+      },
+    );
+
+    add(
+      'list_tareas',
+      {
+        title: 'Listar tareas',
+        description:
+          'Lista las tareas/pendientes del usuario. Por defecto solo las pendientes; opcionalmente por fecha o incluyendo las completadas.',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Filtrar por fecha de vencimiento YYYY-MM-DD'),
+          incluir_completadas: z
+            .boolean()
+            .optional()
+            .describe('Incluir las ya completadas (default false)'),
+        },
+      },
+      async (a) => {
+        const tasks = (await this.tasks.findAll(
+          userId,
+          a.fecha ? { date: a.fecha } : {},
+        )) as any[];
+        const list = a.incluir_completadas
+          ? tasks
+          : tasks.filter((t) => !t.completed);
+        if (!list.length) {
+          return text(
+            'No hay tareas' +
+              (a.fecha ? ` para ${a.fecha}` : ' pendientes') +
+              '.',
+          );
+        }
+        const lines = list.map(
+          (t) =>
+            `${t.completed ? '✓' : '○'} ${t.title}${t.dueDate ? ` (${t.dueDate}${t.dueTime ? ' ' + t.dueTime : ''})` : ''} [${t.priority}]`,
+        );
+        return text(`Tareas (${list.length}):\n${lines.join('\n')}`);
+      },
+    );
+
+    add(
+      'completar_tarea',
+      {
+        title: 'Completar una tarea',
+        description:
+          'Marca como completada una tarea del usuario, identificada por su título (o parte). Usá list_tareas si no sabés el nombre exacto.',
+        inputSchema: {
+          titulo: z
+            .string()
+            .describe('Título (o parte) de la tarea a completar'),
+        },
+      },
+      async (a) => {
+        const tasks = (await this.tasks.findAll(userId, {})) as any[];
+        const pend = tasks.filter((t) => !t.completed);
+        const q = a.titulo.toLowerCase();
+        const target =
+          pend.find((t) => t.title?.toLowerCase() === q) ||
+          pend.find((t) => t.title?.toLowerCase().includes(q));
+        if (!target) {
+          const names = pend.map((t) => t.title).join(', ');
+          return text(
+            `No encontré una tarea pendiente "${a.titulo}". Pendientes: ${names || '(ninguna)'}.`,
+          );
+        }
+        await this.tasks.toggle(userId, target.id);
+        return text(`Tarea completada: "${target.title}". 💪`);
+      },
+    );
+  }
+
   private weekdayIndex(fecha: string): number {
     // Mediodia para evitar corrimientos por zona horaria.
     const jsDay = new Date(`${fecha}T12:00:00`).getDay(); // 0=Dom..6=Sab
