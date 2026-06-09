@@ -122,10 +122,15 @@ export class GoalService {
    */
   async getProgress(userId: string) {
     const goal =
-      (await this.getActive(userId)) ??
+      (await this.prisma.goal.findFirst({
+        where: { userId, status: 'active' },
+        orderBy: { createdAt: 'desc' },
+        include: { contributions: { orderBy: { date: 'desc' } } },
+      })) ??
       (await this.prisma.goal.findFirst({
         where: { userId },
         orderBy: { createdAt: 'desc' },
+        include: { contributions: { orderBy: { date: 'desc' } } },
       }));
     if (!goal) return null;
 
