@@ -202,5 +202,27 @@ describe('GoalService', () => {
 
       expect(result).toBeNull();
     });
+
+    it('should include contributions ordered by date desc', async () => {
+      (prisma.goal.findFirst as jest.Mock).mockResolvedValue({
+        ...mockGoal,
+        contributions: [
+          {
+            id: 'c-1',
+            amountUsd: 500,
+            date: '2026-06-05',
+            description: 'venta 2 lámparas',
+          },
+        ],
+      });
+
+      const result = await service.getProgress(userId);
+
+      expect(result!.goal.contributions).toHaveLength(1);
+      const arg = (prisma.goal.findFirst as jest.Mock).mock.calls[0][0];
+      expect(arg.include).toEqual({
+        contributions: { orderBy: { date: 'desc' } },
+      });
+    });
   });
 });
