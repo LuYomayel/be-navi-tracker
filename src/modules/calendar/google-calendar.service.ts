@@ -79,6 +79,31 @@ export class GoogleCalendarService {
     return { connected: true };
   }
 
+  /**
+   * Sincroniza TODAS las conexiones de Google Calendar (best-effort).
+   * Un fallo en una conexion no frena las demas. Usado por el cron.
+   */
+  async syncAllConnections(): Promise<{
+    total: number;
+    ok: number;
+    failed: number;
+  }> {
+    const connections = await this.prisma.googleCalendarConnection.findMany({
+      select: { userId: true },
+    });
+    let ok = 0;
+    let failed = 0;
+    for (const conn of connections) {
+      try {
+        await this.sync(conn.userId);
+        ok++;
+      } catch {
+        failed++;
+      }
+    }
+    return { total: connections.length, ok, failed };
+  }
+
   async sync(userId: string) {
     this.ensureConfigured();
     const connection =
