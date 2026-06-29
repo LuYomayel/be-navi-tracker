@@ -16,6 +16,11 @@ import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { TrelloService } from '../trello/trello.service';
 import { NotesService } from '../notes/notes.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
+import {
+  parseDiasHabito,
+  formatDias,
+  resolveColorHabito,
+} from './habito-utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
 function text(message: string) {
@@ -96,6 +101,23 @@ export class McpServerFactory {
     this.registerReadTools(server, userId, add);
     this.registerNotesAndTasksTools(server, userId, add);
     return server;
+  }
+
+  /**
+   * Resuelve un habito por nombre (exacto y luego parcial, case-insensitive).
+   * Devuelve el activity o null. Reutilizado por editar/eliminar habito.
+   */
+  private async findHabitoByName(
+    userId: string,
+    nombre: string,
+  ): Promise<any | null> {
+    const all = (await this.activities.getAll(userId, false)) as any[];
+    const lower = nombre.toLowerCase();
+    return (
+      all.find((act) => act.name?.toLowerCase() === lower) ||
+      all.find((act) => act.name?.toLowerCase().includes(lower)) ||
+      null
+    );
   }
 
   // ────────────────────────────────────────────────────────────
@@ -234,6 +256,159 @@ export class McpServerFactory {
         await this.completions.toggle(fuzzy.id, fecha, userId);
         return text(
           `Habito "${fuzzy.name}" ${desired ? 'marcado como hecho' : 'desmarcado'} para ${fecha}.`,
+        );
+      },
+    );
+
+    add(
+      'crear_habito',
+      {
+        title: 'Crear un habito',
+        description:
+          'Crea un nuevo habito (actividad recurrente) para el usuario. Por defecto aplica todos los dias; se puede acotar con "dias" (ej "L,M,V", "lun mie vie", "habiles", "finde").',
+        inputSchema: {
+          nombre: z.string().describe('Nombre del habito (ej: "3D 5 min")'),
+          dias: z
+            .string()
+            .optional()
+            .describe(
+              'Dias en que aplica. Ej: "todos", "L,M,V", "lun,mie,vie", "habiles", "finde". Por defecto todos los dias.',
+            ),
+          descripcion: z
+            .string()
+            .optional()
+            .describe('Descripcion / recordatorio de la version minima.'),
+          horario: z
+            .string()
+            .optional()
+            .describe('Horario sugerido (texto libre, ej "08:00").'),
+          categoria: z
+            .string()
+            .optional()
+            .describe('Categoria (ej: health, work, personal).'),
+          color: z
+            .string()
+            .optional()
+            .describe('Color hex (ej "#22c55e"). Si no se pasa, se asigna uno.'),
+        },
+      },
+      async (a) => {
+        if (!a.nombre || !a.nombre.trim()) {
+          return text('Necesito un nombre para crear el habito.');
+        }
+        const existente = await this.findHabitoByName(userId, a.nombre.trim());
+        if (existente && existente.name?.toLowerCase() === a.nombre.trim().toLowerCase()) {
+          return text(
+            `Ya existe un habito llamado "${existente.name}". Usa editar_habito si queres cambiarlo.`,
+          );
+        }
+        const days = parseDiasHabito(a.dias);
+        const created = await this.activities.create(
+          {
+            name: a.nombre.trim(),
+            days,
+            color: resolveColorHabito(a.color),
+            description: a.descripcion,
+            time: a.horario,
+            category: a.categoria,
+          } as any,
+          userId,
+        );
+        return text(
+          `Habito "${created.name}" creado (${formatDias(days)}).`,
+        );
+      },
+    );
+
+    add(
+      'editar_habito',
+      {
+        title: 'Editar un habito',
+        description:
+          'Edita un habito existente identificado por su nombre actual. Solo cambia los campos que pases (nombre, dias, descripcion, horario, categoria, color).',
+        inputSchema: {
+          habito: z
+            .string()
+            .describe('Nombre actual del habito a editar.'),
+          nuevo_nombre: z.string().optional().describe('Nuevo nombre.'),
+          dias: z
+            .string()
+            .optional()
+            .describe('Nuevos dias (ej "L,M,V", "todos", "finde").'),
+          descripcion: z.string().optional().describe('Nueva descripcion.'),
+          horario: z.string().optional().describe('Nuevo horario.'),
+          categoria: z.string().optional().describe('Nueva categoria.'),
+          color: z.string().optional().describe('Nuevo color hex.'),
+        },
+      },
+      async (a) => {
+        const target = await this.findHabitoByName(userId, a.habito);
+        if (!target) {
+          const all = (await this.activities.getAll(userId, false)) as any[];
+          const names = all.map((x) => x.name).join(', ');
+          return text(
+            `No encontre un habito llamado "${a.habito}". Habitos: ${names || '(ninguno)'}.`,
+          );
+        }
+        const patch: any = {};
+        if (a.nuevo_nombre?.trim()) patch.name = a.nuevo_nombre.trim();
+        if (a.dias !== undefined) patch.days = parseDiasHabito(a.dias);
+        if (a.descripcion !== undefined) patch.description = a.descripcion;
+        if (a.horario !== undefined) patch.time = a.horario;
+        if (a.categoria !== undefined) patch.category = a.categoria;
+        if (a.color !== undefined) patch.color = resolveColorHabito(a.color);
+
+        if (Object.keys(patch).length === 0) {
+          return text('No indicaste ningun cambio. El habito quedo igual.');
+        }
+        const updated = await this.activities.update(target.id, patch, userId);
+        if (!updated) {
+          return text(`No pude actualizar el habito "${target.name}".`);
+        }
+        return text(
+          `Habito "${updated.name}" actualizado (${formatDias(updated.days)}).`,
+        );
+      },
+    );
+
+    add(
+      'eliminar_habito',
+      {
+        title: 'Eliminar (archivar) un habito',
+        description:
+          'Elimina un habito identificado por su nombre. Por defecto lo ARCHIVA (reversible). Pasa permanente=true para borrarlo definitivamente.',
+        inputSchema: {
+          habito: z.string().describe('Nombre del habito a eliminar.'),
+          permanente: z
+            .boolean()
+            .optional()
+            .describe(
+              'true = borrado definitivo. false/omitido = archivar (reversible, default).',
+            ),
+        },
+      },
+      async (a) => {
+        const target = await this.findHabitoByName(userId, a.habito);
+        if (!target) {
+          const all = (await this.activities.getAll(userId, false)) as any[];
+          const names = all.map((x) => x.name).join(', ');
+          return text(
+            `No encontre un habito llamado "${a.habito}". Habitos: ${names || '(ninguno)'}.`,
+          );
+        }
+        if (a.permanente) {
+          const ok = await this.activities.delete(target.id, userId);
+          return text(
+            ok
+              ? `Habito "${target.name}" borrado definitivamente.`
+              : `No pude borrar el habito "${target.name}".`,
+          );
+        }
+        const archived = await this.activities.archive(target.id, userId);
+        return text(
+          archived
+            ? `Habito "${target.name}" archivado (lo podes restaurar desde la app).`
+            : `No pude archivar el habito "${target.name}".`,
         );
       },
     );
