@@ -8,8 +8,11 @@ export class CalendarService {
   constructor(private prisma: PrismaService) {}
 
   async getEvents(userId: string, from: string, to: string) {
-    const startDate = new Date(from + 'T00:00:00');
-    const endDate = new Date(to + 'T23:59:59');
+    // El rango del dia se ancla a hora Argentina (UTC-3, sin horario de verano).
+    // Antes se usaba la TZ del server (UTC en prod): un evento nocturno (23:00 ART)
+    // caia en el dia siguiente y aparecia desordenado/erroneo en el briefing.
+    const startDate = new Date(from + 'T00:00:00-03:00');
+    const endDate = new Date(to + 'T23:59:59-03:00');
 
     const events = await this.prisma.calendarEvent.findMany({
       where: {

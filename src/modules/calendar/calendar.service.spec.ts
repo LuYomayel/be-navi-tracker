@@ -61,8 +61,8 @@ describe('CalendarService', () => {
       expect(prisma.calendarEvent.findMany).toHaveBeenCalledWith({
         where: {
           userId,
-          startTime: { gte: new Date('2026-03-16T00:00:00') },
-          endTime: { lte: new Date('2026-03-16T23:59:59') },
+          startTime: { gte: new Date('2026-03-16T00:00:00-03:00') },
+          endTime: { lte: new Date('2026-03-16T23:59:59-03:00') },
         },
         orderBy: { startTime: 'asc' },
       });
