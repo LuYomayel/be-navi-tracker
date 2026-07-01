@@ -18,6 +18,7 @@ export interface AnthropometryAnalysis {
     height: number;
     seatedHeight?: number;
     age?: number;
+    measurementDate?: string; // "Fecha de medición" del informe, en YYYY-MM-DD
   };
   skinFolds: {
     triceps: number;
@@ -297,6 +298,7 @@ INSTRUCCIONES:
 6. Para los Z-Scores, usa el nombre de la medición en español como clave.
 7. Los pliegues cutáneos están en mm, los diámetros y perímetros en cm, el peso en kg, la talla en cm.
 8. Mapeo de nombres de PLIEGUES del informe → clave JSON: "Tríceps"→triceps, "Subescapular"→subscapular, "Supraespinal"→supraspinal, "Abdominal"→abdominal, "Muslo (medial)"→thigh, "Pantorrilla"→calf. "Suma de 6 pliegues" (suele estar en la página de datos adicionales)→sumOfSix. Los 6 pliegues son OBLIGATORIOS si aparecen en el informe: no omitas ninguno.
+9. "Fecha de medición" (arriba, junto al nombre): extraela a basics.measurementDate en formato AAAA-MM-DD. Viene en formato D/M/AAAA (ej: "3/3/2026" → "2026-03-03"). Si no aparece, null.
 
 Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 {
@@ -304,7 +306,8 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
     "weight": null,
     "height": null,
     "seatedHeight": null,
-    "age": null
+    "age": null,
+    "measurementDate": null
   },
   "skinFolds": {
     "triceps": null,
@@ -419,6 +422,11 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
       // The frontend will create the record when the user clicks "Guardar"
       const extractedRecord: Partial<SkinFoldRecord> = {
         technician: 'Extraído de PDF por IA',
+        // La fecha de la medición sale del propio informe ("Fecha de medición").
+        ...(analysis.basics?.measurementDate &&
+        /^\d{4}-\d{2}-\d{2}$/.test(analysis.basics.measurementDate)
+          ? { date: analysis.basics.measurementDate }
+          : {}),
         values: skinFoldValues,
         aiConfidence: 0.9,
       };
