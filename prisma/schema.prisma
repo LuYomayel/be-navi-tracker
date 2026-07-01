@@ -252,7 +252,7 @@ model SkinFoldRecord {
   notes        String?  @db.Text
   values       Json // Partial<Record<SkinFoldSite, number>> - valores en mm
   aiConfidence Float? // 0-1 cuando es extraido por IA
-  pdfUrl       String?  @db.Text // PDF del nutricionista en base64
+  pdfUrl       String?  @db.LongText // PDF del nutricionista en base64 (grande)
   pdfFilename  String? // Nombre original del archivo PDF
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
