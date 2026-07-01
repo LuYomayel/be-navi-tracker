@@ -289,10 +289,14 @@ El informe puede contener varias páginas con:
 - Z-Scores del Phantom para cada medición
 
 INSTRUCCIONES:
-1. Extrae los valores EXACTOS que aparecen en el informe, no los calcules
-2. Si un valor no aparece en el informe, usa null
-3. Para los Z-Scores, usa el nombre de la medición en español como clave
-4. Los pliegues cutáneos están en mm, los diámetros y perímetros en cm, el peso en kg, la talla en cm
+1. Extrae los valores EXACTOS que aparecen en el informe, no los calcules.
+2. La tabla de la primera página tiene 3 columnas: "Resultados", "Diferencias con anterior" y "Score-Z". Para cada medición tomá SIEMPRE el valor de la columna "Resultados" (la primera con números). El "Score-Z" va en zScores; la columna "Diferencias con anterior" NO se usa.
+3. Los números decimales usan COMA (ej: "9,50" = 9.5). Convertí la coma a punto en el JSON.
+4. Celdas con "#¡NUM!", "#N/A", "#DIV/0!" o vacías son errores de Excel: usalas como null, nunca como número.
+5. Si un valor no aparece en el informe, usa null.
+6. Para los Z-Scores, usa el nombre de la medición en español como clave.
+7. Los pliegues cutáneos están en mm, los diámetros y perímetros en cm, el peso en kg, la talla en cm.
+8. Mapeo de nombres de PLIEGUES del informe → clave JSON: "Tríceps"→triceps, "Subescapular"→subscapular, "Supraespinal"→supraspinal, "Abdominal"→abdominal, "Muslo (medial)"→thigh, "Pantorrilla"→calf. "Suma de 6 pliegues" (suele estar en la página de datos adicionales)→sumOfSix. Los 6 pliegues son OBLIGATORIOS si aparecen en el informe: no omitas ninguno.
 
 Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 {
@@ -399,6 +403,10 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
           skinFoldValues.triceps = analysis.skinFolds.triceps;
         if (analysis.skinFolds.subscapular)
           skinFoldValues.subscapular = analysis.skinFolds.subscapular;
+        // El informe ISAK trae "Supraespinal"; en la app se guarda bajo la key
+        // `suprailiac` (que se muestra como "Supraespinal"). Antes se perdía.
+        if (analysis.skinFolds.supraspinal)
+          skinFoldValues.suprailiac = analysis.skinFolds.supraspinal;
         if (analysis.skinFolds.abdominal)
           skinFoldValues.abdominal = analysis.skinFolds.abdominal;
         if (analysis.skinFolds.thigh)
