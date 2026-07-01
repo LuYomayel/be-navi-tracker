@@ -265,7 +265,7 @@ model SkinFoldRecord {
 model Note {
   id                 String   @id @default(cuid())
   date               String
-  content            String
+  content            String   @db.Text
   mood               Int
   predefinedComments Json? // Array de IDs de comentarios predefinidos
   customComment      String? // Comentario personalizado del usuario
