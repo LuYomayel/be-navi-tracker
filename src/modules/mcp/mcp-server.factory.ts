@@ -15,6 +15,9 @@ import { BriefingService } from '../briefing/briefing.service';
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { TrelloService } from '../trello/trello.service';
 import { NotesService } from '../notes/notes.service';
+import { PhysicalActivitiesService } from '../physical-activities/physical-activities.service';
+import { XpService } from '../xp/xp.service';
+import { XpAction } from '../xp/dto/xp.dto';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import {
   parseDiasHabito,
@@ -66,6 +69,8 @@ export class McpServerFactory {
     private readonly analyzeFood: AnalyzeFoodService,
     private readonly trello: TrelloService,
     private readonly notes: NotesService,
+    private readonly physicalActivities: PhysicalActivitiesService,
+    private readonly xp: XpService,
   ) {}
 
   /**
@@ -100,6 +105,7 @@ export class McpServerFactory {
     this.registerWriteTools(server, userId, add);
     this.registerReadTools(server, userId, add);
     this.registerNotesAndTasksTools(server, userId, add);
+    this.registerPhysicalActivityTools(server, userId, add);
     return server;
   }
 
@@ -1458,6 +1464,197 @@ export class McpServerFactory {
         }
         await this.tasks.toggle(userId, target.id);
         return text(`Tarea completada: "${target.title}". 💪`);
+      },
+    );
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  Tools de actividad física / entrenamiento (CRUD)
+  // ────────────────────────────────────────────────────────────
+  private registerPhysicalActivityTools(
+    _server: McpServer,
+    userId: string,
+    add: (n: string, c: ToolConfig, h: (a: any) => Promise<any>) => void,
+  ) {
+    const resumen = (x: any) =>
+      [
+        x.exerciseMinutes ? `${x.exerciseMinutes} min` : null,
+        x.activeEnergyKcal ? `${x.activeEnergyKcal} kcal` : null,
+        x.steps ? `${x.steps} pasos` : null,
+        x.distanceKm ? `${x.distanceKm} km` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+
+    add(
+      'registrar_actividad_fisica',
+      {
+        title: 'Registrar actividad física / entrenamiento',
+        description:
+          'Registra un entrenamiento o actividad física del día (gym, handball, running, etc.) con minutos y calorías. Otorga +60 XP, igual que desde la app.',
+        inputSchema: {
+          minutos: z
+            .number()
+            .optional()
+            .describe('Minutos de ejercicio (exerciseMinutes)'),
+          calorias: z
+            .number()
+            .optional()
+            .describe('Calorías quemadas (activeEnergyKcal)'),
+          pasos: z.number().optional().describe('Cantidad de pasos'),
+          distancia_km: z
+            .number()
+            .optional()
+            .describe('Distancia recorrida en km'),
+          horas_de_pie: z
+            .number()
+            .optional()
+            .describe('Horas de pie (standHours)'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const fecha = a.fecha || getLocalDateString();
+        const activity = await this.physicalActivities.create(
+          {
+            date: fecha,
+            exerciseMinutes: a.minutos,
+            activeEnergyKcal: a.calorias,
+            steps: a.pasos,
+            distanceKm: a.distancia_km,
+            standHours: a.horas_de_pie,
+            source: 'manual',
+          },
+          userId,
+        );
+        // Paridad con el endpoint REST: la actividad física otorga +60 XP.
+        await this.xp.addXp(
+          userId,
+          {
+            action: XpAction.PHYSICAL_ACTIVITY,
+            xpAmount: 60,
+            description: 'Actividad física registrada',
+            metadata: { activityType: 'manual', calories: a.calorias },
+          },
+          fecha,
+        );
+        const det = resumen(activity);
+        return text(
+          `Actividad física registrada (${fecha})${det ? `: ${det}` : ''}. +60 XP 💪`,
+        );
+      },
+    );
+
+    add(
+      'list_actividad_fisica',
+      {
+        title: 'Listar actividad física',
+        description:
+          'Devuelve los entrenamientos / actividad física registrados (todos o filtrados por fecha).',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Filtrar por fecha YYYY-MM-DD'),
+        },
+      },
+      async (a) => {
+        const all = (await this.physicalActivities.getAll(userId)) as any[];
+        const filtered = a.fecha
+          ? all.filter((x) => x.date === a.fecha)
+          : all;
+        const recent = filtered.slice(-15);
+        if (!recent.length) {
+          return text(
+            a.fecha
+              ? `Sin actividad física para ${a.fecha}.`
+              : 'No hay actividad física registrada.',
+          );
+        }
+        const lines = recent.map(
+          (x) => `• [${x.date}] ${resumen(x) || 'sin datos'}`,
+        );
+        return text(
+          `Actividad física${a.fecha ? ` (${a.fecha})` : ' (últimas)'}:\n${lines.join('\n')}`,
+        );
+      },
+    );
+
+    add(
+      'editar_actividad_fisica',
+      {
+        title: 'Editar actividad física',
+        description:
+          'Edita la actividad física de una fecha (por defecto hoy). Solo se actualizan los campos que pases.',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD de la actividad a editar. Por defecto hoy.'),
+          minutos: z.number().optional(),
+          calorias: z.number().optional(),
+          pasos: z.number().optional(),
+          distancia_km: z.number().optional(),
+          horas_de_pie: z.number().optional(),
+        },
+      },
+      async (a) => {
+        const fecha = a.fecha || getLocalDateString();
+        const all = (await this.physicalActivities.getAll(userId)) as any[];
+        const target = all.filter((x) => x.date === fecha).slice(-1)[0];
+        if (!target) {
+          return text(`No encontré actividad física para ${fecha}.`);
+        }
+        const patch: Record<string, number> = {};
+        if (a.minutos !== undefined) patch.exerciseMinutes = a.minutos;
+        if (a.calorias !== undefined) patch.activeEnergyKcal = a.calorias;
+        if (a.pasos !== undefined) patch.steps = a.pasos;
+        if (a.distancia_km !== undefined) patch.distanceKm = a.distancia_km;
+        if (a.horas_de_pie !== undefined) patch.standHours = a.horas_de_pie;
+        if (!Object.keys(patch).length) {
+          return text('No pasaste ningún campo para editar.');
+        }
+        const upd = await this.physicalActivities.update(
+          target.id,
+          patch as any,
+          userId,
+        );
+        if (!upd) return text('No se pudo actualizar la actividad física.');
+        return text(
+          `Actividad física de ${fecha} actualizada: ${resumen(upd) || 'sin datos'}.`,
+        );
+      },
+    );
+
+    add(
+      'borrar_actividad_fisica',
+      {
+        title: 'Borrar actividad física',
+        description:
+          'Borra la actividad física de una fecha (por defecto hoy).',
+        inputSchema: {
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const fecha = a.fecha || getLocalDateString();
+        const all = (await this.physicalActivities.getAll(userId)) as any[];
+        const target = all.filter((x) => x.date === fecha).slice(-1)[0];
+        if (!target) {
+          return text(`No encontré actividad física para ${fecha}.`);
+        }
+        const ok = await this.physicalActivities.delete(target.id, userId);
+        return text(
+          ok
+            ? `Actividad física de ${fecha} borrada.`
+            : 'No se pudo borrar la actividad física.',
+        );
       },
     );
   }

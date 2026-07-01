@@ -9,5 +9,6 @@ import { AICostModule } from '../ai-cost/ai-cost.module';
   imports: [XpModule, AICostModule],
   controllers: [PhysicalActivitiesController],
   providers: [PhysicalActivitiesService, PrismaService],
+  exports: [PhysicalActivitiesService],
 })
 export class PhysicalActivitiesModule {}
