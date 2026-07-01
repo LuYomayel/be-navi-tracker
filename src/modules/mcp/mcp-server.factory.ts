@@ -700,6 +700,8 @@ export class McpServerFactory {
           carbos_g: z.number().optional().describe('Carbohidratos en gramos'),
           grasa_g: z.number().optional().describe('Grasa en gramos'),
           fibra_g: z.number().optional().describe('Fibra en gramos'),
+          azucar_g: z.number().optional().describe('Azucares en gramos'),
+          sodio_mg: z.number().optional().describe('Sodio en miligramos'),
           descripcion: z.string().optional().describe('Descripcion breve'),
         },
       },
@@ -724,6 +726,8 @@ export class McpServerFactory {
               carbs: a.carbos_g ?? 0,
               fat: a.grasa_g ?? 0,
               fiber: a.fibra_g ?? 0,
+              sugar: a.azucar_g ?? 0,
+              sodium: a.sodio_mg ?? 0,
             },
           },
           userId,
@@ -739,10 +743,24 @@ export class McpServerFactory {
       {
         title: 'Editar una comida guardada',
         description:
-          'Cambia el nombre o la descripcion de una comida guardada existente, identificada por su nombre actual.',
+          'Edita cualquier campo de una comida guardada existente (identificada por su nombre actual): nombre, tipo, calorias y macros (proteina/carbos/grasa/fibra/azucar/sodio) y descripcion. Solo cambia los campos que le pases; el resto queda igual.',
         inputSchema: {
           nombre: z.string().describe('Nombre actual de la comida guardada'),
           nuevo_nombre: z.string().optional().describe('Nuevo nombre'),
+          tipo: z
+            .enum(['Desayuno', 'Almuerzo', 'Merienda', 'Cena', 'Snack'])
+            .optional()
+            .describe('Nuevo tipo de comida'),
+          calorias: z
+            .number()
+            .optional()
+            .describe('Nuevas calorias totales (kcal)'),
+          proteina_g: z.number().optional().describe('Proteina en gramos'),
+          carbos_g: z.number().optional().describe('Carbohidratos en gramos'),
+          grasa_g: z.number().optional().describe('Grasa en gramos'),
+          fibra_g: z.number().optional().describe('Fibra en gramos'),
+          azucar_g: z.number().optional().describe('Azucares en gramos'),
+          sodio_mg: z.number().optional().describe('Sodio en miligramos'),
           descripcion: z.string().optional().describe('Nueva descripcion'),
         },
       },
@@ -758,13 +776,51 @@ export class McpServerFactory {
             `No encontre una comida guardada llamada "${a.nombre}". Guardadas: ${names || '(ninguna)'}.`,
           );
         }
-        await this.savedMeals.update(
-          target.id,
-          { name: a.nuevo_nombre, description: a.descripcion },
-          userId,
-        );
+
+        const patch: {
+          name?: string;
+          description?: string;
+          mealType?: string;
+          totalCalories?: number;
+          macronutrients?: any;
+        } = {};
+        if (a.nuevo_nombre !== undefined) patch.name = a.nuevo_nombre;
+        if (a.descripcion !== undefined) patch.description = a.descripcion;
+        if (a.tipo !== undefined)
+          patch.mealType = MEAL_TYPE_MAP[a.tipo] || 'other';
+        if (a.calorias !== undefined)
+          patch.totalCalories = Math.round(a.calorias);
+
+        // Si tocan algun macro, mergeamos con los existentes para no pisar
+        // los que no vengan en el pedido (macronutrients es un Json completo).
+        const macroChanged =
+          a.proteina_g !== undefined ||
+          a.carbos_g !== undefined ||
+          a.grasa_g !== undefined ||
+          a.fibra_g !== undefined ||
+          a.azucar_g !== undefined ||
+          a.sodio_mg !== undefined;
+        if (macroChanged) {
+          const cur = (target.macronutrients as any) || {};
+          patch.macronutrients = {
+            protein: a.proteina_g ?? cur.protein ?? 0,
+            carbs: a.carbos_g ?? cur.carbs ?? 0,
+            fat: a.grasa_g ?? cur.fat ?? 0,
+            fiber: a.fibra_g ?? cur.fiber ?? 0,
+            sugar: a.azucar_g ?? cur.sugar ?? 0,
+            sodium: a.sodio_mg ?? cur.sodium ?? 0,
+          };
+        }
+
+        if (Object.keys(patch).length === 0) {
+          return text(
+            `No pasaste ningun cambio para "${target.name}". Indica nuevo_nombre, tipo, calorias, macros o descripcion.`,
+          );
+        }
+
+        await this.savedMeals.update(target.id, patch, userId);
         return text(
-          `Comida guardada actualizada: "${a.nuevo_nombre || target.name}".`,
+          `Comida guardada actualizada: "${patch.name || target.name}".`,
         );
       },
     );
@@ -942,10 +998,10 @@ export class McpServerFactory {
         const meals = await this.savedMeals.getAll(userId);
         if (!meals.length)
           return text('El usuario no tiene comidas guardadas.');
-        const lines = (meals as any[]).map(
-          (m) =>
-            `• ${m.name}${m.mealType ? ` [${m.mealType}]` : ''} — ${m.totalCalories} kcal`,
-        );
+        const lines = (meals as any[]).map((m) => {
+          const mn = m.macronutrients || {};
+          return `• ${m.name}${m.mealType ? ` [${m.mealType}]` : ''} — ${m.totalCalories} kcal (P${mn.protein ?? 0}/C${mn.carbs ?? 0}/G${mn.fat ?? 0}) · usada ${m.timesUsed ?? 0}x`;
+        });
         return text(`Comidas guardadas:\n${lines.join('\n')}`);
       },
     );
