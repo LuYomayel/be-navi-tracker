@@ -157,6 +157,62 @@ describe('SavedMealsService', () => {
         data: { name: 'New name' },
       });
     });
+
+    it('should update all editable fields (macros, kcal, type)', async () => {
+      (prisma.savedMeal.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+
+      const macros = {
+        protein: 8,
+        carbs: 20,
+        fat: 5,
+        fiber: 0,
+        sugar: 18,
+        sodium: 60,
+      };
+      const foods = [{ name: 'Café con leche', quantity: '1 taza' }];
+
+      await service.update(
+        'meal-1',
+        {
+          name: 'Café con leche',
+          mealType: 'breakfast',
+          totalCalories: 150,
+          macronutrients: macros,
+          foods,
+        },
+        userId,
+      );
+
+      expect(prisma.savedMeal.updateMany).toHaveBeenCalledWith({
+        where: { id: 'meal-1', userId },
+        data: {
+          name: 'Café con leche',
+          mealType: 'breakfast',
+          totalCalories: 150,
+          macronutrients: macros,
+          foods,
+        },
+      });
+    });
+
+    it('should ignore non-whitelisted fields (userId, timesUsed)', async () => {
+      (prisma.savedMeal.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+
+      await service.update(
+        'meal-1',
+        { name: 'X', userId: 'hacker', timesUsed: 999 } as any,
+        userId,
+      );
+
+      expect(prisma.savedMeal.updateMany).toHaveBeenCalledWith({
+        where: { id: 'meal-1', userId },
+        data: { name: 'X' },
+      });
+    });
   });
 
   describe('logAsNutrition', () => {

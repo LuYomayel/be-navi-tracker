@@ -87,10 +87,32 @@ export class SavedMealsService {
     });
   }
 
-  async update(id: string, data: { name?: string; description?: string }, userId: string) {
+  async update(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      mealType?: string;
+      foods?: any;
+      totalCalories?: number;
+      macronutrients?: any;
+    },
+    userId: string,
+  ) {
+    // Whitelist: sólo persistimos los campos editables provistos. Evita que
+    // por el body se puedan pisar userId/timesUsed/lastUsedAt/etc.
+    const patch: Record<string, unknown> = {};
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.description !== undefined) patch.description = data.description;
+    if (data.mealType !== undefined) patch.mealType = data.mealType;
+    if (data.foods !== undefined) patch.foods = data.foods;
+    if (data.totalCalories !== undefined) patch.totalCalories = data.totalCalories;
+    if (data.macronutrients !== undefined)
+      patch.macronutrients = data.macronutrients;
+
     return this.prisma.savedMeal.updateMany({
       where: { id, userId },
-      data,
+      data: patch,
     });
   }
 }
