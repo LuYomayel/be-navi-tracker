@@ -189,7 +189,10 @@ describe('recommendDailyIntake', () => {
       creatine: true,
     });
     const total = r.suggestedBlocks.reduce((acc, b) => acc + b.targetMl, 0);
-    expect(total).toBe(r.drinkMl);
+    // Los tramos van en multiplos de 50 (numeros usables), asi que la suma
+    // puede quedar hasta 50ml del calculo exacto.
+    expect(Math.abs(total - r.drinkMl)).toBeLessThanOrEqual(50);
+    expect(r.suggestedBlocks.every((b) => b.targetMl % 50 === 0)).toBe(true);
     expect(r.suggestedBlocks.some((b) => b.requiresTraining)).toBe(true);
   });
 });

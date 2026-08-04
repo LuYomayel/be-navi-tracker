@@ -187,7 +187,7 @@ function buildBlocks(drinkMl: number, trainingDrinkMl: number): HydrationBlock[]
   );
   const rest = drinkMl - trainingShare;
   const morning = roundTo50(rest / 2);
-  const afternoon = rest - morning;
+  const afternoon = roundTo50(rest - morning);
 
   const blocks: HydrationBlock[] = [
     { id: 'morning', label: 'Mañana', start: '07:00', end: '13:00', targetMl: morning },
