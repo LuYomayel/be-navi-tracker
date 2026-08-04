@@ -22,6 +22,7 @@ import { PhysicalActivitiesModule } from './modules/physical-activities/physical
 import { SavedMealsModule } from './modules/saved-meals/saved-meals.module';
 import { AICostModule } from './modules/ai-cost/ai-cost.module';
 import { MealPrepModule } from './modules/meal-prep/meal-prep.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { DayScoreModule } from './modules/day-score/day-score.module';
@@ -64,6 +65,7 @@ import { DeviceTokensModule } from './modules/device-tokens/device-tokens.module
     GoalModule,
     BriefingModule,
     DeviceTokensModule,
+    ExpensesModule,
   ],
   controllers: [AppController],
   providers: [

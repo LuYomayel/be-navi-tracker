@@ -57,6 +57,9 @@ model User {
   goals                    Goal[]
   briefings                Briefing[]
   deviceTokens             DeviceToken[]
+  expenses                 Expense[]
+  expenseCategories        ExpenseCategory[]
+  recurringExpenses        RecurringExpense[]
 
   @@map("users")
 }
@@ -689,4 +692,60 @@ model Briefing {
   @@unique([userId, date])
   @@index([userId, date])
   @@map("briefings")
+}
+
+model ExpenseCategory {
+  id            String   @id @default(cuid())
+  userId        String
+  name          String
+  icon          String? // emoji
+  color         String? // token de chart (chart-1..chart-5) o hex
+  monthlyBudget Float? // budget mensual en ARS (null = sin budget)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expenses          Expense[]
+  recurringExpenses RecurringExpense[]
+
+  @@unique([userId, name])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id                 String   @id @default(cuid())
+  userId             String
+  date               String // YYYY-MM-DD
+  amount             Float // ARS
+  description        String
+  categoryId         String?
+  source             String   @default("manual") // manual | recurring
+  recurringExpenseId String? // si lo generó un pago recurrente
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@map("expenses")
+}
+
+model RecurringExpense {
+  id               String   @id @default(cuid())
+  userId           String
+  description      String
+  amount           Float // ARS
+  categoryId       String?
+  dayOfMonth       Int // día del mes en que se cobra (1-28)
+  kind             String   @default("recurring") // recurring (pago fijo) | subscription
+  active           Boolean  @default(true)
+  lastPostedPeriod String? // YYYY-MM del último mes ya generado (dedup)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@map("recurring_expenses")
 }

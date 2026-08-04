@@ -23,6 +23,7 @@ import {
   matchTaskByTitle,
   buildTaskUpdateFromMcpArgs,
 } from './task-edit-utils';
+import { ExpensesService } from '../expenses/expenses.service';
 import {
   parseDiasHabito,
   formatDias,
@@ -75,6 +76,7 @@ export class McpServerFactory {
     private readonly notes: NotesService,
     private readonly physicalActivities: PhysicalActivitiesService,
     private readonly xp: XpService,
+    private readonly expenses: ExpensesService,
   ) {}
 
   /**
@@ -110,6 +112,7 @@ export class McpServerFactory {
     this.registerReadTools(server, userId, add);
     this.registerNotesAndTasksTools(server, userId, add);
     this.registerPhysicalActivityTools(server, userId, add);
+    this.registerExpenseTools(server, userId, add);
     return server;
   }
 
@@ -1584,6 +1587,186 @@ export class McpServerFactory {
               ? ` (vence ${updated.dueDate}${updated.dueTime ? ' ' + updated.dueTime : ''})`
               : ' (sin fecha)'
           } [${updated.priority}].`,
+        );
+      },
+    );
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  Tools de gastos
+  // ────────────────────────────────────────────────────────────
+  private registerExpenseTools(
+    _server: McpServer,
+    userId: string,
+    add: (n: string, c: ToolConfig, h: (a: any) => Promise<any>) => void,
+  ) {
+    const ars = (n: number) =>
+      `$${Math.round(n).toLocaleString('es-AR')}`;
+
+    add(
+      'registrar_gasto',
+      {
+        title: 'Registrar un gasto',
+        description:
+          'Registra un gasto en pesos (ARS): monto, descripción y opcionalmente categoría (por nombre) y fecha. Usá resumen_gastos para ver el estado del mes.',
+        inputSchema: {
+          monto: z.number().describe('Monto en pesos argentinos'),
+          descripcion: z
+            .string()
+            .describe('Qué fue el gasto (ej: "Supermercado Coto")'),
+          categoria: z
+            .string()
+            .optional()
+            .describe('Nombre de la categoría (si existe, se asocia)'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        let categoryId: string | undefined;
+        let catLabel = '';
+        if (a.categoria) {
+          const cats = await this.expenses.getCategories(userId);
+          const q = a.categoria.toLowerCase();
+          const cat =
+            cats.find((c) => c.name.toLowerCase() === q) ||
+            cats.find((c) => c.name.toLowerCase().includes(q));
+          if (cat) {
+            categoryId = cat.id;
+            catLabel = ` [${cat.icon ? cat.icon + ' ' : ''}${cat.name}]`;
+          } else {
+            catLabel = ` (categoría "${a.categoria}" no encontrada — quedó sin categoría)`;
+          }
+        }
+        const fecha = a.fecha || getLocalDateString();
+        const exp = await this.expenses.createExpense(userId, {
+          date: fecha,
+          amount: a.monto,
+          description: a.descripcion,
+          categoryId,
+        });
+        return text(
+          `Gasto registrado (${fecha}): ${ars(exp.amount)} — ${exp.description}${catLabel}. id ${exp.id}.`,
+        );
+      },
+    );
+
+    add(
+      'list_gastos',
+      {
+        title: 'Listar gastos del mes',
+        description:
+          'Lista los gastos de un mes (por defecto el actual), con categoría y total.',
+        inputSchema: {
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM. Por defecto el actual.'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const list = (await this.expenses.getExpenses(userId, mes)) as any[];
+        if (!list.length) return text(`Sin gastos registrados en ${mes}.`);
+        const total = list.reduce((acc, e) => acc + e.amount, 0);
+        const lines = list.map(
+          (e) =>
+            `• ${e.date} ${ars(e.amount)} — ${e.description}${e.category ? ` [${e.category.name}]` : ''}${e.source === 'recurring' ? ' (recurrente)' : ''}`,
+        );
+        return text(
+          `Gastos de ${mes} (${list.length}, total ${ars(total)}):\n${lines.join('\n')}`,
+        );
+      },
+    );
+
+    add(
+      'resumen_gastos',
+      {
+        title: 'Resumen de gastos del mes',
+        description:
+          'Resumen del mes: total, comparación con el mes anterior, por categoría con estado de budget, suscripciones y top gastos.',
+        inputSchema: {
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM. Por defecto el actual.'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const s = await this.expenses.getSummary(userId, mes);
+        const lines: string[] = [
+          `Gastos de ${mes}: ${ars(s.total)}` +
+            (s.deltaPct !== null
+              ? ` (${s.deltaPct >= 0 ? '+' : ''}${s.deltaPct}% vs mes anterior)`
+              : ''),
+        ];
+        for (const c of s.byCategory) {
+          lines.push(
+            `• ${c.icon ? c.icon + ' ' : ''}${c.name}: ${ars(c.amount)}` +
+              (c.budget
+                ? ` / budget ${ars(c.budget)} (${c.budgetPct}%)${(c.budgetPct as number) > 100 ? ' ⚠️' : ''}`
+                : ''),
+          );
+        }
+        if (s.uncategorized > 0)
+          lines.push(`• Sin categoría: ${ars(s.uncategorized)}`);
+        if (s.subscriptionsMonthly > 0)
+          lines.push(`Suscripciones activas: ${ars(s.subscriptionsMonthly)}/mes`);
+        if (s.overBudget.length)
+          lines.push(`⚠️ Sobre budget: ${s.overBudget.join(', ')}`);
+        if (s.topExpenses.length) {
+          lines.push(
+            `Top: ${s.topExpenses
+              .slice(0, 3)
+              .map((t) => `${t.description} ${ars(t.amount)}`)
+              .join(' · ')}`,
+          );
+        }
+        return text(lines.join('\n'));
+      },
+    );
+
+    add(
+      'crear_gasto_recurrente',
+      {
+        title: 'Crear pago recurrente / suscripción',
+        description:
+          'Crea un pago recurrente o suscripción mensual (ej: Netflix, alquiler). Se registra solo como gasto todos los meses en el día indicado.',
+        inputSchema: {
+          descripcion: z.string().describe('Qué es (ej: "Netflix")'),
+          monto: z.number().describe('Monto mensual en ARS'),
+          dia_del_mes: z
+            .number()
+            .describe('Día del mes en que se cobra (1-28)'),
+          tipo: z
+            .enum(['recurring', 'subscription'])
+            .optional()
+            .describe('subscription para suscripciones, recurring para pagos fijos'),
+          categoria: z.string().optional().describe('Nombre de la categoría'),
+        },
+      },
+      async (a) => {
+        let categoryId: string | undefined;
+        if (a.categoria) {
+          const cats = await this.expenses.getCategories(userId);
+          const q = a.categoria.toLowerCase();
+          const cat =
+            cats.find((c) => c.name.toLowerCase() === q) ||
+            cats.find((c) => c.name.toLowerCase().includes(q));
+          if (cat) categoryId = cat.id;
+        }
+        const rec = await this.expenses.createRecurring(userId, {
+          description: a.descripcion,
+          amount: a.monto,
+          dayOfMonth: a.dia_del_mes,
+          kind: a.tipo,
+          categoryId,
+        });
+        return text(
+          `${rec.kind === 'subscription' ? 'Suscripción' : 'Pago recurrente'} creado: "${rec.description}" ${ars(rec.amount)}/mes el día ${rec.dayOfMonth}. id ${rec.id}.`,
         );
       },
     );

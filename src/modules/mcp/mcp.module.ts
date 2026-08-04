@@ -17,6 +17,7 @@ import { GoalModule } from '../goal/goal.module';
 import { NotesModule } from '../notes/notes.module';
 import { PhysicalActivitiesModule } from '../physical-activities/physical-activities.module';
 import { XpModule } from '../xp/xp.module';
+import { ExpensesModule } from '../expenses/expenses.module';
 
 import { McpController } from './mcp.controller';
 import { OAuthController } from './oauth.controller';
@@ -56,6 +57,7 @@ import { McpServerFactory } from './mcp-server.factory';
     NotesModule,
     PhysicalActivitiesModule,
     XpModule,
+    ExpensesModule,
   ],
   controllers: [McpController, OAuthController],
   providers: [McpAuthService, McpServerFactory, PrismaService],
