@@ -20,6 +20,44 @@ export class XpService {
   ) {}
 
   /**
+   * Techo de XP por accion. POST /xp/add lo puede llamar cualquier usuario
+   * autenticado con el monto que quiera, y addXp sumaba lo que viniera: se
+   * podia autoregalar nivel infinito.
+   *
+   * Cada valor es el maximo LEGITIMO que hoy manda algun flujo real (frontend
+   * o backend), asi que nada visible cambia. Lo que se pasa se recorta al
+   * techo en lugar de rechazarse, para no romper la UI.
+   */
+  private static readonly MAX_XP_BY_ACTION: Record<string, number> = {
+    [XpAction.HABIT_COMPLETE]: 10,
+    // 15 por comida registrada; 40 el bonus por cumplir el objetivo del dia.
+    [XpAction.NUTRITION_LOG]: 40,
+    [XpAction.DAILY_COMMENT]: 15,
+    // 50 = bonus "todos los habitos del dia completados" que manda el front.
+    [XpAction.DAY_COMPLETE]: 50,
+    [XpAction.STREAK_BONUS]: 100,
+    // Solo lo emite el server al subir de nivel, siempre con xpEarned 0.
+    [XpAction.LEVEL_UP]: 0,
+    [XpAction.HABIT_CREATED]: 30,
+    [XpAction.HABIT_CREATED_BY_AI]: 70,
+    [XpAction.PHYSICAL_ACTIVITY]: 60,
+    [XpAction.TASK_COMPLETE]: 20,
+    [XpAction.DAY_WON]: 25,
+    [XpAction.DAY_PARTIAL]: 15,
+    [XpAction.HYDRATION_GOAL]: 20,
+  };
+
+  /**
+   * Recorta el monto al techo de su accion. No rechaza: clampea. El bonus de
+   * racha se suma DESPUES y no entra en el tope porque lo calcula el server.
+   */
+  clampXpAmount(action: XpAction, xpAmount: number): number {
+    const max = XpService.MAX_XP_BY_ACTION[action] ?? 0;
+    if (!Number.isFinite(xpAmount) || xpAmount < 0) return 0;
+    return Math.min(xpAmount, max);
+  }
+
+  /**
    * Calcula la XP requerida para un nivel específico
    * Progresión: Nivel 1 = 100, Nivel 2 = 220, Nivel 3 = 360, etc.
    * Formula: 100 + (nivel-1) * 20 * nivel
@@ -129,7 +167,8 @@ export class XpService {
         throw new Error('Usuario no encontrado');
       }
 
-      let { xpAmount } = addXpDto;
+      // Techo por accion: el monto llega del cliente y no es de fiar.
+      let xpAmount = this.clampXpAmount(addXpDto.action, addXpDto.xpAmount);
       let streakResult: StreakResult | null = null;
 
       // Deduplicar DAY_COMPLETE: solo permitir uno por usuario por día

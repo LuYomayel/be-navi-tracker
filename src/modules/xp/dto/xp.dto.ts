@@ -1,4 +1,4 @@
-import { IsInt, IsString, IsOptional, IsEnum, Min } from 'class-validator';
+import { IsInt, IsString, IsOptional, IsEnum, Min, Max } from 'class-validator';
 
 export enum XpAction {
   HABIT_COMPLETE = 'habit_complete',
@@ -21,8 +21,11 @@ export class AddXpDto {
   @IsEnum(XpAction)
   action: XpAction;
 
+  // Tope duro: ningun flujo legitimo otorga mas de 100 XP de una. El techo
+  // fino, por accion, lo aplica XpService.clampXpAmount.
   @IsInt()
   @Min(0)
+  @Max(100)
   xpAmount: number;
 
   @IsString()

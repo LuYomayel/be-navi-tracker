@@ -141,7 +141,65 @@ describe('XpService', () => {
     });
   });
 
+  describe('clampXpAmount', () => {
+    it('deja pasar los montos que manda hoy cada flujo', () => {
+      // Estos son los montos reales que mandan el front y el backend: si
+      // alguno cambiara, el producto cambiaria de forma visible.
+      const legitimos: [XpAction, number][] = [
+        [XpAction.HABIT_COMPLETE, 10],
+        [XpAction.NUTRITION_LOG, 15],
+        [XpAction.NUTRITION_LOG, 40],
+        [XpAction.DAILY_COMMENT, 15],
+        [XpAction.DAY_COMPLETE, 50],
+        [XpAction.HABIT_CREATED, 30],
+        [XpAction.HABIT_CREATED_BY_AI, 70],
+        [XpAction.PHYSICAL_ACTIVITY, 60],
+        [XpAction.TASK_COMPLETE, 20],
+        [XpAction.DAY_WON, 25],
+        [XpAction.DAY_PARTIAL, 15],
+        [XpAction.HYDRATION_GOAL, 20],
+        [XpAction.STREAK_BONUS, 100],
+      ];
+
+      for (const [action, amount] of legitimos) {
+        expect(service.clampXpAmount(action, amount)).toBe(amount);
+      }
+    });
+
+    it('recorta un monto por encima del techo de su accion', () => {
+      expect(service.clampXpAmount(XpAction.HABIT_COMPLETE, 9999)).toBe(10);
+      expect(service.clampXpAmount(XpAction.TASK_COMPLETE, 500)).toBe(20);
+      expect(service.clampXpAmount(XpAction.DAY_WON, 100)).toBe(25);
+    });
+
+    it('descarta montos negativos o no numericos', () => {
+      expect(service.clampXpAmount(XpAction.HABIT_COMPLETE, -50)).toBe(0);
+      expect(service.clampXpAmount(XpAction.HABIT_COMPLETE, NaN)).toBe(0);
+      expect(service.clampXpAmount(XpAction.HABIT_COMPLETE, Infinity)).toBe(0);
+    });
+
+    it('no otorga XP por LEVEL_UP (solo lo emite el server)', () => {
+      expect(service.clampXpAmount(XpAction.LEVEL_UP, 100)).toBe(0);
+    });
+  });
+
   describe('addXp', () => {
+    it('recorta el monto al techo de la accion antes de acreditarlo', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser });
+      (prisma.xpLog.create as jest.Mock).mockResolvedValue({});
+
+      const result = await service.addXp(userId, {
+        action: XpAction.HABIT_COMPLETE,
+        xpAmount: 100,
+        description: 'Intento de autoregalarse XP',
+      });
+
+      expect(result.xpEarned).toBe(10);
+      const updateArg = (prisma.user.update as jest.Mock).mock.calls[0][0];
+      expect(updateArg.data.totalXp).toBe(mockUser.totalXp + 10);
+    });
+
     it('should add XP for habit completion', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
       (prisma.user.update as jest.Mock).mockResolvedValue({
