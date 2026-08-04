@@ -403,6 +403,19 @@ describe('HydrationService', () => {
       expect(pace.totalTargetMl).toBe(3000);
       expect(pace.expectedByNowMl).toBe(1500); // mitad del tramo
     });
+
+    it('un dia pasado se evalua con el dia completo, sin prorratear por la hora actual', async () => {
+      const pace = await service.getPace('user-1', '2020-01-01');
+      expect(pace.expectedByNowMl).toBe(2000); // todos los tramos activos, completos
+      expect(pace.deficitMl).toBe(1500); // tomo 500 de 2000
+      expect(pace.currentBlock).toBeNull();
+    });
+
+    it('un dia futuro arranca con expectativa cero', async () => {
+      const pace = await service.getPace('user-1', '2099-01-01');
+      expect(pace.expectedByNowMl).toBe(0);
+      expect(pace.deficitMl).toBe(0);
+    });
   });
 
   describe('setBlocks', () => {

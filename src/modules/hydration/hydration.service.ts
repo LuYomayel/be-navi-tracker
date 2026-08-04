@@ -211,7 +211,12 @@ export class HydrationService {
       where: { userId_date: { userId, date: day } },
     });
     const trainingActive = await this.isTrainingActive(userId, day, log);
-    const nowMinutes = nowMinutesOverride ?? nowMinutesART();
+    // Un dia pasado se evalua completo (24h) y uno futuro todavia no arranco:
+    // la hora actual solo prorratea el dia de HOY.
+    const today = getLocalDateString();
+    const nowMinutes =
+      nowMinutesOverride ??
+      (day < today ? 24 * 60 : day > today ? 0 : nowMinutesART());
 
     const pace = computePace(
       blocks,
