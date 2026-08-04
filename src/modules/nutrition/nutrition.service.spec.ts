@@ -181,6 +181,57 @@ describe('NutritionService', () => {
       ).rejects.toThrow('Error al crear análisis nutricional');
     });
 
+    it('should award +15 XP exactly once for the created meal', async () => {
+      (prisma.nutritionAnalysis.create as jest.Mock).mockResolvedValue(
+        mockAnalysis,
+      );
+
+      await service.create(
+        {
+          date: '2024-01-15',
+          mealType: 'almuerzo',
+          foods: [],
+          macronutrients: {},
+        } as any,
+        userId,
+      );
+
+      expect(xpService.addNutritionXp).toHaveBeenCalledTimes(1);
+      expect(xpService.addNutritionXp).toHaveBeenCalledWith(
+        userId,
+        'almuerzo',
+        '2024-01-15',
+      );
+    });
+
+    it('should not award XP when the creation fails', async () => {
+      (prisma.nutritionAnalysis.create as jest.Mock).mockRejectedValue(
+        new Error('DB error'),
+      );
+
+      await expect(
+        service.create({ foods: [], macronutrients: {} } as any, userId),
+      ).rejects.toThrow();
+
+      expect(xpService.addNutritionXp).not.toHaveBeenCalled();
+    });
+
+    it('should still create the meal if awarding XP fails', async () => {
+      (prisma.nutritionAnalysis.create as jest.Mock).mockResolvedValue(
+        mockAnalysis,
+      );
+      (xpService.addNutritionXp as jest.Mock).mockRejectedValue(
+        new Error('XP down'),
+      );
+
+      const result = await service.create(
+        { foods: [], macronutrients: {} } as any,
+        userId,
+      );
+
+      expect(result).toBeDefined();
+      expect(result.id).toBe('analysis-1');
+    });
   });
 
   describe('evaluateDailyGoalsForAllUsers', () => {

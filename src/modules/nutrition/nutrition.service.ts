@@ -171,6 +171,20 @@ export class NutritionService {
         userAdjustments: payload.userAdjustments,
       };
 
+      // 🎮 XP server-side: TODO camino que registre una comida (app, plato
+      // modular, meal prep o MCP/voz) pasa por acá, así que el +15 XP se
+      // otorga una sola vez y de forma consistente para todos.
+      try {
+        await this.xpService.addNutritionXp(
+          userId,
+          created.mealType || 'comida',
+          created.date,
+        );
+      } catch (xpError) {
+        this.logger.error('Error agregando XP por log nutricional', xpError);
+        // No fallar el registro de la comida si falla el XP
+      }
+
       return analysis;
     } catch (error) {
       this.logger.error('Error al crear análisis nutricional:', error);
