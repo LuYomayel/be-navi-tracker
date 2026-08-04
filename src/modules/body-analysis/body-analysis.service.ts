@@ -133,9 +133,10 @@ export class BodyAnalysisService {
     }
   }
 
-  async getAll(): Promise<BodyAnalysis[]> {
+  async getAll(userId: string): Promise<BodyAnalysis[]> {
     try {
       const results = await this.prisma.bodyAnalysis.findMany({
+        where: { userId },
         orderBy: { createdAt: 'desc' },
       });
       return results as any[];
@@ -145,10 +146,10 @@ export class BodyAnalysisService {
     }
   }
 
-  async getById(id: string): Promise<BodyAnalysis | null> {
+  async getById(id: string, userId: string): Promise<BodyAnalysis | null> {
     try {
-      const result = await this.prisma.bodyAnalysis.findUnique({
-        where: { id },
+      const result = await this.prisma.bodyAnalysis.findFirst({
+        where: { id, userId },
       });
       return result as any;
     } catch (error) {
@@ -220,13 +221,14 @@ export class BodyAnalysisService {
   async update(
     id: string,
     data: Partial<Omit<BodyAnalysis, 'id' | 'createdAt' | 'updatedAt'>>,
+    userId: string,
   ): Promise<BodyAnalysis | null> {
     try {
       const updateData: any = {
         updatedAt: new Date(),
       };
 
-      if (data.userId) updateData.userId = data.userId;
+      // userId NUNCA se toma del body: reasignaria el analisis a otra cuenta.
       if (data.bodyType) updateData.bodyType = data.bodyType;
       if (data.measurements)
         updateData.measurements = JSON.parse(JSON.stringify(data.measurements));
@@ -242,9 +244,15 @@ export class BodyAnalysisService {
       if (data.aiConfidence !== undefined)
         updateData.aiConfidence = data.aiConfidence;
 
-      const analysis = await this.prisma.bodyAnalysis.update({
-        where: { id },
+      // updateMany filtra por dueño: un analisis ajeno no matchea (count 0).
+      const { count } = await this.prisma.bodyAnalysis.updateMany({
+        where: { id, userId },
         data: updateData,
+      });
+      if (count === 0) return null;
+
+      const analysis = await this.prisma.bodyAnalysis.findFirst({
+        where: { id, userId },
       });
       return analysis as any;
     } catch (error) {
@@ -253,21 +261,22 @@ export class BodyAnalysisService {
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, userId: string): Promise<boolean> {
     try {
-      await this.prisma.bodyAnalysis.delete({
-        where: { id },
+      const { count } = await this.prisma.bodyAnalysis.deleteMany({
+        where: { id, userId },
       });
-      return true;
+      return count > 0;
     } catch (error) {
       this.logger.error('Error al eliminar análisis corporal:', error);
       return false;
     }
   }
 
-  async getLatest(): Promise<BodyAnalysis | null> {
+  async getLatest(userId: string): Promise<BodyAnalysis | null> {
     try {
       const result = await this.prisma.bodyAnalysis.findFirst({
+        where: { userId },
         orderBy: { createdAt: 'desc' },
       });
       return result as any;
@@ -277,13 +286,17 @@ export class BodyAnalysisService {
     }
   }
 
-  async getRecentAnalyses(days: number = 30): Promise<BodyAnalysis[]> {
+  async getRecentAnalyses(
+    days: number = 30,
+    userId: string,
+  ): Promise<BodyAnalysis[]> {
     try {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
       const results = await this.prisma.bodyAnalysis.findMany({
         where: {
+          userId,
           createdAt: {
             gte: cutoffDate,
           },

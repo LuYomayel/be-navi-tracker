@@ -186,15 +186,22 @@ export class BodyAnalysisController {
   }
 
   @Get()
-  async getAll(@Query('days') days?: string): Promise<ApiResponse<any[]>> {
+  async getAll(
+    @Req() req: any,
+    @Query('days') days?: string,
+  ): Promise<ApiResponse<any[]>> {
     try {
+      const userId = req.user.userId;
       let analyses;
 
       if (days) {
         const daysNumber = parseInt(days) || 30;
-        analyses = await this.bodyAnalysisService.getRecentAnalyses(daysNumber);
+        analyses = await this.bodyAnalysisService.getRecentAnalyses(
+          daysNumber,
+          userId,
+        );
       } else {
-        analyses = await this.bodyAnalysisService.getAll();
+        analyses = await this.bodyAnalysisService.getAll(userId);
       }
 
       return {
@@ -212,9 +219,11 @@ export class BodyAnalysisController {
   }
 
   @Get('latest')
-  async getLatest(): Promise<ApiResponse<any>> {
+  async getLatest(@Req() req: any): Promise<ApiResponse<any>> {
     try {
-      const analysis = await this.bodyAnalysisService.getLatest();
+      const analysis = await this.bodyAnalysisService.getLatest(
+        req.user.userId,
+      );
 
       if (!analysis) {
         return {
@@ -239,9 +248,15 @@ export class BodyAnalysisController {
   }
 
   @Get(':id')
-  async getById(@Param('id') id: string): Promise<ApiResponse<any>> {
+  async getById(
+    @Param('id') id: string,
+    @Req() req: any,
+  ): Promise<ApiResponse<any>> {
     try {
-      const analysis = await this.bodyAnalysisService.getById(id);
+      const analysis = await this.bodyAnalysisService.getById(
+        id,
+        req.user.userId,
+      );
 
       if (!analysis) {
         throw new HttpException(
@@ -272,9 +287,14 @@ export class BodyAnalysisController {
   async update(
     @Param('id') id: string,
     @Body() request: UpdateBodyAnalysisRequest,
+    @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
-      const analysis = await this.bodyAnalysisService.update(id, request);
+      const analysis = await this.bodyAnalysisService.update(
+        id,
+        request,
+        req.user.userId,
+      );
 
       if (!analysis) {
         throw new HttpException(
@@ -302,9 +322,15 @@ export class BodyAnalysisController {
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string): Promise<ApiResponse<boolean>> {
+  async delete(
+    @Param('id') id: string,
+    @Req() req: any,
+  ): Promise<ApiResponse<boolean>> {
     try {
-      const success = await this.bodyAnalysisService.delete(id);
+      const success = await this.bodyAnalysisService.delete(
+        id,
+        req.user.userId,
+      );
 
       if (!success) {
         throw new HttpException(
@@ -332,11 +358,14 @@ export class BodyAnalysisController {
   }
 
   @Get('stats/summary')
-  async getStatsSummary(): Promise<ApiResponse<any>> {
+  async getStatsSummary(@Req() req: any): Promise<ApiResponse<any>> {
     try {
-      const recentAnalyses =
-        await this.bodyAnalysisService.getRecentAnalyses(30);
-      const allAnalyses = await this.bodyAnalysisService.getAll();
+      const userId = req.user.userId;
+      const recentAnalyses = await this.bodyAnalysisService.getRecentAnalyses(
+        30,
+        userId,
+      );
+      const allAnalyses = await this.bodyAnalysisService.getAll(userId);
 
       const summary = {
         total: allAnalyses.length,
@@ -370,18 +399,21 @@ export class BodyAnalysisController {
   @Post('calculate-goals')
   async calculateGoals(
     @Body() request: PersonalDataRequest,
+    @Req() req: any,
   ): Promise<ApiResponse<any>> {
     try {
+      const userId = req.user.userId;
 
       // Obtener análisis corporal si se proporciona ID
       let bodyAnalysis = null;
       if (request.bodyAnalysisId) {
         bodyAnalysis = await this.bodyAnalysisService.getById(
           request.bodyAnalysisId,
+          userId,
         );
       } else {
         // Usar el último análisis disponible
-        bodyAnalysis = await this.bodyAnalysisService.getLatest();
+        bodyAnalysis = await this.bodyAnalysisService.getLatest(userId);
       }
 
       // Calcular BMR (Basal Metabolic Rate) usando la fórmula de Mifflin-St Jeor
