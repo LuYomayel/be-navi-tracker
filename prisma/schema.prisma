@@ -383,6 +383,7 @@ model SavedMeal {
   name           String // "Desayuno clasico", "Post-entreno", etc.
   description    String? // Descripcion breve
   mealType       String // breakfast, lunch, dinner, snack, other
+  component      String? // Segmento del plato modular: protein | carb | veggie | drink | fruit | other. null = comida completa clasica
   foods          Json // Array de DetectedFood (misma estructura que NutritionAnalysis)
   totalCalories  Int
   macronutrients Json // Macronutrients object

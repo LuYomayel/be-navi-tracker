@@ -267,4 +267,122 @@ describe('SavedMealsService', () => {
       expect(prisma.savedMeal.update).not.toHaveBeenCalled();
     });
   });
+
+  describe('logPlate', () => {
+    const proteina = {
+      ...mockMeal,
+      id: 'comp-1',
+      name: '2 hamburguesas caseras',
+      component: 'protein',
+      foods: [{ name: '2 hamburguesas caseras', calories: 450 }],
+      totalCalories: 450,
+      macronutrients: { protein: 40, carbs: 5, fat: 28, fiber: 0 },
+    };
+    const carbo = {
+      ...mockMeal,
+      id: 'comp-2',
+      name: '120g fideos caseros',
+      component: 'carb',
+      foods: [{ name: '120g fideos caseros', calories: 400 }],
+      totalCalories: 400,
+      macronutrients: { protein: 12, carbs: 80, fat: 3, fiber: 4 },
+    };
+    const verdura = {
+      ...mockMeal,
+      id: 'comp-3',
+      name: 'Ensalada mixta',
+      component: 'veggie',
+      foods: [{ name: 'Ensalada mixta', calories: 60 }],
+      totalCalories: 60,
+      macronutrients: { protein: 2, carbs: 10, fat: 1, fiber: 5 },
+    };
+
+    it('should compose one nutrition analysis from multiple components', async () => {
+      (prisma.savedMeal.findMany as jest.Mock).mockResolvedValue([
+        proteina,
+        carbo,
+        verdura,
+      ]);
+      (nutrition.create as jest.Mock).mockResolvedValue({
+        id: 'analysis-1',
+        totalCalories: 910,
+      });
+      (prisma.savedMeal.update as jest.Mock).mockResolvedValue({});
+
+      const result = await service.logPlate(userId, {
+        componentIds: ['comp-1', 'comp-2', 'comp-3'],
+        mealType: 'lunch',
+        date: '2026-08-04',
+      });
+
+      expect(nutrition.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          date: '2026-08-04',
+          mealType: 'lunch',
+          totalCalories: 910,
+          foods: [
+            { name: '2 hamburguesas caseras', calories: 450 },
+            { name: '120g fideos caseros', calories: 400 },
+            { name: 'Ensalada mixta', calories: 60 },
+          ],
+          macronutrients: { protein: 54, carbs: 95, fat: 32, fiber: 9 },
+        }),
+        userId,
+      );
+      // Incrementa el uso de CADA componente
+      expect(prisma.savedMeal.update).toHaveBeenCalledTimes(3);
+      expect(result!.analysis.id).toBe('analysis-1');
+      expect(result!.components.map((c: any) => c.name)).toEqual([
+        '2 hamburguesas caseras',
+        '120g fideos caseros',
+        'Ensalada mixta',
+      ]);
+    });
+
+    it('should return null when a component is missing or foreign', async () => {
+      (prisma.savedMeal.findMany as jest.Mock).mockResolvedValue([proteina]);
+
+      const result = await service.logPlate(userId, {
+        componentIds: ['comp-1', 'comp-ajeno'],
+        mealType: 'lunch',
+      });
+
+      expect(result).toBeNull();
+      expect(nutrition.create).not.toHaveBeenCalled();
+    });
+
+    it('should return null for an empty plate', async () => {
+      const result = await service.logPlate(userId, {
+        componentIds: [],
+        mealType: 'lunch',
+      });
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('create with component', () => {
+    it('should persist the plate component segment', async () => {
+      (prisma.savedMeal.create as jest.Mock).mockResolvedValue({
+        ...mockMeal,
+        component: 'protein',
+      });
+
+      await service.create(
+        {
+          name: '2 hamburguesas caseras',
+          mealType: 'lunch',
+          component: 'protein',
+          foods: [],
+          totalCalories: 450,
+          macronutrients: { protein: 40, carbs: 5, fat: 28 },
+        } as any,
+        userId,
+      );
+
+      expect(prisma.savedMeal.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ component: 'protein', userId }),
+      });
+    });
+  });
 });

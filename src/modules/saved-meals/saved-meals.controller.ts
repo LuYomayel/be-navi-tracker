@@ -26,6 +26,28 @@ export class SavedMealsController {
     return { success: true, data: meal };
   }
 
+  @Post('log-plate')
+  async logPlate(
+    @Req() req: any,
+    @Body()
+    body: { componentIds: string[]; mealType: string; date?: string },
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
+    const result = await this.savedMealsService.logPlate(userId, {
+      componentIds: body.componentIds || [],
+      mealType: body.mealType || 'lunch',
+      date: body.date,
+    });
+    if (!result) {
+      throw new HttpException(
+        'Plato vacío o con componentes inválidos',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return { success: true, data: result };
+  }
+
   @Post(':id/use')
   async use(@Req() req: any, @Param('id') id: string) {
     const userId = req.user?.userId;
