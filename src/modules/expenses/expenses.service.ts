@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../config/prisma.service';
+import { getLocalDateString } from '../../common/utils/date.utils';
 
 export interface CreateExpenseDto {
   date: string; // YYYY-MM-DD
@@ -322,7 +323,7 @@ export class ExpensesService {
     return this.prisma.income.create({
       data: {
         userId,
-        date: dto.date || new Date().toISOString().slice(0, 10),
+        date: dto.date || getLocalDateString(),
         description: dto.description.trim(),
         amount: dto.amount,
         cost,

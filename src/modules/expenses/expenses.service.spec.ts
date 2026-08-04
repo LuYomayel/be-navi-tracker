@@ -351,6 +351,26 @@ describe('ExpensesService', () => {
         }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('should default to the Argentina local date, not the UTC one', async () => {
+      // 02:00 UTC del 4 son las 23:00 ART del 3: en UTC la fecha ya adelanto
+      // un dia, asi que un ingreso cargado de noche caia en el dia siguiente.
+      jest.useFakeTimers().setSystemTime(new Date('2026-08-04T02:00:00Z'));
+      try {
+        (prisma.income.create as jest.Mock).mockResolvedValue({ id: 'inc-2' });
+
+        await service.createIncome(userId, {
+          description: 'Venta nocturna',
+          amount: 5000,
+        });
+
+        expect(prisma.income.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ date: '2026-08-03' }),
+        });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   describe('getBusinessSummary', () => {
