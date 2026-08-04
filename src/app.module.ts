@@ -10,7 +10,6 @@ import { CompletionsModule } from './modules/completions/completions.module';
 import { AnalyzeFoodModule } from './modules/analyze-food/analyze-food.module';
 import { BodyAnalysisModule } from './modules/body-analysis/body-analysis.module';
 import { AiSuggestionsModule } from './modules/ai-suggestions/ai-suggestions.module';
-import { AnalysisModule } from './modules/analysis/analysis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
 import { SkinFoldModule } from './modules/skin-fold/skin-fold.module';
@@ -46,7 +45,6 @@ import { DeviceTokensModule } from './modules/device-tokens/device-tokens.module
     AnalyzeFoodModule,
     BodyAnalysisModule,
     AiSuggestionsModule,
-    AnalysisModule,
     AuthModule,
     PreferencesModule,
     SkinFoldModule,
