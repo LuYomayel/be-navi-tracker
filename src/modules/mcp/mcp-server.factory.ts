@@ -20,6 +20,10 @@ import { XpService } from '../xp/xp.service';
 import { XpAction } from '../xp/dto/xp.dto';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import {
+  matchTaskByTitle,
+  buildTaskUpdateFromMcpArgs,
+} from './task-edit-utils';
+import {
   parseDiasHabito,
   formatDias,
   resolveColorHabito,
@@ -1520,6 +1524,67 @@ export class McpServerFactory {
         }
         await this.tasks.toggle(userId, target.id);
         return text(`Tarea completada: "${target.title}". 💪`);
+      },
+    );
+
+    add(
+      'editar_tarea',
+      {
+        title: 'Editar / mover una tarea',
+        description:
+          'Edita una tarea existente identificada por su título (o parte): cambiar fecha/hora de vencimiento, título, descripción, prioridad o categoría. NO crea una tarea nueva — usala para mover tareas de fecha sin duplicarlas. Usá list_tareas si no sabés el nombre exacto.',
+        inputSchema: {
+          titulo: z
+            .string()
+            .describe('Título (o parte) de la tarea a editar'),
+          nuevo_titulo: z.string().optional().describe('Nuevo título'),
+          descripcion: z.string().optional().describe('Nueva descripción'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Nueva fecha de vencimiento YYYY-MM-DD'),
+          hora: z.string().optional().describe('Nueva hora HH:MM'),
+          prioridad: z
+            .enum(['low', 'medium', 'high', 'urgent'])
+            .optional()
+            .describe('Nueva prioridad'),
+          categoria: z.string().optional().describe('Nueva categoría'),
+          quitar_fecha: z
+            .boolean()
+            .optional()
+            .describe('true para sacarle la fecha de vencimiento'),
+        },
+      },
+      async (a) => {
+        const tasks = (await this.tasks.findAll(userId, {})) as any[];
+        const target = matchTaskByTitle(tasks, a.titulo);
+        if (!target) {
+          const names = tasks
+            .filter((t) => !t.completed)
+            .map((t) => t.title)
+            .join(', ');
+          return text(
+            `No encontré una tarea "${a.titulo}". Pendientes: ${names || '(ninguna)'}.`,
+          );
+        }
+        const update = buildTaskUpdateFromMcpArgs(a);
+        if (!update) {
+          return text(
+            `No indicaste ningún cambio para "${target.title}". Podés cambiar fecha, hora, título, descripción, prioridad o categoría.`,
+          );
+        }
+        const updated = await this.tasks.update(
+          userId,
+          target.id,
+          update as any,
+        );
+        return text(
+          `Tarea actualizada: "${updated.title}"${
+            updated.dueDate
+              ? ` (vence ${updated.dueDate}${updated.dueTime ? ' ' + updated.dueTime : ''})`
+              : ' (sin fecha)'
+          } [${updated.priority}].`,
+        );
       },
     );
   }
