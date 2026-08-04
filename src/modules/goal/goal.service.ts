@@ -68,11 +68,45 @@ export class GoalService {
     });
   }
 
-  /** Actualiza con chequeo de pertenencia (updateMany por id + userId). */
+  /** Estados validos de un objetivo (ver schema.prisma). */
+  private static readonly GOAL_STATUSES = [
+    'active',
+    'paused',
+    'achieved',
+    'archived',
+  ];
+
+  /**
+   * Campos que se pueden editar. `currentUsd` queda afuera a proposito: el
+   * acumulado solo se mueve registrando aportes (logContribution), no
+   * escribiendolo a mano.
+   */
+  private static readonly UPDATABLE_FIELDS = [
+    'name',
+    'description',
+    'targetUsd',
+    'targetDate',
+    'startDate',
+  ] as const;
+
+  /**
+   * Actualiza con chequeo de pertenencia (updateMany por id + userId) y
+   * whitelist de campos: antes se pasaba el body crudo, asi que un userId o un
+   * status arbitrario en el payload se escribian tal cual.
+   */
   async update(id: string, data: UpdateGoalInput, userId: string) {
+    const updateData: any = {};
+    for (const field of GoalService.UPDATABLE_FIELDS) {
+      const value = (data as any)[field];
+      if (value !== undefined) updateData[field] = value;
+    }
+    if (data.status && GoalService.GOAL_STATUSES.includes(data.status)) {
+      updateData.status = data.status;
+    }
+
     return this.prisma.goal.updateMany({
       where: { id, userId },
-      data,
+      data: updateData,
     });
   }
 

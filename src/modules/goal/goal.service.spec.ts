@@ -105,6 +105,48 @@ describe('GoalService', () => {
         data: { status: 'paused' },
       });
     });
+
+    it('should ignore non-whitelisted fields', async () => {
+      (prisma.goal.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await service.update(
+        'goal-1',
+        {
+          name: 'Fondo NZ',
+          userId: 'otro-user',
+          currentUsd: 999999,
+          id: 'otro-id',
+        } as any,
+        userId,
+      );
+
+      const arg = (prisma.goal.updateMany as jest.Mock).mock.calls[0][0];
+      expect(arg.data).toEqual({ name: 'Fondo NZ' });
+    });
+
+    it('should ignore an invalid status', async () => {
+      (prisma.goal.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await service.update(
+        'goal-1',
+        { name: 'Fondo NZ', status: 'lo-que-sea' } as any,
+        userId,
+      );
+
+      const arg = (prisma.goal.updateMany as jest.Mock).mock.calls[0][0];
+      expect(arg.data).toEqual({ name: 'Fondo NZ' });
+    });
+
+    it('should accept the valid statuses', async () => {
+      (prisma.goal.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      for (const status of ['active', 'paused', 'achieved', 'archived']) {
+        (prisma.goal.updateMany as jest.Mock).mockClear();
+        await service.update('goal-1', { status } as any, userId);
+        const arg = (prisma.goal.updateMany as jest.Mock).mock.calls[0][0];
+        expect(arg.data).toEqual({ status });
+      }
+    });
   });
 
   describe('logContribution', () => {
