@@ -11,6 +11,7 @@ import {
   HttpStatus,
   HttpCode,
   HttpException, Logger } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { SkinFoldService } from './skin-fold.service';
@@ -70,6 +71,9 @@ export class SkinFoldController {
     };
   }
 
+  // Llama a OpenAI Vision con el PDF de antropometria: limite propio para que
+  // no se pueda quemar la cuenta de OpenAI a fuerza de requests.
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('analyze-pdf')
   async analyzePdf(
     @Body() body: { images: string[]; user?: { age: number; gender: string } },

@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Put, Delete,
   Body, Param, Req, UseGuards, HttpException, HttpStatus,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { SavedMealsService } from './saved-meals.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -26,6 +27,9 @@ export class SavedMealsController {
     return { success: true, data: meal };
   }
 
+  // Clasifica los platos guardados con OpenAI: limite propio como en
+  // analyze-food y meal-prep.
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('classify-components')
   async classifyComponents(@Req() req: any) {
     const userId = req.user?.userId;
