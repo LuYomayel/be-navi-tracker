@@ -60,14 +60,20 @@ export class NotesService {
     try {
       const { user: _u, userId: _uid, ...cleanData } = data as any;
 
-      const note = await this.prisma.note.update({
-        where: { id },
+      // updateMany filtra por dueño: una nota ajena no matchea (count 0) en vez
+      // de actualizarse. Ademas NO se toca userId, asi el update no puede
+      // reasignar la nota al que llama.
+      const { count } = await this.prisma.note.updateMany({
+        where: { id, userId },
         data: {
           ...cleanData,
           updatedAt: new Date(),
-          userId,
         },
       });
+      if (count === 0) return null;
+
+      const note = await this.prisma.note.findFirst({ where: { id, userId } });
+      if (!note) return null;
 
       return {
         ...note,

@@ -29,8 +29,10 @@ describe('NotesService', () => {
           useValue: {
             note: {
               findMany: jest.fn(),
+              findFirst: jest.fn(),
               create: jest.fn(),
               update: jest.fn(),
+              updateMany: jest.fn(),
               deleteMany: jest.fn(),
             },
           },
@@ -134,20 +136,45 @@ describe('NotesService', () => {
   describe('update', () => {
     it('should update a note successfully', async () => {
       const updatedNote = { ...mockNote, mood: 5 };
-      (prisma.note.update as jest.Mock).mockResolvedValue(updatedNote);
+      (prisma.note.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.note.findFirst as jest.Mock).mockResolvedValue(updatedNote);
 
       const result = await service.update('note-1', { mood: 5 } as any, userId);
 
       expect(result).not.toBeNull();
       expect(result!.mood).toBe(5);
-      expect(prisma.note.update).toHaveBeenCalledWith({
-        where: { id: 'note-1' },
-        data: expect.objectContaining({ mood: 5, userId }),
+      expect(prisma.note.updateMany).toHaveBeenCalledWith({
+        where: { id: 'note-1', userId },
+        data: expect.objectContaining({ mood: 5 }),
       });
     });
 
+    it('should not reassign the owner of the note', async () => {
+      (prisma.note.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.note.findFirst as jest.Mock).mockResolvedValue(mockNote);
+
+      await service.update('note-1', { mood: 5 } as any, userId);
+
+      const updateCall = (prisma.note.updateMany as jest.Mock).mock.calls[0][0];
+      expect(updateCall.data.userId).toBeUndefined();
+      expect(updateCall.data.user).toBeUndefined();
+    });
+
+    it("should return null when the note belongs to another user", async () => {
+      (prisma.note.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
+      const result = await service.update(
+        'note-de-otro',
+        { mood: 5 } as any,
+        userId,
+      );
+
+      expect(result).toBeNull();
+      expect(prisma.note.findFirst).not.toHaveBeenCalled();
+    });
+
     it('should return null on error', async () => {
-      (prisma.note.update as jest.Mock).mockRejectedValue(
+      (prisma.note.updateMany as jest.Mock).mockRejectedValue(
         new Error('Not found'),
       );
 
