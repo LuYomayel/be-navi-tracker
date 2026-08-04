@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import {
@@ -700,5 +705,71 @@ export class NutritionService {
       this.logger.error('Error analizando peso manual con OpenAI:', error);
       return null;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // ADHERENCIA (dentro/fuera de dieta, marcado manual)
+  // ═══════════════════════════════════════════════════════════
+
+  async setCompliance(
+    id: string,
+    userId: string,
+    compliance: 'on_diet' | 'off_diet' | null,
+    note?: string,
+  ) {
+    if (
+      compliance !== 'on_diet' &&
+      compliance !== 'off_diet' &&
+      compliance !== null
+    ) {
+      throw new BadRequestException(
+        'dietCompliance debe ser on_diet, off_diet o null',
+      );
+    }
+
+    const existing = await this.prisma.nutritionAnalysis.findFirst({
+      where: { id, userId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Comida no encontrada');
+    }
+
+    return this.prisma.nutritionAnalysis.update({
+      where: { id },
+      data: {
+        dietCompliance: compliance,
+        // Al desmarcar (null) también se limpia la nota de contexto
+        complianceNote: compliance === null ? null : note ?? null,
+      },
+    });
+  }
+
+  async getComplianceStats(userId: string, from: string, to: string) {
+    const meals = await this.prisma.nutritionAnalysis.findMany({
+      where: { userId, date: { gte: from, lte: to } },
+      orderBy: { date: 'asc' },
+    });
+
+    const onDiet = meals.filter((m) => m.dietCompliance === 'on_diet').length;
+    const offDiet = meals.filter((m) => m.dietCompliance === 'off_diet').length;
+    const marked = onDiet + offDiet;
+
+    return {
+      from,
+      to,
+      total: meals.length,
+      onDiet,
+      offDiet,
+      unmarked: meals.length - marked,
+      adherencePct: marked > 0 ? Math.round((onDiet / marked) * 100) : null,
+      offDietMeals: meals
+        .filter((m) => m.dietCompliance === 'off_diet')
+        .map((m) => ({
+          id: m.id,
+          date: m.date,
+          mealType: m.mealType,
+          note: m.complianceNote,
+        })),
+    };
   }
 }

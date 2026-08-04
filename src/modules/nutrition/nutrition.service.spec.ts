@@ -55,6 +55,7 @@ describe('NutritionService', () => {
           useValue: {
             nutritionAnalysis: {
               findMany: jest.fn(),
+              findFirst: jest.fn(),
               create: jest.fn(),
               update: jest.fn(),
               delete: jest.fn(),
@@ -338,6 +339,148 @@ describe('NutritionService', () => {
       );
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('setCompliance', () => {
+    it('should mark a meal as on_diet', async () => {
+      (prisma.nutritionAnalysis.findFirst as jest.Mock).mockResolvedValue(
+        mockAnalysis,
+      );
+      (prisma.nutritionAnalysis.update as jest.Mock).mockResolvedValue({
+        ...mockAnalysis,
+        dietCompliance: 'on_diet',
+        complianceNote: null,
+      });
+
+      const result = await service.setCompliance(
+        'analysis-1',
+        userId,
+        'on_diet',
+      );
+
+      expect(prisma.nutritionAnalysis.findFirst).toHaveBeenCalledWith({
+        where: { id: 'analysis-1', userId },
+      });
+      expect(prisma.nutritionAnalysis.update).toHaveBeenCalledWith({
+        where: { id: 'analysis-1' },
+        data: { dietCompliance: 'on_diet', complianceNote: null },
+      });
+      expect(result.dietCompliance).toBe('on_diet');
+    });
+
+    it('should mark a meal as off_diet with a context note', async () => {
+      (prisma.nutritionAnalysis.findFirst as jest.Mock).mockResolvedValue(
+        mockAnalysis,
+      );
+      (prisma.nutritionAnalysis.update as jest.Mock).mockResolvedValue({
+        ...mockAnalysis,
+        dietCompliance: 'off_diet',
+        complianceNote: 'Cumple de mama',
+      });
+
+      const result = await service.setCompliance(
+        'analysis-1',
+        userId,
+        'off_diet',
+        'Cumple de mama',
+      );
+
+      expect(prisma.nutritionAnalysis.update).toHaveBeenCalledWith({
+        where: { id: 'analysis-1' },
+        data: { dietCompliance: 'off_diet', complianceNote: 'Cumple de mama' },
+      });
+      expect(result.complianceNote).toBe('Cumple de mama');
+    });
+
+    it('should clear the mark when compliance is null', async () => {
+      (prisma.nutritionAnalysis.findFirst as jest.Mock).mockResolvedValue(
+        mockAnalysis,
+      );
+      (prisma.nutritionAnalysis.update as jest.Mock).mockResolvedValue({
+        ...mockAnalysis,
+        dietCompliance: null,
+        complianceNote: null,
+      });
+
+      const result = await service.setCompliance('analysis-1', userId, null);
+
+      expect(prisma.nutritionAnalysis.update).toHaveBeenCalledWith({
+        where: { id: 'analysis-1' },
+        data: { dietCompliance: null, complianceNote: null },
+      });
+      expect(result.dietCompliance).toBeNull();
+    });
+
+    it('should throw when the meal does not belong to the user', async () => {
+      (prisma.nutritionAnalysis.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.setCompliance('analysis-1', 'otro-user', 'on_diet'),
+      ).rejects.toThrow();
+      expect(prisma.nutritionAnalysis.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject an invalid compliance value', async () => {
+      await expect(
+        service.setCompliance('analysis-1', userId, 'cheat' as any),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('getComplianceStats', () => {
+    it('should aggregate compliance counts in a date range', async () => {
+      (prisma.nutritionAnalysis.findMany as jest.Mock).mockResolvedValue([
+        { ...mockAnalysis, id: 'a1', date: '2026-08-01', dietCompliance: 'on_diet' },
+        { ...mockAnalysis, id: 'a2', date: '2026-08-01', dietCompliance: 'on_diet' },
+        {
+          ...mockAnalysis,
+          id: 'a3',
+          date: '2026-08-02',
+          mealType: 'dinner',
+          dietCompliance: 'off_diet',
+          complianceNote: 'Pizza con amigos',
+        },
+        { ...mockAnalysis, id: 'a4', date: '2026-08-03', dietCompliance: null },
+      ]);
+
+      const stats = await service.getComplianceStats(
+        userId,
+        '2026-08-01',
+        '2026-08-07',
+      );
+
+      expect(prisma.nutritionAnalysis.findMany).toHaveBeenCalledWith({
+        where: { userId, date: { gte: '2026-08-01', lte: '2026-08-07' } },
+        orderBy: { date: 'asc' },
+      });
+      expect(stats.total).toBe(4);
+      expect(stats.onDiet).toBe(2);
+      expect(stats.offDiet).toBe(1);
+      expect(stats.unmarked).toBe(1);
+      expect(stats.adherencePct).toBe(67); // 2 de 3 marcadas
+      expect(stats.offDietMeals).toEqual([
+        {
+          id: 'a3',
+          date: '2026-08-02',
+          mealType: 'dinner',
+          note: 'Pizza con amigos',
+        },
+      ]);
+    });
+
+    it('should return zeroed stats when there are no meals', async () => {
+      (prisma.nutritionAnalysis.findMany as jest.Mock).mockResolvedValue([]);
+
+      const stats = await service.getComplianceStats(
+        userId,
+        '2026-08-01',
+        '2026-08-07',
+      );
+
+      expect(stats.total).toBe(0);
+      expect(stats.adherencePct).toBeNull();
+      expect(stats.offDietMeals).toEqual([]);
     });
   });
 });

@@ -127,6 +127,8 @@ model NutritionAnalysis {
   context         String?  @db.Text // Contexto adicional del usuario para mejorar el analisis
   aiCostUsd       Float? // Costo de la llamada a OpenAI en USD
   savedMealId     String? // Si se creo desde un SavedMeal
+  dietCompliance  String? // on_diet | off_diet | null (sin marcar). Marcado manual del usuario
+  complianceNote  String? @db.Text // Contexto del porque (cheat planeado, cumple, etc.)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

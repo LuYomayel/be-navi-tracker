@@ -8,6 +8,7 @@ import {
   HttpException,
   HttpStatus,
   Param,
+  Patch,
   Put,
   UseGuards,
   Req, Logger } from '@nestjs/common';
@@ -57,6 +58,57 @@ export class NutritionController {
         success: false,
         error: 'Error al obtener análisis nutricionales',
       };
+    }
+  }
+
+  @Get('compliance-stats')
+  async getComplianceStats(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Req() req?: any,
+  ) {
+    try {
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
+      if (!from || !to) {
+        throw new HttpException(
+          'from y to son requeridos (YYYY-MM-DD)',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const stats = await this.nutritionService.getComplianceStats(
+        userId,
+        from,
+        to,
+      );
+      return { success: true, data: stats };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error('Error al obtener stats de adherencia:', error);
+      return { success: false, error: 'Error al obtener stats de adherencia' };
+    }
+  }
+
+  @Patch(':id/compliance')
+  async setCompliance(
+    @Param('id') id: string,
+    @Body() body: { compliance: 'on_diet' | 'off_diet' | null; note?: string },
+    @Req() req?: any,
+  ) {
+    try {
+      const userId = req?.user?.userId;
+      if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
+      const updated = await this.nutritionService.setCompliance(
+        id,
+        userId,
+        body.compliance ?? null,
+        body.note,
+      );
+      return { success: true, data: updated };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error('Error al marcar adherencia:', error);
+      return { success: false, error: 'Error al marcar adherencia' };
     }
   }
 
