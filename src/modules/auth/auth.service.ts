@@ -4,6 +4,7 @@ import {
   ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../config/prisma.service';
+import { requireJwtSecret } from '../../common/utils/jwt-secret.util';
 import * as bcrypt from 'bcryptjs';
 import { LoginDto, RegisterDto } from './dto/auth.dto';
 import {
@@ -33,14 +34,11 @@ export class AuthService {
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
-        secret:
-          process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production',
+        secret: requireJwtSecret('JWT_SECRET'),
         expiresIn: '3d', // 3 días (72 horas)
       }),
       this.jwtService.signAsync(payload, {
-        secret:
-          process.env.JWT_REFRESH_SECRET ||
-          'super-secret-refresh-key-change-in-production',
+        secret: requireJwtSecret('JWT_REFRESH_SECRET'),
         expiresIn: '7d', // 7 días
       }),
     ]);
@@ -166,9 +164,7 @@ export class AuthService {
   async refreshToken(refreshToken: string): Promise<AuthTokens> {
     try {
       const payload = this.jwtService.verify(refreshToken, {
-        secret:
-          process.env.JWT_REFRESH_SECRET ||
-          'super-secret-refresh-key-change-in-production',
+        secret: requireJwtSecret('JWT_REFRESH_SECRET'),
       });
 
       const user = await this.validateUserById(payload.sub);

@@ -7,14 +7,14 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { PrismaService } from '../../config/prisma.service';
+import { requireJwtSecret } from '../../common/utils/jwt-secret.util';
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({
-      secret:
-        process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production',
+      secret: requireJwtSecret('JWT_SECRET'),
       signOptions: {
         expiresIn: '15m',
         issuer: 'habit-tracker-api',
