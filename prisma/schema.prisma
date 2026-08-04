@@ -241,6 +241,7 @@ model UserPreferences {
   // Hidratación
   hydrationGoalGlasses Int? @default(8) // Meta diaria en vasos
   hydrationMlPerGlass  Int? @default(250) // ml por vaso
+  hydrationBlocks      Json? // Tramos horarios [{id,label,start,end,targetMl,requiresTraining}] — null = meta simple por vasos
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -621,6 +622,7 @@ model HydrationLog {
   glassesConsumed Int       @default(0)
   mlConsumed      Int       @default(0)
   goalReachedAt   DateTime?
+  trainingDay     Boolean? // toggle manual "hoy entreno" (null = auto por actividad fisica registrada)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

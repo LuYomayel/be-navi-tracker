@@ -38,6 +38,9 @@ describe('HydrationService', () => {
               findFirst: jest.fn(),
               upsert: jest.fn(),
             },
+            physicalActivity: {
+              findFirst: jest.fn(),
+            },
           },
         },
         {
@@ -334,6 +337,170 @@ describe('HydrationService', () => {
         create: { userId, hydrationGoalGlasses: 12, hydrationMlPerGlass: 200 },
         update: { hydrationGoalGlasses: 12, hydrationMlPerGlass: 200 },
       });
+    });
+  });
+
+  describe('getPace (hidratacion por tramos)', () => {
+    beforeEach(() => {
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({
+        hydrationBlocks: null, // sin configurar → defaults
+        hydrationGoalGlasses: 8,
+        hydrationMlPerGlass: 250,
+      });
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue({
+        id: 'log-1',
+        userId: 'user-1',
+        date: '2026-08-04',
+        glassesConsumed: 2,
+        mlConsumed: 500,
+        trainingDay: null,
+        goalReachedAt: null,
+      });
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue(null);
+    });
+
+    it('usa los tramos default y calcula el ritmo a las 10:00', async () => {
+      const pace = await service.getPace('user-1', '2026-08-04', 600); // 10:00
+      expect(pace.currentBlock?.id).toBe('morning');
+      expect(pace.expectedByNowMl).toBe(500);
+      expect(pace.deficitMl).toBe(0); // tomó 500, va a ritmo
+      expect(pace.trainingActive).toBe(false);
+      expect(pace.totalTargetMl).toBe(2000);
+    });
+
+    it('activa el tramo de entrenamiento si hay actividad fisica registrada', async () => {
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue({
+        id: 'act-1',
+      });
+      const pace = await service.getPace('user-1', '2026-08-04', 600);
+      expect(pace.trainingActive).toBe(true);
+      expect(pace.totalTargetMl).toBe(3500);
+    });
+
+    it('el toggle manual trainingDay=false gana sobre la actividad registrada', async () => {
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue({
+        id: 'act-1',
+      });
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue({
+        id: 'log-1',
+        date: '2026-08-04',
+        mlConsumed: 500,
+        glassesConsumed: 2,
+        trainingDay: false,
+        goalReachedAt: null,
+      });
+      const pace = await service.getPace('user-1', '2026-08-04', 600);
+      expect(pace.trainingActive).toBe(false);
+    });
+
+    it('usa los tramos configurados del usuario cuando existen', async () => {
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({
+        hydrationBlocks: [
+          { id: 'a', label: 'Unico', start: '08:00', end: '20:00', targetMl: 3000 },
+        ],
+      });
+      const pace = await service.getPace('user-1', '2026-08-04', 840); // 14:00
+      expect(pace.totalTargetMl).toBe(3000);
+      expect(pace.expectedByNowMl).toBe(1500); // mitad del tramo
+    });
+  });
+
+  describe('setBlocks', () => {
+    it('valida y persiste los tramos', async () => {
+      (prisma.userPreferences.upsert as jest.Mock).mockResolvedValue({});
+      const blocks = [
+        { id: 'm', label: 'Mañana', start: '07:00', end: '13:00', targetMl: 1000 },
+      ];
+      await service.setBlocks('user-1', blocks as any);
+      expect(prisma.userPreferences.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-1' },
+          update: { hydrationBlocks: blocks },
+        }),
+      );
+    });
+
+    it('rechaza tramos invalidos', async () => {
+      await expect(
+        service.setBlocks('user-1', [
+          { id: 'x', label: 'X', start: '14:00', end: '13:00', targetMl: 500 },
+        ] as any),
+      ).rejects.toThrow();
+      expect(prisma.userPreferences.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('setTrainingToday', () => {
+    it('upsertea el flag del dia', async () => {
+      (prisma.hydrationLog.upsert as jest.Mock).mockResolvedValue({
+        id: 'log-1',
+        trainingDay: true,
+      });
+      await service.setTrainingToday('user-1', '2026-08-04', true);
+      expect(prisma.hydrationLog.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId_date: { userId: 'user-1', date: '2026-08-04' } },
+          update: { trainingDay: true },
+        }),
+      );
+    });
+  });
+
+  describe('XP con tramos configurados', () => {
+    it('otorga XP al llegar a la suma de tramos activos (sin entreno: 2000ml)', async () => {
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({
+        hydrationBlocks: [
+          { id: 'm', label: 'Mañana', start: '07:00', end: '13:00', targetMl: 1000 },
+          { id: 't', label: 'Tarde', start: '13:00', end: '20:00', targetMl: 1000 },
+          { id: 'e', label: 'Entreno', start: '18:00', end: '23:00', targetMl: 1500, requiresTraining: true },
+        ],
+        hydrationGoalGlasses: 8,
+        hydrationMlPerGlass: 250,
+      });
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.hydrationLog.upsert as jest.Mock).mockResolvedValue({
+        id: 'log-1',
+        date: '2026-08-04',
+        glassesConsumed: 8,
+        mlConsumed: 2000,
+        trainingDay: null,
+        goalReachedAt: null,
+      });
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.hydrationLog.update as jest.Mock).mockResolvedValue({});
+
+      await service.adjust('user-1', { date: '2026-08-04', delta: 1 });
+
+      expect(xpService.addXp).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ xpAmount: 20 }),
+      );
+    });
+
+    it('con entreno activo NO otorga XP a los 2000ml (meta 3500)', async () => {
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({
+        hydrationBlocks: [
+          { id: 'm', label: 'Mañana', start: '07:00', end: '13:00', targetMl: 1000 },
+          { id: 't', label: 'Tarde', start: '13:00', end: '20:00', targetMl: 1000 },
+          { id: 'e', label: 'Entreno', start: '18:00', end: '23:00', targetMl: 1500, requiresTraining: true },
+        ],
+        hydrationGoalGlasses: 8,
+        hydrationMlPerGlass: 250,
+      });
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue({ id: 'act-1' });
+      (prisma.hydrationLog.upsert as jest.Mock).mockResolvedValue({
+        id: 'log-1',
+        date: '2026-08-04',
+        glassesConsumed: 8,
+        mlConsumed: 2000,
+        trainingDay: null,
+        goalReachedAt: null,
+      });
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await service.adjust('user-1', { date: '2026-08-04', delta: 1 });
+
+      expect(xpService.addXp).not.toHaveBeenCalled();
     });
   });
 });

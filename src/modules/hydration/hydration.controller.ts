@@ -59,6 +59,34 @@ export class HydrationController {
     return { success: true, data };
   }
 
+  @Get('pace')
+  async getPace(@Request() req, @Query('date') date?: string) {
+    const data = await this.hydrationService.getPace(req.user.userId, date);
+    return { success: true, data };
+  }
+
+  @Put('blocks')
+  async setBlocks(@Request() req, @Body() body: { blocks: any[] }) {
+    const data = await this.hydrationService.setBlocks(
+      req.user.userId,
+      body.blocks,
+    );
+    return { success: true, data };
+  }
+
+  @Put('training-today')
+  async setTrainingToday(
+    @Request() req,
+    @Body() body: { date?: string; value: boolean | null },
+  ) {
+    const data = await this.hydrationService.setTrainingToday(
+      req.user.userId,
+      body.date || getLocalDateString(),
+      body.value ?? null,
+    );
+    return { success: true, data };
+  }
+
   @Get('goal')
   async getGoal(@Request() req) {
     const data = await this.hydrationService.getGoal(req.user.userId);
