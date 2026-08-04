@@ -1,4 +1,10 @@
-import { IsString, IsNumber, IsOptional, IsObject } from 'class-validator';
+import {
+  Allow,
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsObject,
+} from 'class-validator';
 
 export class SaveBodyAnalysisDto {
   @IsString()
@@ -46,15 +52,29 @@ export class SaveBodyAnalysisDto {
   rawAnalysis?: any;
 }
 
+/**
+ * Payload de POST /body-analysis/save. Con `whitelist: true` en el
+ * ValidationPipe global, una propiedad sin decorador se descarta del body: por
+ * eso van todas con @Allow(), que las conserva sin imponerles forma (son
+ * blobs que arma la IA y cambian de shape).
+ */
 export class SaveDTO {
+  @Allow()
   bodyType: string;
+
+  @Allow()
   confidence: number;
 
+  @Allow()
   fullAnalysisData: any;
+
+  @Allow()
   measurements: {
     bodyFat: number;
     muscleMass: number;
     bmi: number;
   };
+
+  @Allow()
   recommendations: string[];
 }

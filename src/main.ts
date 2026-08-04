@@ -4,6 +4,7 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
 
@@ -23,7 +24,12 @@ async function bootstrap() {
     }
   }
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Detras de nginx: sin esto Express ve siempre la IP del proxy y el
+  // ThrottlerGuard limita a todo el mundo con el mismo contador. Con trust
+  // proxy = 1 se toma la IP real del X-Forwarded-For que agrega nginx.
+  app.set('trust proxy', 1);
 
   // Configurar límites de tamaño para imágenes base64
   app.use(bodyParser.json({ limit: '50mb' }));
@@ -47,8 +53,11 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Configurar validación global
-  app.useGlobalPipes(new ValidationPipe());
+  // Configurar validación global.
+  // `whitelist` descarta del body toda propiedad que el DTO no declare (corta
+  // el mass assignment de raiz). NO se usa `forbidNonWhitelisted`: el frontend
+  // manda campos de mas y no tiene por que romperse, alcanza con ignorarlos.
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
   // Usar filtro global para formatear errores
   const { HttpExceptionFilter } = await import(
