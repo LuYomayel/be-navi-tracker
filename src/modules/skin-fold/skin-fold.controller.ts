@@ -10,7 +10,7 @@ import {
   UseGuards,
   HttpStatus,
   HttpCode,
-  HttpException, Logger } from '@nestjs/common';
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -23,8 +23,6 @@ import {
 @Controller('skin-fold')
 @UseGuards(JwtAuthGuard)
 export class SkinFoldController {
-  private readonly logger = new Logger(SkinFoldController.name);
-
   constructor(private readonly skinFoldService: SkinFoldService) {}
 
   @Get()
@@ -79,30 +77,16 @@ export class SkinFoldController {
     @Body() body: { images: string[]; user?: { age: number; gender: string } },
     @CurrentUser() user: any,
   ) {
-    try {
-      const userId = user?.userId || 'default';
-      const result = await this.skinFoldService.analyzeAnthropometryPdf(
-        body.images,
-        userId,
-      );
+    const userId = user?.userId || 'default';
+    const result = await this.skinFoldService.analyzeAnthropometryPdf(
+      body.images,
+      userId,
+    );
 
-      return {
-        success: true,
-        data: result,
-      };
-    } catch (error) {
-      if (
-        error instanceof HttpException ||
-        error?.status
-      ) {
-        throw error;
-      }
-      this.logger.error('Error analyzing anthropometry PDF:', error);
-      throw new HttpException(
-        'Error al analizar el PDF de antropometría',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return {
+      success: true,
+      data: result,
+    };
   }
 
   @Put(':id')
