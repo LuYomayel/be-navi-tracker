@@ -23,6 +23,7 @@ import {
   matchTaskByTitle,
   buildTaskUpdateFromMcpArgs,
 } from './task-edit-utils';
+import { SweatTestService } from '../sweat-test/sweat-test.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import {
   parseDiasHabito,
@@ -77,6 +78,7 @@ export class McpServerFactory {
     private readonly physicalActivities: PhysicalActivitiesService,
     private readonly xp: XpService,
     private readonly expenses: ExpensesService,
+    private readonly sweatTests: SweatTestService,
   ) {}
 
   /**
@@ -521,6 +523,95 @@ export class McpServerFactory {
         });
         return text(
           `Hidratacion actualizada: ${log.glassesConsumed} vasos (${log.mlConsumed} ml) para ${fecha}.`,
+        );
+      },
+    );
+
+    add(
+      'registrar_test_sudoracion',
+      {
+        title: 'Registrar test de sudoracion',
+        description:
+          'Registra un test de sudoracion: peso antes y despues de entrenar (desnudo y seco) + liquido tomado durante. Calcula cuanta agua perdio por hora y que % del peso corporal, que es el dato que define su meta real de hidratacion.',
+        inputSchema: {
+          peso_antes_kg: z.number().describe('Peso antes de entrenar, en kg'),
+          peso_despues_kg: z
+            .number()
+            .describe('Peso despues de entrenar, en kg'),
+          duracion_min: z
+            .number()
+            .int()
+            .describe('Duracion del entrenamiento en minutos'),
+          liquido_ml: z
+            .number()
+            .int()
+            .optional()
+            .describe('Liquido tomado durante el entrenamiento, en ml'),
+          actividad: z
+            .string()
+            .optional()
+            .describe('Que hizo: handball, partido, gimnasio...'),
+          cancha_cerrada: z
+            .boolean()
+            .optional()
+            .describe('true si fue bajo techo (se suda mas)'),
+          temperatura_c: z.number().optional().describe('Temperatura ambiente'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const test = await this.sweatTests.create(userId, {
+          date: a.fecha || getLocalDateString(),
+          activity: a.actividad,
+          durationMin: a.duracion_min,
+          weightBeforeKg: a.peso_antes_kg,
+          weightAfterKg: a.peso_despues_kg,
+          fluidIntakeMl: a.liquido_ml ?? 0,
+          indoor: a.cancha_cerrada,
+          temperatureC: a.temperatura_c,
+        });
+        const stats = await this.sweatTests.getStats(userId);
+        return text(
+          `Test registrado (${test.date}). Sudaste ${(test.sweatMl / 1000).toFixed(2)} L en ${test.durationMin} min = ${test.sweatRateMlPerHour} ml/h. ` +
+            `Perdiste ${test.pctBodyWeightLost}% del peso corporal (nivel: ${test.level}). ` +
+            `Reponé ~${Math.round(test.netDeficitMl * 1.3)} ml en las proximas horas. ` +
+            `Llevás ${stats.count} test(s), promedio ${stats.avgRateMlPerHour} ml/h.`,
+        );
+      },
+    );
+
+    add(
+      'get_hidratacion_recomendada',
+      {
+        title: 'Cuanta agua necesito por dia',
+        description:
+          'Calcula cuanta agua deberia tomar por dia segun su peso, su tasa de sudoracion medida (tests de sudoracion) y si entrena o no ese dia. Distingue dia de entrenamiento vs dia de descanso.',
+        inputSchema: {
+          horas_entrenamiento: z
+            .number()
+            .optional()
+            .describe('Horas que entrena ese dia. Por defecto 2.'),
+        },
+      },
+      async (a) => {
+        const rec = await this.sweatTests.getRecommendation(
+          userId,
+          a.horas_entrenamiento ?? 2,
+        );
+        const fuente = rec.estimated
+          ? `estimada (todavia no hiciste ningun test de sudoracion — hacelo para tener tu numero real)`
+          : `medida en ${rec.testsCount} test(s)`;
+        return text(
+          `Con ${rec.weightKg} kg y una tasa de sudoracion de ${rec.sweatRateMlPerHour} ml/h (${fuente}):\n` +
+            `• Dia que entrena ${rec.trainingHours}h: tomar ~${(rec.trainingDay.drinkMl / 1000).toFixed(1)} L (${rec.trainingDay.glasses} vasos)\n` +
+            `• Dia de descanso: tomar ~${(rec.restDay.drinkMl / 1000).toFixed(1)} L (${rec.restDay.glasses} vasos)\n` +
+            `Meta actual en la app: ${(rec.currentGoalMl / 1000).toFixed(1)} L` +
+            (rec.gapTrainingMl > 0
+              ? ` → le faltan ${rec.gapTrainingMl} ml los dias que entrena.`
+              : ` → alcanza.`),
         );
       },
     );

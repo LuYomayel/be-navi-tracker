@@ -52,6 +52,7 @@ model User {
   googleCalendarConnection GoogleCalendarConnection?
   dayScores                DayScore[]
   hydrationLogs            HydrationLog[]
+  sweatTests               SweatTest[]
   shoppingLists            ShoppingList[]
   userPreferences          UserPreferences?
   goals                    Goal[]
@@ -242,6 +243,7 @@ model UserPreferences {
   hydrationGoalGlasses Int? @default(8) // Meta diaria en vasos
   hydrationMlPerGlass  Int? @default(250) // ml por vaso
   hydrationBlocks      Json? // Tramos horarios [{id,label,start,end,targetMl,requiresTraining}] — null = meta simple por vasos
+  takesCreatine        Boolean? @default(false) // suma ~400ml/día a la necesidad de agua
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -613,6 +615,40 @@ model DayScore {
 // ==========================================
 // HYDRATION TRACKING
 // ==========================================
+/// Test de sudoración: peso antes/después de entrenar para medir cuánta agua
+/// se pierde por hora. Es el dato que define la meta diaria real de hidratación.
+model SweatTest {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date        String // YYYY-MM-DD
+  activity    String? // handball, gimnasio, partido...
+  durationMin Int
+
+  weightBeforeKg Float
+  weightAfterKg  Float
+  fluidIntakeMl  Int  @default(0)
+  urineMl        Int?
+
+  indoor       Boolean? // cancha cerrada (sin viento + humedad alta = más sudor)
+  temperatureC Float?
+  notes        String?  @db.Text
+
+  // Resultados calculados al guardar (para consultar histórico sin recalcular)
+  sweatMl            Int
+  sweatRateMlPerHour Int
+  netDeficitMl       Int
+  pctBodyWeightLost  Float
+  level              String // ok | sed | rendimiento | fuerza | critico
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, date])
+  @@map("sweat_tests")
+}
+
 model HydrationLog {
   id     String @id @default(cuid())
   userId String

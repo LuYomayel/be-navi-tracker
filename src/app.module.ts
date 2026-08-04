@@ -26,6 +26,7 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { DayScoreModule } from './modules/day-score/day-score.module';
 import { HydrationModule } from './modules/hydration/hydration.module';
+import { SweatTestModule } from './modules/sweat-test/sweat-test.module';
 import { ShoppingListModule } from './modules/shopping-list/shopping-list.module';
 import { McpModule } from './modules/mcp/mcp.module';
 import { GoalModule } from './modules/goal/goal.module';
@@ -58,6 +59,7 @@ import { DeviceTokensModule } from './modules/device-tokens/device-tokens.module
     CalendarModule,
     DayScoreModule,
     HydrationModule,
+    SweatTestModule,
     ShoppingListModule,
     McpModule,
     GoalModule,
