@@ -8,6 +8,27 @@ import { McpAuthService } from './mcp-auth.service';
 describe('McpAuthService', () => {
   const JWT_SECRET = 'super-secret-jwt-key-change-in-production';
 
+  // Fijar modo oauth: si el entorno de dev tiene MCP_AUTH_MODE=none (+ static
+  // user) resolveBearer devuelve el usuario estatico y estos tests fallan.
+  const savedEnv: Record<string, string | undefined> = {};
+  beforeAll(() => {
+    for (const k of [
+      'MCP_AUTH_MODE',
+      'MCP_STATIC_USER_ID',
+      'MCP_STATIC_TOKEN',
+      'MCP_ALLOW_INSECURE',
+    ]) {
+      savedEnv[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+  afterAll(() => {
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
   const makeService = (authServiceOverride?: any) => {
     const jwt = new JwtService({ secret: JWT_SECRET });
     const authService =
