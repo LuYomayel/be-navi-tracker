@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { SavedMealsService } from './saved-meals.service';
 import { PrismaService } from '../../config/prisma.service';
 import { NutritionService } from '../nutrition/nutrition.service';
+import { AICostService } from '../ai-cost/ai-cost.service';
 
 describe('SavedMealsService', () => {
   let service: SavedMealsService;
@@ -46,6 +47,13 @@ describe('SavedMealsService', () => {
           provide: NutritionService,
           useValue: {
             create: jest.fn(),
+          },
+        },
+        {
+          provide: AICostService,
+          useValue: {
+            logFromCompletion: jest.fn(),
+            calculateCost: jest.fn().mockReturnValue(0),
           },
         },
       ],
@@ -358,6 +366,107 @@ describe('SavedMealsService', () => {
       });
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('classifyComponents', () => {
+    const unclassified = [
+      { ...mockMeal, id: 'm1', name: '2 hamburguesas caseras', component: null },
+      { ...mockMeal, id: 'm2', name: 'Cafe con leche', component: null },
+      { ...mockMeal, id: 'm3', name: 'Ensalada mixta', component: null },
+    ];
+
+    it('should classify unclassified meals with AI and apply the updates', async () => {
+      (prisma.savedMeal.findMany as jest.Mock).mockResolvedValue(unclassified);
+      (prisma.savedMeal.update as jest.Mock).mockResolvedValue({});
+      (service as any).openai = {
+        chat: {
+          completions: {
+            create: jest.fn().mockResolvedValue({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      m1: 'protein',
+                      m2: 'drink',
+                      m3: 'veggie',
+                    }),
+                  },
+                },
+              ],
+              usage: { prompt_tokens: 50, completion_tokens: 20 },
+            }),
+          },
+        },
+      };
+
+      const result = await service.classifyComponents(userId);
+
+      expect(result.classified).toBe(3);
+      expect(prisma.savedMeal.update).toHaveBeenCalledWith({
+        where: { id: 'm1' },
+        data: { component: 'protein' },
+      });
+      expect(prisma.savedMeal.update).toHaveBeenCalledWith({
+        where: { id: 'm2' },
+        data: { component: 'drink' },
+      });
+    });
+
+    it('should never persist invalid AI values (falls back to heuristics)', async () => {
+      (prisma.savedMeal.findMany as jest.Mock).mockResolvedValue([
+        unclassified[0],
+      ]);
+      (prisma.savedMeal.update as jest.Mock).mockResolvedValue({});
+      (service as any).openai = {
+        chat: {
+          completions: {
+            create: jest.fn().mockResolvedValue({
+              choices: [
+                { message: { content: JSON.stringify({ m1: 'banana' }) } },
+              ],
+              usage: {},
+            }),
+          },
+        },
+      };
+
+      const result = await service.classifyComponents(userId);
+
+      // 'banana' no es un componente válido: se descarta y la heurística
+      // resuelve por nombre ("hamburguesas" → protein)
+      expect(prisma.savedMeal.update).toHaveBeenCalledWith({
+        where: { id: 'm1' },
+        data: { component: 'protein' },
+      });
+      expect(result.classified).toBe(1);
+    });
+
+    it('should fall back to keyword heuristics without OpenAI', async () => {
+      (prisma.savedMeal.findMany as jest.Mock).mockResolvedValue(unclassified);
+      (prisma.savedMeal.update as jest.Mock).mockResolvedValue({});
+      (service as any).openai = null;
+
+      const result = await service.classifyComponents(userId);
+
+      expect(result.classified).toBeGreaterThanOrEqual(2);
+      expect(prisma.savedMeal.update).toHaveBeenCalledWith({
+        where: { id: 'm1' },
+        data: { component: 'protein' }, // "hamburguesas"
+      });
+      expect(prisma.savedMeal.update).toHaveBeenCalledWith({
+        where: { id: 'm2' },
+        data: { component: 'drink' }, // "cafe"
+      });
+    });
+
+    it('should return zero when everything is already classified', async () => {
+      (prisma.savedMeal.findMany as jest.Mock).mockResolvedValue([]);
+
+      const result = await service.classifyComponents(userId);
+
+      expect(result.total).toBe(0);
+      expect(result.classified).toBe(0);
     });
   });
 

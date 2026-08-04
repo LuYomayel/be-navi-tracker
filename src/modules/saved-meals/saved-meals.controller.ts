@@ -26,6 +26,14 @@ export class SavedMealsController {
     return { success: true, data: meal };
   }
 
+  @Post('classify-components')
+  async classifyComponents(@Req() req: any) {
+    const userId = req.user?.userId;
+    if (!userId) throw new HttpException('No autorizado', HttpStatus.UNAUTHORIZED);
+    const result = await this.savedMealsService.classifyComponents(userId);
+    return { success: true, data: result };
+  }
+
   @Post('log-plate')
   async logPlate(
     @Req() req: any,
