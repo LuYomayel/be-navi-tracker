@@ -347,6 +347,25 @@ describe('SavedMealsService', () => {
       ]);
     });
 
+    it('should log the plate once so the XP is granted per plate, not per component', async () => {
+      (prisma.savedMeal.findMany as jest.Mock).mockResolvedValue([
+        proteina,
+        carbo,
+        verdura,
+      ]);
+      (nutrition.create as jest.Mock).mockResolvedValue({ id: 'analysis-1' });
+      (prisma.savedMeal.update as jest.Mock).mockResolvedValue({});
+
+      await service.logPlate(userId, {
+        componentIds: ['comp-1', 'comp-2', 'comp-3'],
+        mealType: 'lunch',
+        date: '2026-08-04',
+      });
+
+      // El XP lo otorga NutritionService.create: un solo create = un solo +15 XP.
+      expect(nutrition.create).toHaveBeenCalledTimes(1);
+    });
+
     it('should return null when a component is missing or foreign', async () => {
       (prisma.savedMeal.findMany as jest.Mock).mockResolvedValue([proteina]);
 
