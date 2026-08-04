@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { CompletionsService } from './completions.service';
 import { PrismaService } from '../../config/prisma.service';
 import { XpService } from '../xp/xp.service';
@@ -34,6 +35,7 @@ describe('CompletionsService', () => {
             },
             activity: {
               findUnique: jest.fn(),
+              findFirst: jest.fn(),
             },
           },
         },
@@ -87,6 +89,40 @@ describe('CompletionsService', () => {
   });
 
   describe('toggle', () => {
+    // Por defecto el habito existe y es del usuario; los tests que prueban lo
+    // contrario pisan este mock.
+    beforeEach(() => {
+      (prisma.activity.findFirst as jest.Mock).mockResolvedValue({
+        name: 'Exercise',
+      });
+    });
+
+    it('should reject an activity that belongs to another user', async () => {
+      (prisma.activity.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.toggle('activity-ajena', '2024-01-15', userId),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(prisma.dailyCompletion.create).not.toHaveBeenCalled();
+      expect(prisma.dailyCompletion.update).not.toHaveBeenCalled();
+      expect(xpService.addHabitXp).not.toHaveBeenCalled();
+    });
+
+    it('should look up the activity by id and userId', async () => {
+      (prisma.dailyCompletion.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.dailyCompletion.create as jest.Mock).mockResolvedValue(
+        mockCompletion,
+      );
+
+      await service.toggle('activity-1', '2024-01-15', userId);
+
+      expect(prisma.activity.findFirst).toHaveBeenCalledWith({
+        where: { id: 'activity-1', userId },
+        select: { name: true },
+      });
+    });
+
     it('should create a new completion when none exists', async () => {
       (prisma.dailyCompletion.findUnique as jest.Mock).mockResolvedValue(null);
       (prisma.dailyCompletion.create as jest.Mock).mockResolvedValue(

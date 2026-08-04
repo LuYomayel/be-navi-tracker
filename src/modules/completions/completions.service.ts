@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { DailyCompletion } from '../../common/types';
 import { XpService } from '../xp/xp.service';
@@ -31,6 +31,18 @@ export class CompletionsService {
     date: string,
     userId: string = 'default',
   ): Promise<DailyCompletion> {
+    // El habito tiene que ser del usuario. Sin este chequeo cualquiera podia
+    // mandar el activityId de otro y completarselo (sumandose ademas la XP).
+    // Va FUERA del try a proposito: el catch de abajo devuelve un completion
+    // falso como fallback y se comeria el rechazo.
+    const activity = await this.prisma.activity.findFirst({
+      where: { id: activityId, userId },
+      select: { name: true },
+    });
+    if (!activity) {
+      throw new NotFoundException('Hábito no encontrado');
+    }
+
     try {
       const existing = await this.prisma.dailyCompletion.findUnique({
         where: {
@@ -61,13 +73,7 @@ export class CompletionsService {
       // 🎮 Si el hábito se completó (no se descompletó), agregar XP
       if (completion.completed) {
         try {
-          // Obtener el nombre de la actividad para el log de XP
-          const activity = await this.prisma.activity.findUnique({
-            where: { id: activityId },
-            select: { name: true },
-          });
-
-          const habitName = activity?.name || 'Hábito';
+          const habitName = activity.name || 'Hábito';
 
           // Agregar XP por completar hábito (ahora con sistema de rachas mejorado)
           await this.xpService.addHabitXp(userId, habitName, date);
