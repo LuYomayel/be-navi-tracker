@@ -5,7 +5,6 @@ import {
   Body,
   HttpException,
   HttpStatus,
-  Query,
   UseGuards,
   Req, Logger } from '@nestjs/common';
 import { AiSuggestionsService } from './ai-suggestions.service';
@@ -71,66 +70,6 @@ export class AiSuggestionsController {
         'Error obteniendo estado del servicio',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
-    }
-  }
-
-  @Get('analysis/recent')
-  async getRecentAnalysis(
-    @Query('days') days: string,
-  ): Promise<ApiResponse<any[]>> {
-    try {
-      const daysNumber = parseInt(days) || 7;
-
-      // Datos simulados para que funcione el ReadingAssistant
-      const mockAnalyses = [
-        {
-          id: '1',
-          type: 'habit_completion',
-          data: {
-            habitName: 'Ejercicio',
-            completed: true,
-            streak: 5,
-            patterns: ['morning_routine', 'consistency'],
-          },
-          createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-          metadata: {
-            mood: 'energetic',
-            difficulty: 'easy',
-          },
-        },
-        {
-          id: '2',
-          type: 'nutrition_analysis',
-          data: {
-            mealType: 'breakfast',
-            healthScore: 8.5,
-            patterns: ['healthy_choices', 'good_timing'],
-          },
-          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-          metadata: {
-            satisfaction: 'high',
-          },
-        },
-      ];
-
-      const cutoffDate = new Date(
-        Date.now() - daysNumber * 24 * 60 * 60 * 1000,
-      );
-      const filteredAnalyses = mockAnalyses.filter(
-        (analysis) => analysis.createdAt >= cutoffDate,
-      );
-
-      return {
-        success: true,
-        data: filteredAnalyses,
-      };
-    } catch (error) {
-      this.logger.error('Error getting recent analysis:', error);
-      return {
-        success: false,
-        data: [],
-        error: 'Error obteniendo análisis recientes',
-      };
     }
   }
 }
