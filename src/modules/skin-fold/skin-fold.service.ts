@@ -299,6 +299,9 @@ INSTRUCCIONES:
 7. Los pliegues cutáneos están en mm, los diámetros y perímetros en cm, el peso en kg, la talla en cm.
 8. Mapeo de nombres de PLIEGUES del informe → clave JSON: "Tríceps"→triceps, "Subescapular"→subscapular, "Supraespinal"→supraspinal, "Abdominal"→abdominal, "Muslo (medial)"→thigh, "Pantorrilla"→calf. "Suma de 6 pliegues" (suele estar en la página de datos adicionales)→sumOfSix. Los 6 pliegues son OBLIGATORIOS si aparecen en el informe: no omitas ninguno.
 9. "Fecha de medición" (arriba, junto al nombre): extraela a basics.measurementDate en formato AAAA-MM-DD. Viene en formato D/M/AAAA (ej: "3/3/2026" → "2026-03-03"). Si no aparece, null.
+10. SOMATOTIPO: en la página de la somatocarta hay DOS filas de rating ENDO/MESO/ECTO: "(Posicionamiento actual)" y "(Posicionamiento anterior)". Usá SIEMPRE la fila "(Posicionamiento actual)" — la fila "(Posicionamiento anterior)" es la medición vieja y NO va. También puede haber una fila de "comparación con deporte": ignorala.
+11. MASAS CORPORALES (composición 5 componentes): la tabla tiene columnas "Porcentaje", "Kg" y "Score-Z". Los kg de cada masa salen de la columna "Kg" (la que sigue al porcentaje), NO de la primera columna de valores ajustados ni del Score-Z. Leé cada dígito con cuidado.
+12. AUTOVERIFICACIÓN de las masas: la suma de los kg de las 5 masas (adiposa + muscular + residual + ósea + piel) debe dar exactamente la "Masa Total" en kg de esa misma columna. Si tu suma no cuadra, releé los dígitos de cada masa (los errores típicos son confundir 4↔6 y 3↔8 en escaneos) y corregí antes de responder.
 
 Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 {
@@ -397,6 +400,8 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 
       const analysis: AnthropometryAnalysis = JSON.parse(cleaned.trim());
 
+      this.reconcileBodyComposition(analysis);
+
       this.logger.log('Análisis de antropometría completado exitosamente');
 
       // Map skin fold values from the analysis to the SkinFoldSite format
@@ -443,6 +448,55 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
       throw new BadRequestException(
         'Error al analizar el PDF de antropometría. Verifique que las imágenes sean legibles.',
       );
+    }
+  }
+
+  /**
+   * En el informe la suma de los kg de las 5 masas debe dar el peso (Masa
+   * Total). La IA a veces confunde un dígito al leer el escaneo (ej: 42,453 →
+   * 42,653); acá se detecta el componente cuyo kg más se desvía de su propio
+   * porcentaje y se lo corrige con la identidad suma-de-masas = peso.
+   */
+  private reconcileBodyComposition(analysis: AnthropometryAnalysis): void {
+    const bc = analysis.bodyComposition;
+    const weight = analysis.basics?.weight;
+    if (!bc || typeof weight !== 'number' || weight <= 0) return;
+
+    const parts = ['adipose', 'muscular', 'residual', 'bone', 'skin'] as const;
+    const invalid = parts.some(
+      (k) =>
+        !bc[k] ||
+        typeof bc[k].kg !== 'number' ||
+        typeof bc[k].percentage !== 'number',
+    );
+    if (invalid) return;
+
+    const sum = parts.reduce((acc, k) => acc + bc[k].kg, 0);
+    const diff = weight - sum;
+    // Consistente (redondeos) o demasiado grande para ser un dígito mal leído
+    if (Math.abs(diff) < 0.05 || Math.abs(diff) > 2) return;
+
+    let worst: (typeof parts)[number] | null = null;
+    let worstDev = 0;
+    for (const k of parts) {
+      const expected = (bc[k].percentage / 100) * weight;
+      const dev = Math.abs(bc[k].kg - expected);
+      if (dev > worstDev) {
+        worstDev = dev;
+        worst = k;
+      }
+    }
+    if (!worst) return;
+
+    const corrected = Math.round((bc[worst].kg + diff) * 1000) / 1000;
+    const expectedWorst = (bc[worst].percentage / 100) * weight;
+    if (
+      Math.abs(corrected - expectedWorst) < Math.abs(bc[worst].kg - expectedWorst)
+    ) {
+      this.logger.warn(
+        `Reconciliación de masas: ${worst} ${bc[worst].kg}kg → ${corrected}kg (la suma no daba el peso ${weight}kg)`,
+      );
+      bc[worst].kg = corrected;
     }
   }
 

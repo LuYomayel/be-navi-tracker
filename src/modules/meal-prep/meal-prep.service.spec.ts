@@ -209,7 +209,9 @@ describe('MealPrepService', () => {
     });
 
     it('should throw BadRequestException if OpenAI not configured', async () => {
-      // OpenAI is null by default in tests (no OPENAI_API_KEY)
+      // Forzar openai=null: si el entorno tiene OPENAI_API_KEY (dev local con
+      // .env) el constructor lo instancia y el test pegaba a la API real
+      (service as any).openai = null;
       await expect(
         service.importNutritionistPlan(
           { images: ['base64data'], name: 'Test', pdfFilename: 'test.pdf' },
@@ -756,7 +758,9 @@ describe('MealPrepService', () => {
 
   describe('generateMealPrep', () => {
     it('should throw BadRequestException if OpenAI not configured', async () => {
-      // OpenAI is null in test environment
+      // Forzar openai=null: si el entorno tiene OPENAI_API_KEY (dev local con
+      // .env) el constructor lo instancia y el test pegaba a la API real
+      (service as any).openai = null;
       await expect(
         service.generateMealPrep(
           { weekStartDate: '2026-03-16' },

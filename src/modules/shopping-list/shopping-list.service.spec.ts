@@ -239,8 +239,9 @@ describe('ShoppingListService', () => {
         },
       };
       (prisma.mealPrep.findFirst as jest.Mock).mockResolvedValue(mealPrep);
-      // Service will call generateItemsWithAI which uses this.openai
-      // Since openai is null in test env, it falls back to fallbackGenerate
+      // Forzar openai=null para que use fallbackGenerate: si el entorno tiene
+      // OPENAI_API_KEY (dev local con .env) el constructor lo instancia
+      (service as any).openai = null;
       (prisma.shoppingList.create as jest.Mock).mockImplementation(({ data }) =>
         Promise.resolve({
           id: 'list-new',

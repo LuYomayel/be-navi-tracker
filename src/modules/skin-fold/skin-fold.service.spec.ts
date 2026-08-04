@@ -233,10 +233,181 @@ describe('SkinFoldService', () => {
     });
 
     it('should throw when OpenAI is not configured', async () => {
-      // Service was created without OPENAI_API_KEY env var, so openai is null
+      // Forzar openai=null: si el entorno tiene OPENAI_API_KEY (dev local con
+      // .env) el constructor lo instancia y el test pegaría a la API real
+      (service as any).openai = null;
       await expect(
         service.analyzeAnthropometryPdf(['base64data'], userId),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    describe('with mocked OpenAI', () => {
+      const fullAnalysisResponse = {
+        basics: { weight: 82.4, height: 165, measurementDate: '2026-05-05' },
+        skinFolds: {
+          triceps: 6.5,
+          subscapular: 12,
+          supraspinal: 13,
+          abdominal: 22.5,
+          thigh: 16.5,
+          calf: 12.5,
+          sumOfSix: 83,
+        },
+        diameters: {},
+        perimeters: {},
+        bodyComposition: {},
+        somatotype: { endomorphy: 3.3, mesomorphy: 8.6, ectomorphy: 0.1 },
+        indexes: {},
+        zScores: {},
+      };
+
+      let createMock: jest.Mock;
+
+      beforeEach(() => {
+        createMock = jest.fn().mockResolvedValue({
+          choices: [
+            { message: { content: JSON.stringify(fullAnalysisResponse) } },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        });
+        // Inyectar cliente OpenAI falso (el real solo se crea con env var)
+        (service as any).openai = {
+          chat: { completions: { create: createMock } },
+        };
+      });
+
+      it('should map supraspinal to suprailiac and extract measurement date', async () => {
+        const { record, fullAnalysis } = await service.analyzeAnthropometryPdf(
+          ['base64data'],
+          userId,
+        );
+
+        expect(record.values).toEqual({
+          triceps: 6.5,
+          subscapular: 12,
+          suprailiac: 13,
+          abdominal: 22.5,
+          thigh: 16.5,
+          calf: 12.5,
+        });
+        expect(record.date).toBe('2026-05-05');
+        expect(record.technician).toBe('Extraído de PDF por IA');
+        expect(fullAnalysis.somatotype.endomorphy).toBe(3.3);
+      });
+
+      it('should instruct the AI to use the "Posicionamiento actual" somatotype row', async () => {
+        await service.analyzeAnthropometryPdf(['base64data'], userId);
+
+        const prompt = createMock.mock.calls[0][0].messages[0].content[0].text;
+        expect(prompt).toContain('Posicionamiento actual');
+        expect(prompt).toContain('Posicionamiento anterior');
+      });
+
+      it('should instruct the AI to read body mass kg from the "Kg" column', async () => {
+        await service.analyzeAnthropometryPdf(['base64data'], userId);
+
+        const prompt = createMock.mock.calls[0][0].messages[0].content[0].text;
+        expect(prompt).toMatch(/columna "Kg"/);
+      });
+
+      it('should instruct the AI to cross-check mass kg sum against total mass', async () => {
+        await service.analyzeAnthropometryPdf(['base64data'], userId);
+
+        const prompt = createMock.mock.calls[0][0].messages[0].content[0].text;
+        expect(prompt).toContain('Masa Total');
+        expect(prompt).toMatch(/suma de los kg/i);
+      });
+
+      it('should reconcile a misread mass kg using the weight identity', async () => {
+        // Caso real: la IA leyó 42.653 en muscular pero la suma de las 5 masas
+        // debe dar el peso (82.4). El % (51.44) delata cuál componente está mal.
+        createMock.mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  ...fullAnalysisResponse,
+                  bodyComposition: {
+                    adipose: { percentage: 21.18, kg: 17.484 },
+                    muscular: { percentage: 51.44, kg: 42.653 },
+                    residual: { percentage: 11.67, kg: 9.635 },
+                    bone: { percentage: 11.18, kg: 9.095 },
+                    skin: { percentage: 4.52, kg: 3.733 },
+                  },
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        });
+
+        const { fullAnalysis } = await service.analyzeAnthropometryPdf(
+          ['base64data'],
+          userId,
+        );
+
+        expect(fullAnalysis.bodyComposition.muscular.kg).toBeCloseTo(42.453, 3);
+        expect(fullAnalysis.bodyComposition.adipose.kg).toBeCloseTo(17.484, 3);
+      });
+
+      it('should leave body composition untouched when the kg sum matches the weight', async () => {
+        createMock.mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  ...fullAnalysisResponse,
+                  bodyComposition: {
+                    adipose: { percentage: 21.18, kg: 17.484 },
+                    muscular: { percentage: 51.44, kg: 42.453 },
+                    residual: { percentage: 11.67, kg: 9.635 },
+                    bone: { percentage: 11.18, kg: 9.095 },
+                    skin: { percentage: 4.52, kg: 3.733 },
+                  },
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        });
+
+        const { fullAnalysis } = await service.analyzeAnthropometryPdf(
+          ['base64data'],
+          userId,
+        );
+
+        expect(fullAnalysis.bodyComposition.muscular.kg).toBe(42.453);
+      });
+
+      it('should skip reconciliation when body composition has nulls', async () => {
+        createMock.mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  ...fullAnalysisResponse,
+                  bodyComposition: {
+                    adipose: { percentage: 21.18, kg: 17.484 },
+                    muscular: { percentage: 51.44, kg: null },
+                    residual: { percentage: 11.67, kg: 9.635 },
+                    bone: { percentage: 11.18, kg: 9.095 },
+                    skin: { percentage: 4.52, kg: 3.733 },
+                  },
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 100 },
+        });
+
+        const { fullAnalysis } = await service.analyzeAnthropometryPdf(
+          ['base64data'],
+          userId,
+        );
+
+        expect(fullAnalysis.bodyComposition.muscular.kg).toBeNull();
+        expect(fullAnalysis.bodyComposition.adipose.kg).toBe(17.484);
+      });
     });
   });
 });
