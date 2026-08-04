@@ -255,6 +255,84 @@ describe('McpAuthService', () => {
       ).toBe(true);
     });
 
+    it('rechaza un dominio ajeno para un cliente no registrado (phishing)', () => {
+      const svc = makeService();
+      expect(
+        svc.isRedirectUriRegistered('desconocido', 'https://evil.com/cb'),
+      ).toBe(false);
+      // Trucos tipicos para colarse en la allowlist.
+      expect(
+        svc.isRedirectUriRegistered('desconocido', 'https://claude.ai.evil.com/cb'),
+      ).toBe(false);
+      expect(
+        svc.isRedirectUriRegistered('desconocido', 'https://notclaude.ai/cb'),
+      ).toBe(false);
+    });
+
+    it('acepta los dominios del conector de Claude y sus subdominios', () => {
+      const svc = makeService();
+      for (const uri of [
+        'https://claude.ai/api/mcp/auth_callback',
+        'https://claude.com/api/mcp/auth_callback',
+        'https://console.anthropic.com/oauth/callback',
+      ]) {
+        expect(svc.isRedirectUriRegistered('desconocido', uri)).toBe(true);
+      }
+    });
+
+    it('exige https fuera de loopback y acepta loopback (RFC 8252)', () => {
+      const svc = makeService();
+      expect(
+        svc.isRedirectUriRegistered('desconocido', 'http://claude.ai/cb'),
+      ).toBe(false);
+      expect(
+        svc.isRedirectUriRegistered(
+          'desconocido',
+          'http://localhost:6274/oauth/callback',
+        ),
+      ).toBe(true);
+      expect(
+        svc.isRedirectUriRegistered('desconocido', 'http://127.0.0.1:8080/cb'),
+      ).toBe(true);
+    });
+
+    it('rechaza un redirect_uri que no es una URL valida', () => {
+      expect(
+        makeService().isRedirectUriRegistered('desconocido', 'no-es-una-url'),
+      ).toBe(false);
+    });
+
+    it('permite sumar hosts extra via MCP_ALLOWED_REDIRECT_HOSTS', () => {
+      const saved = process.env.MCP_ALLOWED_REDIRECT_HOSTS;
+      process.env.MCP_ALLOWED_REDIRECT_HOSTS = 'mi-dominio.com';
+      try {
+        expect(
+          makeService().isRedirectUriRegistered(
+            'desconocido',
+            'https://mi-dominio.com/cb',
+          ),
+        ).toBe(true);
+      } finally {
+        if (saved === undefined) delete process.env.MCP_ALLOWED_REDIRECT_HOSTS;
+        else process.env.MCP_ALLOWED_REDIRECT_HOSTS = saved;
+      }
+    });
+
+    it('el flujo DCR sigue funcionando con un redirect_uri de claude.ai', () => {
+      // Claude registra via DCR y luego autoriza: exact match sobre lo registrado.
+      const svc = makeService();
+      const client = svc.registerClient({
+        redirect_uris: ['https://claude.ai/api/mcp/auth_callback'],
+        client_name: 'Claude',
+      });
+      expect(
+        svc.isRedirectUriRegistered(
+          client.clientId,
+          'https://claude.ai/api/mcp/auth_callback',
+        ),
+      ).toBe(true);
+    });
+
     it('ensureClient no expande los redirect_uris de un cliente ya registrado', () => {
       const svc = makeService();
       const client = svc.registerClient({

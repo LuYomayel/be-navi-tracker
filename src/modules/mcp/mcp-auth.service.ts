@@ -225,14 +225,75 @@ export class McpAuthService {
   }
 
   /**
+   * Dominios de confianza aceptados como redirect_uri de un cliente que
+   * todavia NO esta registrado: un client_id manual, o un cliente DCR que se
+   * perdio tras un reinicio (los clientes viven en memoria).
+   *
+   * Antes esos casos devolvian true para cualquier URI: un atacante que
+   * mandara al usuario a /oauth/authorize con un client_id inventado y su
+   * propio redirect_uri se llevaba el authorization code y con el la cuenta.
+   *
+   * Se aceptan el dominio exacto y sus subdominios. Se pueden sumar hosts con
+   * MCP_ALLOWED_REDIRECT_HOSTS (separados por coma) sin tocar el codigo.
+   */
+  private static readonly DEFAULT_ALLOWED_REDIRECT_HOSTS = [
+    'claude.ai',
+    'claude.com',
+    'anthropic.com',
+  ];
+
+  private get allowedRedirectHosts(): string[] {
+    const extra = (process.env.MCP_ALLOWED_REDIRECT_HOSTS || '')
+      .split(',')
+      .map((h) => h.trim().toLowerCase())
+      .filter(Boolean);
+    return [...McpAuthService.DEFAULT_ALLOWED_REDIRECT_HOSTS, ...extra];
+  }
+
+  /** Loopback (RFC 8252): clientes nativos/locales tipo MCP Inspector. */
+  private isLoopbackHost(host: string): boolean {
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host === '[::1]'
+    );
+  }
+
+  /**
+   * true si el redirect_uri cae en la allowlist de dominios de confianza.
+   * Exige https salvo en loopback. Compara por host completo (asi
+   * `claude.ai.evil.com` no pasa por terminar en la cadena "claude.ai").
+   */
+  isRedirectUriAllowed(redirectUri: string): boolean {
+    let url: URL;
+    try {
+      url = new URL(redirectUri);
+    } catch {
+      return false;
+    }
+    const host = url.hostname.toLowerCase();
+    if (this.isLoopbackHost(host)) {
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    }
+    if (url.protocol !== 'https:') return false;
+    return this.allowedRedirectHosts.some(
+      (allowed) => host === allowed || host.endsWith(`.${allowed}`),
+    );
+  }
+
+  /**
    * Valida un redirect_uri contra los registrados del cliente (exact match,
-   * OAuth 2.1). Para un cliente desconocido o sin URIs registradas (cliente
-   * manual) devuelve true: se pinea en el primer uso via ensureClient.
+   * OAuth 2.1). Para un cliente desconocido o sin URIs registradas se exige
+   * que el destino sea un dominio de confianza (ver allowedRedirectHosts);
+   * recien ahi se pinea en el primer uso via ensureClient.
    */
   isRedirectUriRegistered(clientId: string, redirectUri: string): boolean {
     const client = this.clients.get(clientId);
-    if (!client || client.redirectUris.length === 0) return true;
-    return client.redirectUris.includes(redirectUri);
+    if (client && client.redirectUris.length > 0) {
+      return client.redirectUris.includes(redirectUri);
+    }
+    return this.isRedirectUriAllowed(redirectUri);
   }
 
   // ────────────────────────────────────────────────────────────
