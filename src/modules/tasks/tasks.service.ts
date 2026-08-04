@@ -101,7 +101,12 @@ export class TasksService {
     });
     if (!existing) throw new NotFoundException('Task not found');
 
-    const data: any = { ...dto };
+    // El where ya matcheo por dueño, pero los campos de identidad no se editan
+    // nunca: un userId en el payload reasignaria la tarea a otra cuenta. El
+    // ValidationPipe ya los filtra por HTTP; esto cubre a quien llame al
+    // service directo (las tools del MCP, por ejemplo).
+    const { userId: _uid, id: _id, createdAt: _c, ...rest } = dto as any;
+    const data: any = { ...rest };
     if (dto.tags) data.tags = JSON.stringify(dto.tags);
     if (dto.recurrenceRule)
       data.recurrenceRule = JSON.stringify(dto.recurrenceRule);

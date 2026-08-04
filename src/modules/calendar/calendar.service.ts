@@ -49,7 +49,11 @@ export class CalendarService {
     });
     if (!existing) throw new NotFoundException('Event not found');
 
-    const data: any = { ...dto };
+    // Idem tasks: el where ya matcheo por dueño, pero userId/id/createdAt no se
+    // editan nunca (el ValidationPipe filtra por HTTP, esto cubre las llamadas
+    // directas al service).
+    const { userId: _uid, id: _id, createdAt: _c, ...rest } = dto as any;
+    const data: any = { ...rest };
     if (dto.startTime) data.startTime = new Date(dto.startTime);
     if (dto.endTime) data.endTime = new Date(dto.endTime);
 

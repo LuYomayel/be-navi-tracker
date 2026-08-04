@@ -206,6 +206,24 @@ describe('TasksService', () => {
       expect(result.title).toBe('Updated');
     });
 
+    it('should never write userId or id from the payload', async () => {
+      (prisma.task.findFirst as jest.Mock).mockResolvedValue(mockTask);
+      (prisma.task.update as jest.Mock).mockResolvedValue(mockTask);
+
+      await service.update(userId, 'task-1', {
+        title: 'Updated',
+        userId: 'otro-user',
+        id: 'otra-task',
+        createdAt: new Date('2000-01-01'),
+      } as any);
+
+      const arg = (prisma.task.update as jest.Mock).mock.calls[0][0];
+      expect(arg.data.userId).toBeUndefined();
+      expect(arg.data.id).toBeUndefined();
+      expect(arg.data.createdAt).toBeUndefined();
+      expect(arg.data.title).toBe('Updated');
+    });
+
     it('should throw NotFoundException if not found', async () => {
       (prisma.task.findFirst as jest.Mock).mockResolvedValue(null);
 

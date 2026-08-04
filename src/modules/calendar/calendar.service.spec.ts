@@ -134,6 +134,24 @@ describe('CalendarService', () => {
       expect(result.title).toBe('Updated meeting');
     });
 
+    it('should never write userId or id from the payload', async () => {
+      (prisma.calendarEvent.findFirst as jest.Mock).mockResolvedValue(mockEvent);
+      (prisma.calendarEvent.update as jest.Mock).mockResolvedValue(mockEvent);
+
+      await service.updateEvent(userId, 'event-1', {
+        title: 'Updated meeting',
+        userId: 'otro-user',
+        id: 'otro-event',
+        createdAt: new Date('2000-01-01'),
+      } as any);
+
+      const arg = (prisma.calendarEvent.update as jest.Mock).mock.calls[0][0];
+      expect(arg.data.userId).toBeUndefined();
+      expect(arg.data.id).toBeUndefined();
+      expect(arg.data.createdAt).toBeUndefined();
+      expect(arg.data.title).toBe('Updated meeting');
+    });
+
     it('should convert string dates to Date objects', async () => {
       (prisma.calendarEvent.findFirst as jest.Mock).mockResolvedValue(mockEvent);
       (prisma.calendarEvent.update as jest.Mock).mockResolvedValue(mockEvent);
