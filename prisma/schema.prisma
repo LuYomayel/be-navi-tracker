@@ -60,6 +60,7 @@ model User {
   expenses                 Expense[]
   expenseCategories        ExpenseCategory[]
   recurringExpenses        RecurringExpense[]
+  incomes                  Income[]
 
   @@map("users")
 }
@@ -722,6 +723,7 @@ model Expense {
   categoryId         String?
   source             String   @default("manual") // manual | recurring
   recurringExpenseId String? // si lo generó un pago recurrente
+  goalId             String? // inversión para un objetivo (ej: filamento 3D → fondo NZ)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -749,4 +751,25 @@ model RecurringExpense {
   category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   @@map("recurring_expenses")
+}
+
+// Ingresos (ventas impresion 3D u otros): amount = cobrado, cost = porcion
+// que recupera inversion; ganancia = amount - cost. goalId linkea al objetivo.
+model Income {
+  id          String   @id @default(cuid())
+  userId      String
+  date        String // YYYY-MM-DD
+  description String
+  amount      Float // ARS cobrados
+  cost        Float    @default(0) // porcion costo (recupera inversion)
+  source      String   @default("3d") // 3d | other
+  goalId      String? // objetivo al que aporta la ganancia
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@map("incomes")
 }

@@ -12,6 +12,7 @@ export interface CreateExpenseDto {
   amount: number;
   description: string;
   categoryId?: string | null;
+  goalId?: string | null; // inversión para un objetivo (ej: filamento 3D)
 }
 
 export interface UpdateExpenseDto {
@@ -19,6 +20,17 @@ export interface UpdateExpenseDto {
   amount?: number;
   description?: string;
   categoryId?: string | null;
+  goalId?: string | null;
+}
+
+export interface IncomeDto {
+  date?: string;
+  description?: string;
+  amount?: number;
+  cost?: number; // porción que recupera inversión; ganancia = amount - cost
+  source?: string;
+  goalId?: string | null;
+  notes?: string | null;
 }
 
 export interface CategoryDto {
@@ -79,6 +91,7 @@ export class ExpensesService {
         amount: dto.amount,
         description: dto.description.trim(),
         categoryId: dto.categoryId || null,
+        goalId: dto.goalId || null,
         source: 'manual',
       },
       include: { category: true },
@@ -100,6 +113,7 @@ export class ExpensesService {
         amount: dto.amount,
         description: dto.description?.trim(),
         categoryId: dto.categoryId === undefined ? undefined : dto.categoryId,
+        goalId: dto.goalId === undefined ? undefined : dto.goalId,
       },
       include: { category: true },
     });
@@ -278,6 +292,107 @@ export class ExpensesService {
       posted++;
     }
     return posted;
+  }
+
+  // ── Ingresos (ventas 3D u otros) ──────────────────────────
+
+  async getIncomes(userId: string, month?: string) {
+    return this.prisma.income.findMany({
+      where: {
+        userId,
+        ...(month ? { date: monthRange(month) } : {}),
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  async createIncome(userId: string, dto: IncomeDto) {
+    if (!dto.amount || dto.amount <= 0) {
+      throw new BadRequestException('El monto debe ser mayor a 0');
+    }
+    const cost = dto.cost ?? 0;
+    if (cost < 0 || cost > dto.amount) {
+      throw new BadRequestException(
+        'El costo no puede ser negativo ni mayor al monto cobrado',
+      );
+    }
+    if (!dto.description?.trim()) {
+      throw new BadRequestException('Falta la descripción del ingreso');
+    }
+    return this.prisma.income.create({
+      data: {
+        userId,
+        date: dto.date || new Date().toISOString().slice(0, 10),
+        description: dto.description.trim(),
+        amount: dto.amount,
+        cost,
+        source: dto.source || '3d',
+        goalId: dto.goalId || null,
+        notes: dto.notes || null,
+      },
+    });
+  }
+
+  async updateIncome(userId: string, id: string, dto: IncomeDto) {
+    const existing = await this.prisma.income.findFirst({
+      where: { id, userId },
+    });
+    if (!existing) throw new NotFoundException('Ingreso no encontrado');
+    const amount = dto.amount ?? existing.amount;
+    const cost = dto.cost ?? existing.cost;
+    if (amount <= 0 || cost < 0 || cost > amount) {
+      throw new BadRequestException('Monto/costo inválidos');
+    }
+    return this.prisma.income.update({
+      where: { id },
+      data: {
+        date: dto.date,
+        description: dto.description?.trim(),
+        amount: dto.amount,
+        cost: dto.cost,
+        source: dto.source,
+        goalId: dto.goalId === undefined ? undefined : dto.goalId,
+        notes: dto.notes === undefined ? undefined : dto.notes,
+      },
+    });
+  }
+
+  async deleteIncome(userId: string, id: string) {
+    const existing = await this.prisma.income.findFirst({
+      where: { id, userId },
+    });
+    if (!existing) throw new NotFoundException('Ingreso no encontrado');
+    await this.prisma.income.delete({ where: { id } });
+    return true;
+  }
+
+  /**
+   * Balance del negocio 3D (espejo del sheet "Seguimiento privado"):
+   * inversión (gastos linkeados a un objetivo) vs ganancia de ingresos.
+   */
+  async getBusinessSummary(userId: string) {
+    const [investments, incomes] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: { userId, goalId: { not: null } },
+      }),
+      this.prisma.income.findMany({ where: { userId } }),
+    ]);
+
+    const invested = investments.reduce((a, e) => a + e.amount, 0);
+    const incomeTotal = incomes.reduce((a, i) => a + i.amount, 0);
+    const costRecovered = incomes.reduce((a, i) => a + i.cost, 0);
+    const profit = incomeTotal - costRecovered;
+
+    return {
+      invested,
+      investmentsCount: investments.length,
+      incomeTotal,
+      costRecovered,
+      profit,
+      balance: profit - invested,
+      toRecover: Math.max(0, invested - profit),
+      incomesCount: incomes.length,
+    };
   }
 
   // ── Resumen / insights ────────────────────────────────────

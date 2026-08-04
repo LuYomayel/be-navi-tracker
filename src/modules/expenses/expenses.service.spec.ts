@@ -75,6 +75,13 @@ describe('ExpensesService', () => {
               update: jest.fn(),
               delete: jest.fn(),
             },
+            income: {
+              findMany: jest.fn(),
+              findFirst: jest.fn(),
+              create: jest.fn(),
+              update: jest.fn(),
+              delete: jest.fn(),
+            },
           },
         },
       ],
@@ -287,6 +294,97 @@ describe('ExpensesService', () => {
 
       expect(posted).toBe(0);
       expect(prisma.expense.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Ingresos (ventas 3D) ──────────────────────────────────
+
+  describe('createIncome', () => {
+    it('should create an income with cost portion and goal link', async () => {
+      (prisma.income.create as jest.Mock).mockResolvedValue({
+        id: 'inc-1',
+        userId,
+        date: '2026-08-01',
+        description: 'Tetris x2 a Marcelito',
+        amount: 17300,
+        cost: 11500,
+        source: '3d',
+        goalId: 'goal-nz',
+      });
+
+      const result = await service.createIncome(userId, {
+        date: '2026-08-01',
+        description: 'Tetris x2 a Marcelito',
+        amount: 17300,
+        cost: 11500,
+        goalId: 'goal-nz',
+      });
+
+      expect(prisma.income.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId,
+          amount: 17300,
+          cost: 11500,
+          goalId: 'goal-nz',
+        }),
+      });
+      expect(result.amount).toBe(17300);
+    });
+
+    it('should reject cost greater than amount', async () => {
+      await expect(
+        service.createIncome(userId, {
+          date: '2026-08-01',
+          description: 'Venta',
+          amount: 1000,
+          cost: 2000,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject a non-positive amount', async () => {
+      await expect(
+        service.createIncome(userId, {
+          date: '2026-08-01',
+          description: 'Venta',
+          amount: 0,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getBusinessSummary', () => {
+    it('should mirror the sheet balance: invested vs profit', async () => {
+      // Inversiones: gastos linkeados al objetivo (filamento + muestras)
+      (prisma.expense.findMany as jest.Mock).mockResolvedValue([
+        { ...mockExpense, amount: 135480, goalId: 'goal-nz' },
+        { ...mockExpense, id: 'exp-2', amount: 20200, goalId: 'goal-nz' },
+      ]);
+      (prisma.income.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'inc-1',
+          amount: 17300,
+          cost: 11500,
+          date: '2026-08-01',
+          description: 'Tetris x2',
+        },
+        {
+          id: 'inc-2',
+          amount: 7400,
+          cost: 5700,
+          date: '2026-08-02',
+          description: 'Bandeja conteo',
+        },
+      ]);
+
+      const s = await service.getBusinessSummary(userId);
+
+      expect(s.invested).toBe(155680);
+      expect(s.incomeTotal).toBe(24700);
+      expect(s.costRecovered).toBe(17200);
+      expect(s.profit).toBe(7500); // 5800 + 1700
+      expect(s.balance).toBe(7500 - 155680);
+      expect(s.toRecover).toBe(155680 - 7500);
     });
   });
 

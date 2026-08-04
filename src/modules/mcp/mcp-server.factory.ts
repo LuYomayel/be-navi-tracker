@@ -1622,6 +1622,12 @@ export class McpServerFactory {
             .string()
             .optional()
             .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+          inversion_3d: z
+            .boolean()
+            .optional()
+            .describe(
+              'true si es una inversión del negocio de impresión 3D (filamento, repuestos, muestras) — se linkea al objetivo NZ',
+            ),
         },
       },
       async (a) => {
@@ -1640,15 +1646,85 @@ export class McpServerFactory {
             catLabel = ` (categoría "${a.categoria}" no encontrada — quedó sin categoría)`;
           }
         }
+        let goalId: string | undefined;
+        if (a.inversion_3d) {
+          const active = await this.goal.getActive(userId);
+          goalId = active?.id;
+        }
         const fecha = a.fecha || getLocalDateString();
         const exp = await this.expenses.createExpense(userId, {
           date: fecha,
           amount: a.monto,
           description: a.descripcion,
           categoryId,
+          goalId,
         });
         return text(
-          `Gasto registrado (${fecha}): ${ars(exp.amount)} — ${exp.description}${catLabel}. id ${exp.id}.`,
+          `Gasto registrado (${fecha}): ${ars(exp.amount)} — ${exp.description}${catLabel}${goalId ? ' 🖨️ inversión del negocio 3D' : ''}. id ${exp.id}.`,
+        );
+      },
+    );
+
+    add(
+      'registrar_ingreso_3d',
+      {
+        title: 'Registrar ingreso del negocio 3D',
+        description:
+          'Registra un ingreso del negocio de impresión 3D (ej: lo que paga Marcelito por los juegos): monto cobrado y porción de costo. La ganancia (monto - costo) es lo que alimenta el fondo NZ. Usá resumen_negocio_3d para el balance.',
+        inputSchema: {
+          monto: z.number().describe('Monto cobrado en ARS'),
+          costo: z
+            .number()
+            .optional()
+            .describe(
+              'Porción del monto que es costo de producción (recupera inversión). Ganancia = monto - costo',
+            ),
+          descripcion: z
+            .string()
+            .describe('Qué fue (ej: "Tetris x2 vendidos por Marcelito")'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const active = await this.goal.getActive(userId);
+        const inc = await this.expenses.createIncome(userId, {
+          date: a.fecha || getLocalDateString(),
+          description: a.descripcion,
+          amount: a.monto,
+          cost: a.costo ?? 0,
+          goalId: active?.id,
+        });
+        const profit = inc.amount - inc.cost;
+        return text(
+          `Ingreso 3D registrado (${inc.date}): ${ars(inc.amount)} — ${inc.description}. Costo ${ars(inc.cost)} · Ganancia ${ars(profit)}. id ${inc.id}.`,
+        );
+      },
+    );
+
+    add(
+      'resumen_negocio_3d',
+      {
+        title: 'Balance del negocio 3D',
+        description:
+          'Balance del negocio de impresión 3D: inversión total (gastos marcados como inversión), ingresos, costo recuperado, ganancia limpia y cuánto falta para recuperar la inversión. Espejo del sheet de seguimiento.',
+        inputSchema: {},
+      },
+      async () => {
+        const s = await this.expenses.getBusinessSummary(userId);
+        return text(
+          [
+            `🖨️ Negocio 3D:`,
+            `Invertido: ${ars(s.invested)} (${s.investmentsCount} gastos)`,
+            `Ingresos: ${ars(s.incomeTotal)} (${s.incomesCount} ventas) — costo recuperado ${ars(s.costRecovered)}`,
+            `Ganancia limpia: ${ars(s.profit)}`,
+            `Balance: ${s.balance >= 0 ? '+' : ''}${ars(s.balance)}`,
+            s.toRecover > 0
+              ? `Para recuperar la inversión faltan ${ars(s.toRecover)} de ganancia.`
+              : `✅ Inversión recuperada.`,
+          ].join('\n'),
         );
       },
     );

@@ -18,6 +18,7 @@ import {
   CategoryDto,
   CreateExpenseDto,
   ExpensesService,
+  IncomeDto,
   RecurringDto,
   UpdateExpenseDto,
 } from './expenses.service';
@@ -113,6 +114,50 @@ export class ExpensesController {
   @Delete('recurring/:id')
   async deleteRecurring(@Param('id') id: string, @Req() req: any) {
     await this.expenses.deleteRecurring(req.user.userId, id);
+    return { success: true };
+  }
+
+  // ── Ingresos + negocio 3D ────────────────────────────────
+  @Get('business-summary')
+  async businessSummary(@Req() req: any) {
+    return {
+      success: true,
+      data: await this.expenses.getBusinessSummary(req.user.userId),
+    };
+  }
+
+  @Get('incomes')
+  async incomes(@Query('month') month: string, @Req() req: any) {
+    return {
+      success: true,
+      data: await this.expenses.getIncomes(req.user.userId, month || undefined),
+    };
+  }
+
+  @Post('incomes')
+  @HttpCode(HttpStatus.CREATED)
+  async createIncome(@Body() dto: IncomeDto, @Req() req: any) {
+    return {
+      success: true,
+      data: await this.expenses.createIncome(req.user.userId, dto),
+    };
+  }
+
+  @Put('incomes/:id')
+  async updateIncome(
+    @Param('id') id: string,
+    @Body() dto: IncomeDto,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.expenses.updateIncome(req.user.userId, id, dto),
+    };
+  }
+
+  @Delete('incomes/:id')
+  async deleteIncome(@Param('id') id: string, @Req() req: any) {
+    await this.expenses.deleteIncome(req.user.userId, id);
     return { success: true };
   }
 
