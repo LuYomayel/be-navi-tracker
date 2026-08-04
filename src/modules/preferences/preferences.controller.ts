@@ -1,48 +1,26 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Body,
-  HttpException,
-  HttpStatus,
-  UseGuards,
-  Req, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, UseGuards, Req } from '@nestjs/common';
 import {
   PreferencesService,
   PreferencesDTO,
-  SetPreferencesRequest,
 } from './preferences.service';
 import { ApiResponse } from '../../common/types';
-import { User } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('preferences')
 @UseGuards(JwtAuthGuard)
 export class PreferencesController {
-  private readonly logger = new Logger(PreferencesController.name);
-
   constructor(private readonly preferencesService: PreferencesService) {}
 
   @Get()
   async getPreferences(@Req() req: any): Promise<ApiResponse<any>> {
-    try {
-      const preferences = await this.preferencesService.getPreferences(
-        req.user.userId,
-      );
+    const preferences = await this.preferencesService.getPreferences(
+      req.user.userId,
+    );
 
-      return {
-        success: true,
-        data: preferences,
-      };
-    } catch (error) {
-      this.logger.error('Error fetching preferences:', error);
-      return {
-        success: false,
-        data: null,
-        error: 'Error obteniendo preferencias del usuario',
-      };
-    }
+    return {
+      success: true,
+      data: preferences,
+    };
   }
 
   @Post()
@@ -50,108 +28,55 @@ export class PreferencesController {
     @Body() request: PreferencesDTO,
     @Req() req: any,
   ): Promise<ApiResponse<any>> {
-    try {
-      const savedPreferences = await this.preferencesService.setPreferences(
-        request,
-        req.user.userId,
-      );
-      /*
-      return {
-        success: true,
-        data: {
-          id: savedPreferences.id,
-          goals: {
-            dailyCalories: savedPreferences.dailyCalorieGoal,
-            protein: savedPreferences.proteinGoal,
-            carbs: savedPreferences.carbsGoal,
-            fat: savedPreferences.fatGoal,
-            fiber: savedPreferences.fiberGoal,
-          },
-          personalData: {
-            height: savedPreferences.height,
-            currentWeight: savedPreferences.currentWeight,
-            targetWeight: savedPreferences.targetWeight,
-            age: savedPreferences.age,
-            gender: savedPreferences.gender,
-            activityLevel: savedPreferences.activityLevel,
-            fitnessGoals: savedPreferences.fitnessGoals,
-          },
-          bodyAnalysis: {
-            lastAnalysisId: savedPreferences.lastBodyAnalysisId,
-          },
-          updatedAt: savedPreferences.updatedAt,
-        },
-      };
-      */
-      return {
-        success: true,
-        data: savedPreferences,
-      };
-    } catch (error) {
-      this.logger.error('❌ Error saving preferences:', error);
-      throw new HttpException(
-        'Error guardando preferencias del usuario',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    const savedPreferences = await this.preferencesService.setPreferences(
+      request,
+      req.user.userId,
+    );
+
+    return {
+      success: true,
+      data: savedPreferences,
+    };
   }
 
   @Get('goals')
   async getCurrentGoals(@Req() req: any): Promise<ApiResponse<any>> {
-    try {
-      const goals = await this.preferencesService.getCurrentGoals(
-        req.user.userId,
-      );
+    const goals = await this.preferencesService.getCurrentGoals(
+      req.user.userId,
+    );
 
-      if (!goals) {
-        return {
-          success: false,
-          data: null,
-          error: 'No se encontraron objetivos configurados',
-        };
-      }
-
-      return {
-        success: true,
-        data: goals,
-      };
-    } catch (error) {
-      this.logger.error('Error fetching current goals:', error);
+    if (!goals) {
       return {
         success: false,
         data: null,
-        error: 'Error obteniendo objetivos actuales',
+        error: 'No se encontraron objetivos configurados',
       };
     }
+
+    return {
+      success: true,
+      data: goals,
+    };
   }
 
   @Get('progress')
   async getProgressData(@Req() req: any): Promise<ApiResponse<any>> {
-    try {
-      const progressData = await this.preferencesService.getProgressData(
-        req.user.userId,
-      );
+    const progressData = await this.preferencesService.getProgressData(
+      req.user.userId,
+    );
 
-      if (!progressData) {
-        return {
-          success: false,
-          data: null,
-          error: 'Datos insuficientes para calcular progreso',
-        };
-      }
-
-      return {
-        success: true,
-        data: progressData,
-      };
-    } catch (error) {
-      this.logger.error('Error fetching progress data:', error);
+    if (!progressData) {
       return {
         success: false,
         data: null,
-        error: 'Error obteniendo datos de progreso',
+        error: 'Datos insuficientes para calcular progreso',
       };
     }
+
+    return {
+      success: true,
+      data: progressData,
+    };
   }
 
   @Put('goals')
@@ -165,31 +90,21 @@ export class PreferencesController {
     },
     @Req() req: any,
   ): Promise<ApiResponse<any>> {
-    try {
+    const updatedPreferences = await this.preferencesService.updateGoals(
+      request,
+      req.user.userId,
+    );
 
-      const updatedPreferences = await this.preferencesService.updateGoals(
-        request,
-        req.user.userId,
-      );
-
-
-      return {
-        success: true,
-        data: {
-          dailyCalorieGoal: updatedPreferences.dailyCalorieGoal,
-          proteinGoal: updatedPreferences.proteinGoal,
-          carbsGoal: updatedPreferences.carbsGoal,
-          fatGoal: updatedPreferences.fatGoal,
-          updatedAt: updatedPreferences.updatedAt,
-        },
-      };
-    } catch (error) {
-      this.logger.error('❌ Error updating goals:', error);
-      throw new HttpException(
-        'Error actualizando objetivos nutricionales',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return {
+      success: true,
+      data: {
+        dailyCalorieGoal: updatedPreferences.dailyCalorieGoal,
+        proteinGoal: updatedPreferences.proteinGoal,
+        carbsGoal: updatedPreferences.carbsGoal,
+        fatGoal: updatedPreferences.fatGoal,
+        updatedAt: updatedPreferences.updatedAt,
+      },
+    };
   }
 
   @Put('personal-data')
@@ -210,33 +125,23 @@ export class PreferencesController {
     },
     @Req() req: any,
   ): Promise<ApiResponse<any>> {
-    try {
-
-      const updatedPreferences =
-        await this.preferencesService.updatePersonalData(
-          request,
-          req.user.userId,
-        );
-
-
-      return {
-        success: true,
-        data: {
-          height: updatedPreferences.height,
-          currentWeight: updatedPreferences.currentWeight,
-          targetWeight: updatedPreferences.targetWeight,
-          age: updatedPreferences.age,
-          gender: updatedPreferences.gender,
-          activityLevel: updatedPreferences.activityLevel,
-          updatedAt: updatedPreferences.updatedAt,
-        },
-      };
-    } catch (error) {
-      this.logger.error('❌ Error updating personal data:', error);
-      throw new HttpException(
-        'Error actualizando datos personales',
-        HttpStatus.INTERNAL_SERVER_ERROR,
+    const updatedPreferences =
+      await this.preferencesService.updatePersonalData(
+        request,
+        req.user.userId,
       );
-    }
+
+    return {
+      success: true,
+      data: {
+        height: updatedPreferences.height,
+        currentWeight: updatedPreferences.currentWeight,
+        targetWeight: updatedPreferences.targetWeight,
+        age: updatedPreferences.age,
+        gender: updatedPreferences.gender,
+        activityLevel: updatedPreferences.activityLevel,
+        updatedAt: updatedPreferences.updatedAt,
+      },
+    };
   }
 }
