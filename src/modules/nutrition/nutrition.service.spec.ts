@@ -3,10 +3,13 @@ import { NotFoundException } from '@nestjs/common';
 import { NutritionService } from './nutrition.service';
 import { PrismaService } from '../../config/prisma.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { XpService } from '../xp/xp.service';
+import { getLocalDateString } from '../../common/utils/date.utils';
 
 describe('NutritionService', () => {
   let service: NutritionService;
   let prisma: PrismaService;
+  let xpService: XpService;
 
   const userId = 'user-1';
 
@@ -87,11 +90,19 @@ describe('NutritionService', () => {
             calculateCost: jest.fn().mockReturnValue(0),
           },
         },
+        {
+          provide: XpService,
+          useValue: {
+            addXp: jest.fn().mockResolvedValue({}),
+            addNutritionXp: jest.fn().mockResolvedValue({}),
+          },
+        },
       ],
     }).compile();
 
     service = module.get<NutritionService>(NutritionService);
     prisma = module.get<PrismaService>(PrismaService);
+    xpService = module.get<XpService>(XpService);
   });
 
   describe('getAll', () => {
@@ -168,6 +179,121 @@ describe('NutritionService', () => {
       await expect(
         service.create({ foods: [], macronutrients: {} } as any, userId),
       ).rejects.toThrow('Error al crear análisis nutricional');
+    });
+
+  });
+
+  describe('evaluateDailyGoalsForAllUsers', () => {
+    // El cron corre a la 01:00 ART: tiene que evaluar el día que terminó (ayer).
+    const yesterday = () =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date(Date.now() - 24 * 60 * 60 * 1000));
+
+    it('should evaluate yesterday and not today', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValue([{ id: 'u1' }]);
+      const check = jest
+        .spyOn(service, 'checkDailyNutritionGoals')
+        .mockResolvedValue({ meetsGoals: false, totals: {} });
+
+      await service.evaluateDailyGoalsForAllUsers();
+
+      expect(check).toHaveBeenCalledWith('u1', yesterday());
+      expect(check).not.toHaveBeenCalledWith('u1', getLocalDateString());
+    });
+
+    it('should award the 40 XP bonus to each user that meets the goals', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValue([
+        { id: 'u1' },
+        { id: 'u2' },
+        { id: 'u3' },
+      ]);
+      jest
+        .spyOn(service, 'checkDailyNutritionGoals')
+        .mockImplementation(async (uid: string) => ({
+          meetsGoals: uid !== 'u2',
+          totals: {},
+        }));
+
+      await service.evaluateDailyGoalsForAllUsers();
+
+      expect(xpService.addXp).toHaveBeenCalledTimes(2);
+      expect(xpService.addXp).toHaveBeenCalledWith(
+        'u1',
+        expect.objectContaining({ xpAmount: 40 }),
+        yesterday(),
+      );
+      expect(xpService.addXp).toHaveBeenCalledWith(
+        'u3',
+        expect.objectContaining({ xpAmount: 40 }),
+        yesterday(),
+      );
+      // El bug original le daba el XP al userId literal 'system', que no existe.
+      expect(xpService.addXp).not.toHaveBeenCalledWith(
+        'system',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('should not award XP to users that do not meet the goals', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValue([{ id: 'u1' }]);
+      jest
+        .spyOn(service, 'checkDailyNutritionGoals')
+        .mockResolvedValue({ meetsGoals: false, totals: {} });
+
+      await service.evaluateDailyGoalsForAllUsers();
+
+      expect(xpService.addXp).not.toHaveBeenCalled();
+    });
+
+    it('should return one result per user instead of only the last one', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValue([
+        { id: 'u1' },
+        { id: 'u2' },
+      ]);
+      jest
+        .spyOn(service, 'checkDailyNutritionGoals')
+        .mockImplementation(async (uid: string) => ({
+          meetsGoals: uid === 'u1',
+          totals: { calories: 100 },
+        }));
+
+      const result = await service.evaluateDailyGoalsForAllUsers();
+
+      expect(result.date).toBe(yesterday());
+      expect(result.results).toHaveLength(2);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ userId: 'u1', meetsGoals: true }),
+          expect.objectContaining({ userId: 'u2', meetsGoals: false }),
+        ]),
+      );
+    });
+
+    it('should keep going when one user fails', async () => {
+      (prisma.user.findMany as jest.Mock).mockResolvedValue([
+        { id: 'u1' },
+        { id: 'u2' },
+      ]);
+      jest
+        .spyOn(service, 'checkDailyNutritionGoals')
+        .mockImplementation(async (uid: string) => {
+          if (uid === 'u1') throw new Error('boom');
+          return { meetsGoals: true, totals: {} };
+        });
+
+      const result = await service.evaluateDailyGoalsForAllUsers();
+
+      expect(result.results).toHaveLength(1);
+      expect(xpService.addXp).toHaveBeenCalledWith(
+        'u2',
+        expect.objectContaining({ xpAmount: 40 }),
+        yesterday(),
+      );
     });
   });
 

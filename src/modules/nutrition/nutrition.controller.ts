@@ -24,9 +24,7 @@ import {
 } from '../../common/types';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { XpAction } from '../xp/dto/xp.dto';
 import { getLocalDateString } from '../../common/utils/date.utils';
-import { XpService } from '../xp/xp.service';
 import { CreateWeightEntryManualDto } from './dto/create-weight-entry.dto';
 
 @Controller('nutrition')
@@ -34,10 +32,7 @@ import { CreateWeightEntryManualDto } from './dto/create-weight-entry.dto';
 export class NutritionController {
   private readonly logger = new Logger(NutritionController.name);
 
-  constructor(
-    private readonly nutritionService: NutritionService,
-    private readonly xpService: XpService,
-  ) {}
+  constructor(private readonly nutritionService: NutritionService) {}
 
   @Get()
   async getAnalyses(
@@ -383,19 +378,12 @@ export class NutritionController {
   @Cron(CronExpression.EVERY_DAY_AT_1AM, {
     timeZone: 'America/Argentina/Buenos_Aires',
   })
-  async evaluateDailyNutritionGoals(@Req() req: any) {
-    // Procesar el día que acaba de terminar (ayer)
+  async evaluateDailyNutritionGoals() {
+    // Procesar el día que acaba de terminar (ayer). El service evalúa a cada
+    // usuario activo y le otorga el bonus a quien corresponda.
     try {
-      const result = await this.nutritionService.updateNutritionAnalysis();
-      if (result.meetsGoals) {
-        // Agregar experiencia
-        // TODO: Iterate over all active users instead of hardcoded ID
-        const xp = await this.xpService.addXp('system', {
-          action: XpAction.NUTRITION_LOG,
-          xpAmount: 40,
-          description: 'Cumplir el objetivo calórico/macros del día',
-        });
-      }
+      const result =
+        await this.nutritionService.evaluateDailyGoalsForAllUsers();
       return { success: true, data: result };
     } catch (error) {
       this.logger.error('Error al evaluar objetivos nutricionales diarios:', error);

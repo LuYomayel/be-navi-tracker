@@ -5,7 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
-import { getLocalDateString } from '../../common/utils/date.utils';
+import {
+  getLocalDateString,
+  toLocalDateString,
+} from '../../common/utils/date.utils';
 import {
   NutritionAnalysis,
   WeightEntry,
@@ -15,13 +18,19 @@ import OpenAI from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
 import { CreateWeightEntryManualDto } from './dto/create-weight-entry.dto';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { XpService } from '../xp/xp.service';
+import { XpAction } from '../xp/dto/xp.dto';
 
 @Injectable()
 export class NutritionService {
   private readonly logger = new Logger(NutritionService.name);
 
   private openai: OpenAI | null = null;
-  constructor(private prisma: PrismaService, private aiCostService: AICostService) {
+  constructor(
+    private prisma: PrismaService,
+    private aiCostService: AICostService,
+    private xpService: XpService,
+  ) {
     if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
@@ -161,6 +170,7 @@ export class NutritionService {
         macronutrients: payload.macronutrients,
         userAdjustments: payload.userAdjustments,
       };
+
       return analysis;
     } catch (error) {
       this.logger.error('Error al crear análisis nutricional:', error);
@@ -252,24 +262,70 @@ export class NutritionService {
     }
   }
 
-  async updateNutritionAnalysis() {
+  /**
+   * Evalúa los objetivos nutricionales del día que YA TERMINÓ (ayer) para
+   * todos los usuarios activos y le otorga el bonus de 40 XP a cada uno que
+   * los haya cumplido. Lo dispara el cron de la 01:00 (hora Argentina), por
+   * eso mira ayer y no hoy.
+   */
+  async evaluateDailyGoalsForAllUsers(): Promise<{
+    date: string;
+    results: Array<{
+      userId: string;
+      meetsGoals: boolean;
+      totals: Record<string, number>;
+    }>;
+  }> {
     try {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const dateStr = getLocalDateString();
+      // El día que acaba de cerrar, en hora local de Argentina.
+      const dateStr = toLocalDateString(
+        new Date(Date.now() - 24 * 60 * 60 * 1000),
+      );
 
-      // TODO: Iterate over all active users
-      const users = await this.prisma.user.findMany({ where: { isActive: true }, select: { id: true } });
-      let result = { meetsGoals: false, totals: {} };
+      const users = await this.prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true },
+      });
+
+      const results: Array<{
+        userId: string;
+        meetsGoals: boolean;
+        totals: Record<string, number>;
+      }> = [];
+
       for (const user of users) {
-        result = await this.checkDailyNutritionGoals(user.id, dateStr);
+        // Un usuario que falla no puede tumbar la evaluación de los demás.
+        try {
+          const result = await this.checkDailyNutritionGoals(user.id, dateStr);
+
+          if (result.meetsGoals) {
+            await this.xpService.addXp(
+              user.id,
+              {
+                action: XpAction.NUTRITION_LOG,
+                xpAmount: 40,
+                description: 'Cumplir el objetivo calórico/macros del día',
+              },
+              dateStr,
+            );
+          }
+
+          results.push({ userId: user.id, ...result });
+        } catch (userError) {
+          this.logger.error(
+            `Error evaluando objetivos nutricionales del usuario ${user.id} (${dateStr})`,
+            userError,
+          );
+        }
       }
 
-
-      return result; // Devolver para controlador si lo necesita
+      return { date: dateStr, results };
     } catch (error) {
-      this.logger.error('Error al actualizar análisis nutricional:', error);
-      throw new Error('Error al actualizar análisis nutricional');
+      this.logger.error(
+        'Error al evaluar objetivos nutricionales diarios:',
+        error,
+      );
+      throw new Error('Error al evaluar objetivos nutricionales diarios');
     }
   }
 
