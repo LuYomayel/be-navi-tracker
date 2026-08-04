@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { NutritionService } from './nutrition.service';
 import { PrismaService } from '../../config/prisma.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
@@ -58,6 +59,7 @@ describe('NutritionService', () => {
               findFirst: jest.fn(),
               create: jest.fn(),
               update: jest.fn(),
+              updateMany: jest.fn(),
               delete: jest.fn(),
             },
             weightEntry: {
@@ -166,6 +168,108 @@ describe('NutritionService', () => {
       await expect(
         service.create({ foods: [], macronutrients: {} } as any, userId),
       ).rejects.toThrow('Error al crear análisis nutricional');
+    });
+  });
+
+  describe('update', () => {
+    const okUpdate = () => {
+      (prisma.nutritionAnalysis.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      (prisma.nutritionAnalysis.findFirst as jest.Mock).mockResolvedValue(
+        mockAnalysis,
+      );
+    };
+
+    it('should update an analysis owned by the user', async () => {
+      okUpdate();
+
+      const result = await service.update(
+        'analysis-1',
+        { mealType: 'cena' } as any,
+        userId,
+      );
+
+      expect(result).toBeDefined();
+      expect(prisma.nutritionAnalysis.updateMany).toHaveBeenCalledWith({
+        where: { id: 'analysis-1', userId },
+        data: { mealType: 'cena' },
+      });
+    });
+
+    it('should tolerate a partial update without foods', async () => {
+      okUpdate();
+
+      // El frontend manda solo el campo que cambio; serializar foods/macros
+      // undefined rompia con "Unexpected token u in JSON".
+      await expect(
+        service.update(
+          'analysis-1',
+          { dietCompliance: 'off_diet', complianceNote: 'cheat' } as any,
+          userId,
+        ),
+      ).resolves.toBeDefined();
+
+      const call = (prisma.nutritionAnalysis.updateMany as jest.Mock).mock
+        .calls[0][0];
+      expect(call.data).toEqual({
+        dietCompliance: 'off_diet',
+        complianceNote: 'cheat',
+      });
+      expect('foods' in call.data).toBe(false);
+    });
+
+    it('should ignore non-whitelisted fields (mass assignment)', async () => {
+      okUpdate();
+
+      await service.update(
+        'analysis-1',
+        {
+          mealType: 'cena',
+          userId: 'otro-user',
+          id: 'otro-id',
+          createdAt: new Date('2000-01-01'),
+          aiCostUsd: 999,
+        } as any,
+        userId,
+      );
+
+      const call = (prisma.nutritionAnalysis.updateMany as jest.Mock).mock
+        .calls[0][0];
+      expect(call.data).toEqual({ mealType: 'cena' });
+    });
+
+    it('should serialize the json fields when present', async () => {
+      okUpdate();
+
+      await service.update(
+        'analysis-1',
+        {
+          foods: [{ name: 'Pollo', calories: 300 }],
+          macronutrients: { protein: 30, carbs: 0, fat: 10, fiber: 0 },
+        } as any,
+        userId,
+      );
+
+      const call = (prisma.nutritionAnalysis.updateMany as jest.Mock).mock
+        .calls[0][0];
+      expect(call.data.foods).toEqual([{ name: 'Pollo', calories: 300 }]);
+      expect(call.data.macronutrients).toEqual({
+        protein: 30,
+        carbs: 0,
+        fat: 10,
+        fiber: 0,
+      });
+    });
+
+    it('should throw NotFound when the analysis belongs to another user', async () => {
+      (prisma.nutritionAnalysis.updateMany as jest.Mock).mockResolvedValue({
+        count: 0,
+      });
+
+      await expect(
+        service.update('analysis-ajeno', { mealType: 'cena' } as any, userId),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

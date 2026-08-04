@@ -168,30 +168,73 @@ export class NutritionService {
     }
   }
 
+  /**
+   * Campos que el usuario puede editar de un analisis nutricional. Todo lo que
+   * no este aca (id, userId, createdAt, aiCostUsd, savedMealId...) se descarta:
+   * antes se spreadeaba el body entero y se podia reasignar el analisis a otra
+   * cuenta o pisar campos internos.
+   */
+  private static readonly UPDATABLE_FIELDS = [
+    'mealType',
+    'foods',
+    'totalCalories',
+    'macronutrients',
+    'userAdjustments',
+    'context',
+    'date',
+    'dietCompliance',
+    'complianceNote',
+  ] as const;
+
+  /** Campos Json de Prisma: se serializan solo si vinieron en el payload. */
+  private static readonly JSON_FIELDS = [
+    'foods',
+    'macronutrients',
+    'userAdjustments',
+  ];
+
   async update(
     id: string,
-    data: NutritionAnalysis,
+    data: Partial<NutritionAnalysis>,
+    userId: string,
   ): Promise<NutritionAnalysis> {
     try {
-      const updated = await this.prisma.nutritionAnalysis.update({
-        where: { id },
-        data: {
-          ...data,
-          foods: JSON.parse(JSON.stringify(data.foods)),
-          macronutrients: JSON.parse(JSON.stringify(data.macronutrients)),
-          userAdjustments: data.userAdjustments
-            ? JSON.parse(JSON.stringify(data.userAdjustments))
-            : undefined,
-        },
+      // Update parcial: solo se tocan los campos presentes en el payload.
+      const updateData: any = {};
+      for (const field of NutritionService.UPDATABLE_FIELDS) {
+        const value = (data as any)[field];
+        if (value === undefined) continue;
+        updateData[field] = NutritionService.JSON_FIELDS.includes(field)
+          ? JSON.parse(JSON.stringify(value))
+          : value;
+      }
+
+      // updateMany filtra por dueño: un analisis ajeno no matchea (count 0).
+      const { count } = await this.prisma.nutritionAnalysis.updateMany({
+        where: { id, userId },
+        data: updateData,
       });
+      if (count === 0) {
+        throw new NotFoundException('Análisis nutricional no encontrado');
+      }
+
+      const updated = await this.prisma.nutritionAnalysis.findFirst({
+        where: { id, userId },
+      });
+      if (!updated) {
+        throw new NotFoundException('Análisis nutricional no encontrado');
+      }
+
+      // Se reconstituye desde lo persistido (no desde el payload parcial).
       const analysis: NutritionAnalysis = {
-        ...updated,
-        foods: data.foods,
-        macronutrients: data.macronutrients,
-        userAdjustments: data.userAdjustments,
+        ...(updated as any),
+        foods: updated.foods as any,
+        macronutrients: updated.macronutrients as any,
+        userAdjustments: updated.userAdjustments as any,
       };
       return analysis;
     } catch (error) {
+      if (error instanceof NotFoundException) throw error;
       this.logger.error('Error al actualizar análisis nutricional:', error);
       throw new Error('Error al actualizar análisis nutricional');
     }

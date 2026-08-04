@@ -334,11 +334,18 @@ export class NutritionController {
   async update(
     @Param('id') id: string,
     @Body() analysisData: NutritionAnalysis,
+    @Req() req: any,
   ): Promise<ApiResponse<NutritionAnalysis>> {
     try {
-      const analysis = await this.nutritionService.update(id, analysisData);
+      const analysis = await this.nutritionService.update(
+        id,
+        analysisData,
+        req.user.userId,
+      );
       return { success: true, data: analysis };
     } catch (error) {
+      // Un analisis ajeno/inexistente sale como 404, no como 500.
+      if (error instanceof HttpException) throw error;
       this.logger.error('Error al actualizar análisis nutricional:', error);
       throw new HttpException(
         'Error al actualizar análisis nutricional',
