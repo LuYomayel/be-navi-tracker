@@ -313,7 +313,9 @@ export class MercadoPagoService {
       body: JSON.stringify({
         file_name_prefix: 'navitracker',
         include_withdraw: true,
-        display_timezone: 'GMT-03',
+        // frequency es REQUERIDO por la API aunque no se active el schedule
+        // (verificado 2026-08-06: sin config creada, crear reportes da 404)
+        frequency: { hour: 6, type: 'daily', value: 0 },
         columns,
       }),
     });

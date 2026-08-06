@@ -284,6 +284,12 @@ describe('MercadoPagoService.sync', () => {
 
     const configPost = calls.find((c) => c.startsWith('POST') && c.endsWith('/config'));
     expect(configPost).toBeDefined();
+    // frequency es requerido por la API: sin él la config da 400
+    const postCall = (global.fetch as jest.Mock).mock.calls.find(
+      ([u, init]: any[]) =>
+        String(u).endsWith('/config') && init?.method === 'POST',
+    );
+    expect(JSON.parse(postCall[1].body).frequency).toBeDefined();
   });
 
   it('should fail gracefully when MP_ACCESS_TOKEN is missing', async () => {
