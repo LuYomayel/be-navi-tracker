@@ -1,7 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DayScoreService } from './day-score.service';
 import { PrismaService } from '../../config/prisma.service';
+import { getLocalDateString } from '../../common/utils/date.utils';
 import { XpService } from '../xp/xp.service';
+
+
+// "Hoy" en fecha local ART (el service usa getLocalDateString, no UTC):
+// con toISOString() estos tests fallaban entre las 21:00 y medianoche ART.
+const localDaysAgo = (n: number) => {
+  const [y, m, d] = getLocalDateString().split('-').map(Number);
+  const dt = new Date(y, m - 1, d - n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
 
 describe('DayScoreService', () => {
   let service: DayScoreService;
@@ -328,7 +338,7 @@ describe('DayScoreService', () => {
     });
 
     it('should use in-memory cache for today (second call skips DB queries)', async () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       const mockScore = { ...mockDayScore, date: today };
       (prisma.dayScore.upsert as jest.Mock).mockResolvedValue(mockScore);
 
@@ -345,7 +355,7 @@ describe('DayScoreService', () => {
 
     it('should bypass in-memory cache after TTL expires', async () => {
       jest.useFakeTimers();
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       const mockScore = { ...mockDayScore, date: today };
       (prisma.dayScore.upsert as jest.Mock).mockResolvedValue(mockScore);
 
@@ -436,8 +446,8 @@ describe('DayScoreService', () => {
 
   describe('getWinStreak', () => {
     it('should calculate current streak of consecutive won days', async () => {
-      const today = new Date().toISOString().split('T')[0];
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const today = getLocalDateString();
+      const yesterday = localDaysAgo(1);
 
       (prisma.dayScore.findMany as jest.Mock).mockResolvedValue([
         { date: today, status: 'won' },
@@ -462,9 +472,9 @@ describe('DayScoreService', () => {
     });
 
     it('should break streak on non-consecutive dates', async () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       // Skip a day
-      const twoDaysAgo = new Date(Date.now() - 172800000).toISOString().split('T')[0];
+      const twoDaysAgo = localDaysAgo(2);
 
       (prisma.dayScore.findMany as jest.Mock).mockResolvedValue([
         { date: today, status: 'won' },
@@ -477,7 +487,7 @@ describe('DayScoreService', () => {
     });
 
     it('should return lastWonDate', async () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       (prisma.dayScore.findMany as jest.Mock).mockResolvedValue([
         { date: today, status: 'won' },
       ]);

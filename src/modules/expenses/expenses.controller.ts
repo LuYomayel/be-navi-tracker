@@ -117,6 +117,18 @@ export class ExpensesController {
     return { success: true };
   }
 
+  // ── Balance del mes (ingresos vs gastos + pendientes) ────
+  @Get('balance')
+  async balance(@Query('month') month: string, @Req() req: any) {
+    return {
+      success: true,
+      data: await this.expenses.getMonthlyBalance(
+        req.user.userId,
+        month || currentMonth(),
+      ),
+    };
+  }
+
   // ── Ingresos + negocio 3D ────────────────────────────────
   @Get('business-summary')
   async businessSummary(@Req() req: any) {
@@ -152,6 +164,22 @@ export class ExpensesController {
     return {
       success: true,
       data: await this.expenses.updateIncome(req.user.userId, id, dto),
+    };
+  }
+
+  @Patch('incomes/:id/receive')
+  async receiveIncome(
+    @Param('id') id: string,
+    @Body() body: { date?: string },
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.expenses.markIncomeReceived(
+        req.user.userId,
+        id,
+        body?.date,
+      ),
     };
   }
 

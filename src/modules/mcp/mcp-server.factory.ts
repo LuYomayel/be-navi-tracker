@@ -1937,6 +1937,427 @@ export class McpServerFactory {
         );
       },
     );
+
+    // Resuelve un gasto por id exacto o por descripción (en un mes).
+    // Devuelve { gasto } o { error: texto para el usuario }.
+    const resolveExpense = async (
+      query: string,
+      mes: string,
+    ): Promise<{ gasto?: any; error?: string }> => {
+      const list = (await this.expenses.getExpenses(userId, mes)) as any[];
+      const byId = list.find((e) => e.id === query);
+      if (byId) return { gasto: byId };
+      const q = query.toLowerCase();
+      const matches = list.filter((e) =>
+        e.description.toLowerCase().includes(q),
+      );
+      if (matches.length === 1) return { gasto: matches[0] };
+      if (matches.length === 0) {
+        return {
+          error: `No encontré un gasto "${query}" en ${mes}. Usá list_gastos para ver los del mes.`,
+        };
+      }
+      return {
+        error:
+          `Hay ${matches.length} gastos que matchean "${query}" en ${mes}:\n` +
+          matches
+            .map((e) => `• ${e.date} ${ars(e.amount)} — ${e.description} (id ${e.id})`)
+            .join('\n') +
+          '\nRepetí indicando el id.',
+      };
+    };
+
+    const incomeTipo = (source: string) =>
+      ({
+        '3d': '🖨️ 3D',
+        sueldo: '💼 sueldo',
+        devolucion: '↩️ devolución',
+        venta: '🏷️ venta',
+        otro: 'otro',
+      })[source] || source;
+
+    const incomeLine = (i: any) =>
+      `• ${i.date} ${ars(i.amount)} — ${i.description} [${incomeTipo(i.source)}]${i.status === 'pending' ? ' ⏳ por cobrar' : ''} (id ${i.id})`;
+
+    // Ídem para ingresos: por id o descripción; los pendientes matchean siempre.
+    const resolveIncome = async (
+      query: string,
+      mes: string,
+    ): Promise<{ ingreso?: any; error?: string }> => {
+      const [monthIncomes, pending] = await Promise.all([
+        this.expenses.getIncomes(userId, mes) as Promise<any[]>,
+        this.expenses.getPendingIncomes(userId) as Promise<any[]>,
+      ]);
+      const seen = new Set<string>();
+      const list = [...monthIncomes, ...pending].filter((i) => {
+        if (seen.has(i.id)) return false;
+        seen.add(i.id);
+        return true;
+      });
+      const byId = list.find((i) => i.id === query);
+      if (byId) return { ingreso: byId };
+      const q = query.toLowerCase();
+      const matches = list.filter((i) =>
+        i.description.toLowerCase().includes(q),
+      );
+      if (matches.length === 1) return { ingreso: matches[0] };
+      if (matches.length === 0) {
+        return {
+          error: `No encontré un ingreso "${query}" (mes ${mes} ni pendientes). Usá list_ingresos.`,
+        };
+      }
+      return {
+        error:
+          `Hay ${matches.length} ingresos que matchean "${query}":\n` +
+          matches.map(incomeLine).join('\n') +
+          '\nRepetí indicando el id.',
+      };
+    };
+
+    add(
+      'editar_gasto',
+      {
+        title: 'Editar un gasto',
+        description:
+          'Edita un gasto existente identificado por su descripción (o su id): monto, descripción, fecha o categoría. Usá list_gastos si no sabés cuál es.',
+        inputSchema: {
+          gasto: z
+            .string()
+            .describe('Descripción (o parte) del gasto a editar, o su id'),
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM donde buscarlo. Por defecto el actual.'),
+          monto: z.number().optional().describe('Nuevo monto en ARS'),
+          descripcion: z.string().optional().describe('Nueva descripción'),
+          fecha: z.string().optional().describe('Nueva fecha YYYY-MM-DD'),
+          categoria: z
+            .string()
+            .optional()
+            .describe('Nueva categoría por nombre ("ninguna" para sacarla)'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const { gasto, error } = await resolveExpense(a.gasto, mes);
+        if (error) return text(error);
+        const update: any = {};
+        if (a.monto !== undefined) update.amount = a.monto;
+        if (a.descripcion) update.description = a.descripcion;
+        if (a.fecha) update.date = a.fecha;
+        if (a.categoria !== undefined) {
+          if (['ninguna', 'sin categoria', 'sin categoría', ''].includes(a.categoria.toLowerCase())) {
+            update.categoryId = null;
+          } else {
+            const cats = await this.expenses.getCategories(userId);
+            const q = a.categoria.toLowerCase();
+            const cat =
+              cats.find((c) => c.name.toLowerCase() === q) ||
+              cats.find((c) => c.name.toLowerCase().includes(q));
+            if (!cat) {
+              return text(
+                `No existe la categoría "${a.categoria}". Existentes: ${cats.map((c) => c.name).join(', ') || '(ninguna)'}.`,
+              );
+            }
+            update.categoryId = cat.id;
+          }
+        }
+        if (!Object.keys(update).length) {
+          return text(
+            `No indicaste ningún cambio para "${gasto.description}". Podés cambiar monto, descripción, fecha o categoría.`,
+          );
+        }
+        const upd = await this.expenses.updateExpense(userId, gasto.id, update);
+        return text(
+          `Gasto actualizado: ${upd.date} ${ars(upd.amount)} — ${upd.description}${(upd as any).category ? ` [${(upd as any).category.name}]` : ''}.`,
+        );
+      },
+    );
+
+    add(
+      'borrar_gasto',
+      {
+        title: 'Borrar un gasto',
+        description:
+          'Borra un gasto identificado por su descripción (o su id). Si hay varios parecidos, lista los candidatos para que elijas.',
+        inputSchema: {
+          gasto: z
+            .string()
+            .describe('Descripción (o parte) del gasto a borrar, o su id'),
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM donde buscarlo. Por defecto el actual.'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const { gasto, error } = await resolveExpense(a.gasto, mes);
+        if (error) return text(error);
+        await this.expenses.deleteExpense(userId, gasto.id);
+        return text(
+          `Gasto borrado: ${gasto.date} ${ars(gasto.amount)} — ${gasto.description}.`,
+        );
+      },
+    );
+
+    add(
+      'registrar_ingreso',
+      {
+        title: 'Registrar un ingreso',
+        description:
+          'Registra un ingreso de plata: sueldo, una devolución que te hicieron, una venta (ej: la cafetera) u otro. Si todavía no lo cobraste, marcalo pendiente=true y queda "por cobrar" (no suma al balance hasta que uses cobrar_ingreso). Para ventas del negocio 3D usá registrar_ingreso_3d.',
+        inputSchema: {
+          monto: z.number().describe('Monto en ARS'),
+          descripcion: z
+            .string()
+            .describe('Qué es (ej: "Sueldo julio", "Venta cafetera", "Devolución Mercado Pago")'),
+          tipo: z
+            .enum(['sueldo', 'devolucion', 'venta', 'otro'])
+            .optional()
+            .describe('Tipo de ingreso. Por defecto "otro". "devolucion" descuenta de los gastos del mes.'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+          pendiente: z
+            .boolean()
+            .optional()
+            .describe('true si todavía no lo cobraste (queda "por cobrar")'),
+          notas: z.string().optional().describe('Notas opcionales'),
+        },
+      },
+      async (a) => {
+        const inc = await this.expenses.createIncome(userId, {
+          date: a.fecha || getLocalDateString(),
+          description: a.descripcion,
+          amount: a.monto,
+          source: a.tipo || 'otro',
+          status: a.pendiente ? 'pending' : 'received',
+          notes: a.notas,
+        });
+        return text(
+          a.pendiente
+            ? `Ingreso pendiente registrado: ${ars(inc.amount)} — ${inc.description} [${incomeTipo(inc.source)}]. Cuando lo cobres, usá cobrar_ingreso. id ${inc.id}.`
+            : `Ingreso registrado (${inc.date}): ${ars(inc.amount)} — ${inc.description} [${incomeTipo(inc.source)}]. id ${inc.id}.`,
+        );
+      },
+    );
+
+    add(
+      'cobrar_ingreso',
+      {
+        title: 'Marcar un ingreso pendiente como cobrado',
+        description:
+          'Marca como cobrado un ingreso que estaba "por cobrar" (venta, devolución, pago pendiente). Pasa a sumar en el balance del mes en que lo cobraste.',
+        inputSchema: {
+          ingreso: z
+            .string()
+            .describe('Descripción (o parte) del ingreso pendiente, o su id'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha del cobro YYYY-MM-DD. Por defecto hoy.'),
+        },
+      },
+      async (a) => {
+        const pending = (await this.expenses.getPendingIncomes(
+          userId,
+        )) as any[];
+        const q = a.ingreso.toLowerCase();
+        const matches = pending.filter(
+          (i) =>
+            i.id === a.ingreso || i.description.toLowerCase().includes(q),
+        );
+        if (!matches.length) {
+          return text(
+            pending.length
+              ? `No encontré un pendiente "${a.ingreso}". Por cobrar:\n${pending.map(incomeLine).join('\n')}`
+              : 'No hay ingresos pendientes de cobro. 🎉',
+          );
+        }
+        if (matches.length > 1) {
+          return text(
+            `Hay ${matches.length} pendientes que matchean:\n${matches.map(incomeLine).join('\n')}\nRepetí indicando el id.`,
+          );
+        }
+        const upd = await this.expenses.markIncomeReceived(
+          userId,
+          matches[0].id,
+          a.fecha,
+        );
+        return text(
+          `Cobrado ✅ (${upd.date}): ${ars(upd.amount)} — ${upd.description}. Ya suma al balance del mes.`,
+        );
+      },
+    );
+
+    add(
+      'list_ingresos',
+      {
+        title: 'Listar ingresos del mes',
+        description:
+          'Lista los ingresos de un mes (sueldo, ventas, devoluciones, 3D) + todo lo pendiente de cobro, con total.',
+        inputSchema: {
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM. Por defecto el actual.'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const [incomes, pending] = await Promise.all([
+          this.expenses.getIncomes(userId, mes) as Promise<any[]>,
+          this.expenses.getPendingIncomes(userId) as Promise<any[]>,
+        ]);
+        const received = incomes.filter((i) => i.status !== 'pending');
+        const lines: string[] = [];
+        if (received.length) {
+          const total = received.reduce((acc, i) => acc + i.amount, 0);
+          lines.push(
+            `Ingresos de ${mes} (${received.length}, total ${ars(total)}):`,
+            ...received.map(incomeLine),
+          );
+        } else {
+          lines.push(`Sin ingresos cobrados en ${mes}.`);
+        }
+        if (pending.length) {
+          const total = pending.reduce((acc, i) => acc + i.amount, 0);
+          lines.push(
+            `⏳ Por cobrar (${ars(total)}):`,
+            ...pending.map(incomeLine),
+          );
+        }
+        return text(lines.join('\n'));
+      },
+    );
+
+    add(
+      'editar_ingreso',
+      {
+        title: 'Editar un ingreso',
+        description:
+          'Edita un ingreso existente identificado por su descripción (o su id): monto, descripción, fecha, tipo o notas.',
+        inputSchema: {
+          ingreso: z
+            .string()
+            .describe('Descripción (o parte) del ingreso a editar, o su id'),
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM donde buscarlo. Por defecto el actual.'),
+          monto: z.number().optional().describe('Nuevo monto en ARS'),
+          descripcion: z.string().optional().describe('Nueva descripción'),
+          fecha: z.string().optional().describe('Nueva fecha YYYY-MM-DD'),
+          tipo: z
+            .enum(['3d', 'sueldo', 'devolucion', 'venta', 'otro'])
+            .optional()
+            .describe('Nuevo tipo'),
+          costo: z
+            .number()
+            .optional()
+            .describe('Nueva porción de costo (solo ingresos 3D)'),
+          notas: z.string().optional().describe('Nuevas notas'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const { ingreso, error } = await resolveIncome(a.ingreso, mes);
+        if (error) return text(error);
+        const update: any = {};
+        if (a.monto !== undefined) update.amount = a.monto;
+        if (a.descripcion) update.description = a.descripcion;
+        if (a.fecha) update.date = a.fecha;
+        if (a.tipo) update.source = a.tipo;
+        if (a.costo !== undefined) update.cost = a.costo;
+        if (a.notas !== undefined) update.notes = a.notas;
+        if (!Object.keys(update).length) {
+          return text(
+            `No indicaste ningún cambio para "${ingreso.description}".`,
+          );
+        }
+        const upd = await this.expenses.updateIncome(
+          userId,
+          ingreso.id,
+          update,
+        );
+        return text(
+          `Ingreso actualizado: ${upd.date} ${ars(upd.amount)} — ${upd.description} [${incomeTipo(upd.source)}]${upd.status === 'pending' ? ' ⏳ por cobrar' : ''}.`,
+        );
+      },
+    );
+
+    add(
+      'borrar_ingreso',
+      {
+        title: 'Borrar un ingreso',
+        description:
+          'Borra un ingreso identificado por su descripción (o su id). Si hay varios parecidos, lista los candidatos.',
+        inputSchema: {
+          ingreso: z
+            .string()
+            .describe('Descripción (o parte) del ingreso a borrar, o su id'),
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM donde buscarlo. Por defecto el actual.'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const { ingreso, error } = await resolveIncome(a.ingreso, mes);
+        if (error) return text(error);
+        await this.expenses.deleteIncome(userId, ingreso.id);
+        return text(
+          `Ingreso borrado: ${ingreso.date} ${ars(ingreso.amount)} — ${ingreso.description}.`,
+        );
+      },
+    );
+
+    add(
+      'balance_mes',
+      {
+        title: 'Balance del mes (ingresos vs gastos)',
+        description:
+          'Balance financiero del mes: ingresos cobrados (sueldo, ventas, 3D), gastos, devoluciones que descuentan, resultado neto y lo pendiente de cobro.',
+        inputSchema: {
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM. Por defecto el actual.'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const b = await this.expenses.getMonthlyBalance(userId, mes);
+        const lines: string[] = [`💰 Balance de ${mes}:`];
+        lines.push(
+          `Ingresos: ${ars(b.incomesTotal)}` +
+            (b.bySource.length
+              ? ` (${b.bySource.map((s) => `${incomeTipo(s.source)} ${ars(s.amount)}`).join(' · ')})`
+              : ''),
+        );
+        lines.push(
+          `Gastos: ${ars(b.expensesTotal)}` +
+            (b.refundsTotal > 0
+              ? ` − devoluciones ${ars(b.refundsTotal)} = neto ${ars(b.netExpenses)}`
+              : ''),
+        );
+        lines.push(
+          `Resultado: ${b.balance >= 0 ? '+' : ''}${ars(b.balance)} ${b.balance >= 0 ? '✅' : '⚠️ mes en rojo'}`,
+        );
+        if (b.pending.length) {
+          lines.push(
+            `⏳ Por cobrar (${ars(b.pendingTotal)}):`,
+            ...b.pending.map(
+              (i) => `• ${ars(i.amount)} — ${i.description} (desde ${i.date})`,
+            ),
+          );
+        }
+        return text(lines.join('\n'));
+      },
+    );
   }
 
   // ────────────────────────────────────────────────────────────

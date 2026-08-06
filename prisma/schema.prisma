@@ -800,7 +800,8 @@ model Income {
   description String
   amount      Float // ARS cobrados
   cost        Float    @default(0) // porcion costo (recupera inversion)
-  source      String   @default("3d") // 3d | other
+  source      String   @default("3d") // 3d | sueldo | devolucion | venta | otro
+  status      String   @default("received") // received | pending (por cobrar)
   goalId      String? // objetivo al que aporta la ganancia
   notes       String?  @db.Text
   createdAt   DateTime @default(now())

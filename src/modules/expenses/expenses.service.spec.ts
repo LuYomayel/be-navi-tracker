@@ -406,6 +406,191 @@ describe('ExpensesService', () => {
       expect(s.balance).toBe(7500 - 155680);
       expect(s.toRecover).toBe(155680 - 7500);
     });
+
+    it('should only count 3d incomes already received (salary must not inflate the NZ fund)', async () => {
+      (prisma.expense.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.getBusinessSummary(userId);
+
+      expect(prisma.income.findMany).toHaveBeenCalledWith({
+        where: { userId, source: '3d', status: 'received' },
+      });
+    });
+  });
+
+  // ── Ingresos generales (sueldo, devoluciones, pendientes) ──
+
+  describe('createIncome (general)', () => {
+    it('should create a salary income with explicit source, received by default', async () => {
+      (prisma.income.create as jest.Mock).mockResolvedValue({ id: 'inc-3' });
+
+      await service.createIncome(userId, {
+        date: '2026-08-01',
+        description: 'Sueldo PulpoU',
+        amount: 2000000,
+        source: 'sueldo',
+      });
+
+      expect(prisma.income.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          source: 'sueldo',
+          status: 'received',
+          cost: 0,
+        }),
+      });
+    });
+
+    it('should create a pending income (por cobrar)', async () => {
+      (prisma.income.create as jest.Mock).mockResolvedValue({ id: 'inc-4' });
+
+      await service.createIncome(userId, {
+        description: 'Venta cafetera',
+        amount: 80000,
+        source: 'venta',
+        status: 'pending',
+      });
+
+      expect(prisma.income.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ status: 'pending', source: 'venta' }),
+      });
+    });
+
+    it('should reject an invalid status', async () => {
+      await expect(
+        service.createIncome(userId, {
+          description: 'X',
+          amount: 100,
+          status: 'whatever' as any,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.income.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('markIncomeReceived', () => {
+    it('should mark a pending income as received, re-dating it to the payment date', async () => {
+      (prisma.income.findFirst as jest.Mock).mockResolvedValue({
+        id: 'inc-4',
+        userId,
+        status: 'pending',
+        date: '2026-07-20',
+      });
+      (prisma.income.update as jest.Mock).mockResolvedValue({
+        id: 'inc-4',
+        status: 'received',
+        date: '2026-08-05',
+      });
+
+      const result = await service.markIncomeReceived(
+        userId,
+        'inc-4',
+        '2026-08-05',
+      );
+
+      expect(prisma.income.update).toHaveBeenCalledWith({
+        where: { id: 'inc-4' },
+        data: { status: 'received', date: '2026-08-05' },
+      });
+      expect(result.status).toBe('received');
+    });
+
+    it('should throw for a foreign or missing income', async () => {
+      (prisma.income.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.markIncomeReceived(userId, 'nope'),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.income.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject if the income is already received', async () => {
+      (prisma.income.findFirst as jest.Mock).mockResolvedValue({
+        id: 'inc-1',
+        userId,
+        status: 'received',
+      });
+
+      await expect(
+        service.markIncomeReceived(userId, 'inc-1'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.income.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getPendingIncomes', () => {
+    it('should list pending incomes oldest first', async () => {
+      (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.getPendingIncomes(userId);
+
+      expect(prisma.income.findMany).toHaveBeenCalledWith({
+        where: { userId, status: 'pending' },
+        orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+      });
+    });
+  });
+
+  describe('getMonthlyBalance', () => {
+    it('should compute incomes vs expenses with refunds and pending broken out', async () => {
+      (prisma.expense.findMany as jest.Mock).mockResolvedValue([
+        { ...mockExpense, amount: 100000 },
+        { ...mockExpense, id: 'exp-2', amount: 50000 },
+      ]);
+      (prisma.income.findMany as jest.Mock)
+        // ingresos cobrados del mes
+        .mockResolvedValueOnce([
+          { id: 'i1', amount: 2000000, cost: 0, source: 'sueldo' },
+          { id: 'i2', amount: 17300, cost: 11500, source: '3d' },
+          { id: 'i3', amount: 20000, cost: 0, source: 'devolucion' },
+        ])
+        // pendientes por cobrar (cualquier fecha)
+        .mockResolvedValueOnce([
+          {
+            id: 'i4',
+            amount: 80000,
+            source: 'venta',
+            description: 'Cafetera',
+            date: '2026-08-01',
+          },
+        ]);
+
+      const b = await service.getMonthlyBalance(userId, '2026-08');
+
+      expect(prisma.income.findMany).toHaveBeenNthCalledWith(1, {
+        where: {
+          userId,
+          status: 'received',
+          date: { gte: '2026-08-01', lte: '2026-08-31' },
+        },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      });
+      expect(b.expensesTotal).toBe(150000);
+      expect(b.incomesTotal).toBe(2017300); // sueldo + 3d (sin devoluciones)
+      expect(b.refundsTotal).toBe(20000);
+      expect(b.netExpenses).toBe(130000); // gastos - devoluciones
+      expect(b.balance).toBe(2017300 + 20000 - 150000);
+      expect(b.bySource).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: 'sueldo', amount: 2000000 }),
+          expect.objectContaining({ source: '3d', amount: 17300 }),
+        ]),
+      );
+      expect(b.pendingTotal).toBe(80000);
+      expect(b.pending).toHaveLength(1);
+    });
+
+    it('should handle a month with no data', async () => {
+      (prisma.expense.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+
+      const b = await service.getMonthlyBalance(userId, '2026-08');
+
+      expect(b.expensesTotal).toBe(0);
+      expect(b.incomesTotal).toBe(0);
+      expect(b.balance).toBe(0);
+      expect(b.pending).toEqual([]);
+    });
   });
 
   // ── Resumen ───────────────────────────────────────────────

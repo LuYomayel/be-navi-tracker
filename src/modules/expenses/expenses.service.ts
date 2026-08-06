@@ -29,7 +29,8 @@ export interface IncomeDto {
   description?: string;
   amount?: number;
   cost?: number; // porción que recupera inversión; ganancia = amount - cost
-  source?: string;
+  source?: string; // 3d | sueldo | devolucion | venta | otro
+  status?: 'received' | 'pending'; // pending = por cobrar (no suma al balance)
   goalId?: string | null;
   notes?: string | null;
 }
@@ -320,6 +321,9 @@ export class ExpensesService {
     if (!dto.description?.trim()) {
       throw new BadRequestException('Falta la descripción del ingreso');
     }
+    if (dto.status && dto.status !== 'received' && dto.status !== 'pending') {
+      throw new BadRequestException('Estado inválido (received | pending)');
+    }
     return this.prisma.income.create({
       data: {
         userId,
@@ -328,9 +332,32 @@ export class ExpensesService {
         amount: dto.amount,
         cost,
         source: dto.source || '3d',
+        status: dto.status || 'received',
         goalId: dto.goalId || null,
         notes: dto.notes || null,
       },
+    });
+  }
+
+  /** Marca un ingreso pendiente como cobrado, fechándolo en el día del cobro. */
+  async markIncomeReceived(userId: string, id: string, date?: string) {
+    const existing = await this.prisma.income.findFirst({
+      where: { id, userId },
+    });
+    if (!existing) throw new NotFoundException('Ingreso no encontrado');
+    if (existing.status !== 'pending') {
+      throw new BadRequestException('El ingreso ya está cobrado');
+    }
+    return this.prisma.income.update({
+      where: { id },
+      data: { status: 'received', date: date || getLocalDateString() },
+    });
+  }
+
+  async getPendingIncomes(userId: string) {
+    return this.prisma.income.findMany({
+      where: { userId, status: 'pending' },
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     });
   }
 
@@ -376,7 +403,10 @@ export class ExpensesService {
       this.prisma.expense.findMany({
         where: { userId, goalId: { not: null } },
       }),
-      this.prisma.income.findMany({ where: { userId } }),
+      // Solo ventas 3D ya cobradas: el sueldo u otros ingresos no son del negocio
+      this.prisma.income.findMany({
+        where: { userId, source: '3d', status: 'received' },
+      }),
     ]);
 
     const invested = investments.reduce((a, e) => a + e.amount, 0);
@@ -393,6 +423,52 @@ export class ExpensesService {
       balance: profit - invested,
       toRecover: Math.max(0, invested - profit),
       incomesCount: incomes.length,
+    };
+  }
+
+  /**
+   * Balance del mes: ingresos cobrados vs gastos, con devoluciones netas
+   * y lo pendiente de cobro (cualquier fecha) aparte.
+   */
+  async getMonthlyBalance(userId: string, month: string) {
+    const [expenses, incomes, pending] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: { userId, date: monthRange(month) },
+      }),
+      this.prisma.income.findMany({
+        where: { userId, status: 'received', date: monthRange(month) },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      }),
+      this.getPendingIncomes(userId),
+    ]);
+
+    const expensesTotal = expenses.reduce((a, e) => a + e.amount, 0);
+    const refunds = incomes.filter((i) => i.source === 'devolucion');
+    const refundsTotal = refunds.reduce((a, i) => a + i.amount, 0);
+    const earned = incomes.filter((i) => i.source !== 'devolucion');
+    const incomesTotal = earned.reduce((a, i) => a + i.amount, 0);
+
+    const bySourceMap = new Map<string, { amount: number; count: number }>();
+    for (const i of earned) {
+      const cur = bySourceMap.get(i.source) || { amount: 0, count: 0 };
+      cur.amount += i.amount;
+      cur.count++;
+      bySourceMap.set(i.source, cur);
+    }
+
+    return {
+      month,
+      expensesTotal,
+      incomesTotal,
+      refundsTotal,
+      netExpenses: expensesTotal - refundsTotal,
+      balance: incomesTotal + refundsTotal - expensesTotal,
+      bySource: [...bySourceMap.entries()]
+        .map(([source, v]) => ({ source, ...v }))
+        .sort((a, b) => b.amount - a.amount),
+      incomes,
+      pendingTotal: pending.reduce((a, i) => a + i.amount, 0),
+      pending,
     };
   }
 
