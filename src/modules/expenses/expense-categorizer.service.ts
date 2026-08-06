@@ -44,6 +44,7 @@ export const CATEGORY_RULES: [RegExp, string][] = [
   [/meridional|seguro automotor|seguro del auto/i, 'Transporte'],
   [/tuenti/i, 'Hogar'],
   [/liomac/i, 'Salidas'],
+  [/comisi[oó]n|mantenimiento de cuenta|cargo por servicio/i, 'Comisiones'],
   [/zapatill|nike\b|adidas|indumentaria|dexter|solodeportes|moov\b|ropa\b/i, 'Ropa'],
 ];
 
