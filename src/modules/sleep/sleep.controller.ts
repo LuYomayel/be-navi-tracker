@@ -10,7 +10,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { SleepService, parseDuration } from './sleep.service';
+import {
+  SleepService,
+  parseDuration,
+  minutesBetween,
+} from './sleep.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 @Controller('sleep')
@@ -50,9 +54,12 @@ export class SleepController {
 
   @Post()
   async upsert(@Body() body: any, @Req() req: any) {
-    // `duracion` acepta lo que mande el atajo ("7:45", "7h 30m", 465…)
+    // `duracion` acepta lo que mande el atajo ("7:45", "7h 30m", 465…) y, si
+    // no viene, se calcula con los horarios.
     const minutes =
-      parseDuration(body?.minutesAsleep ?? body?.duracion) ?? 0;
+      parseDuration(body?.minutesAsleep ?? body?.duracion) ??
+      minutesBetween(body?.bedTime ?? body?.acoste, body?.wakeTime ?? body?.desperte) ??
+      0;
     return {
       success: true,
       data: await this.sleep.upsertSleep(req.user.userId, {

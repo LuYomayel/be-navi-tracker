@@ -10,6 +10,8 @@ import {
   SleepService,
   parseDuration,
   formatDuration,
+  parseClock,
+  minutesBetween,
 } from '../sleep/sleep.service';
 import { PrismaService } from '../../config/prisma.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
@@ -241,18 +243,23 @@ export class QuickActionsService {
       pulsaciones?: number;
     },
   ) {
-    const minutos = parseDuration(datos.duracion);
+    // La automatización "Wake" de iOS NO pasa ningún input, así que lo más
+    // simple es que el atajo mande los horarios de la muestra de Health y la
+    // duración la calculemos acá.
+    const minutos =
+      parseDuration(datos.duracion) ??
+      minutesBetween(datos.acoste, datos.desperte);
     if (!minutos) {
       throw new BadRequestException(
-        'No entendí cuánto dormiste. Mandá "7:45", "7h 30m" o los minutos.',
+        'No entendí cuánto dormiste. Mandá "duracion" ("7:45", "7h 30m" o minutos) o "acoste" y "desperte".',
       );
     }
     await this.sleep.upsertSleep(userId, {
       date: getLocalDateString(),
       minutesAsleep: minutos,
       quality: datos.calidad,
-      bedTime: datos.acoste,
-      wakeTime: datos.desperte,
+      bedTime: parseClock(datos.acoste),
+      wakeTime: parseClock(datos.desperte),
       deepMinutes: datos.profundo,
       remMinutes: datos.rem,
       awakeMinutes: datos.despierto,

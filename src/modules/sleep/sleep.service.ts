@@ -58,6 +58,45 @@ export function parseDuration(
   return num <= 20 ? Math.round(num * 60) : Math.round(num);
 }
 
+/**
+ * Saca "HH:mm" de lo que mande el atajo: ya sea "23:15", la fecha entera de
+ * la muestra de Health ("2026-08-06T07:03:00-03:00", "6 ago 2026 23:12") o
+ * con AM/PM ("11:30 p. m.").
+ */
+export function parseClock(value?: string | null): string | null {
+  if (!value) return null;
+  const raw = String(value).trim().toLowerCase();
+  if (!raw) return null;
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  // Primer HH:mm que aparezca, con AM/PM opcional detrás
+  const m = raw.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(a\.?\s*m\.?|p\.?\s*m\.?)?/);
+  if (!m) return null;
+  let hour = Number(m[1]);
+  const min = Number(m[2]);
+  if (hour > 23 || min > 59) return null;
+  const meridiem = m[3]?.replace(/[.\s]/g, '');
+  if (meridiem === 'pm' && hour < 12) hour += 12;
+  if (meridiem === 'am' && hour === 12) hour = 0;
+  return `${pad(hour)}:${pad(min)}`;
+}
+
+/** Minutos entre dos horarios, cruzando la medianoche. */
+export function minutesBetween(
+  from?: string | null,
+  to?: string | null,
+): number | null {
+  const a = parseClock(from);
+  const b = parseClock(to);
+  if (!a || !b) return null;
+  const [ah, am] = a.split(':').map(Number);
+  const [bh, bm] = b.split(':').map(Number);
+  let diff = bh * 60 + bm - (ah * 60 + am);
+  if (diff <= 0) diff += 24 * 60;
+  return diff;
+}
+
 @Injectable()
 export class SleepService {
   constructor(

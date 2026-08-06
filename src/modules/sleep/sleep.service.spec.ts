@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
-import { SleepService, parseDuration } from './sleep.service';
+import {
+  SleepService,
+  parseDuration,
+  parseClock,
+  minutesBetween,
+} from './sleep.service';
 import { PrismaService } from '../../config/prisma.service';
 import { XpService } from '../xp/xp.service';
 
@@ -80,6 +85,44 @@ describe('SleepService', () => {
       expect(parseDuration('anoche dormí mal')).toBeNull();
       expect(parseDuration('')).toBeNull();
       expect(parseDuration(undefined)).toBeNull();
+    });
+  });
+
+  describe('parseClock', () => {
+    it('should take HH:mm as is', () => {
+      expect(parseClock('23:15')).toBe('23:15');
+      expect(parseClock('7:00')).toBe('07:00');
+    });
+
+    it('should take what the Shortcut passes as a date', () => {
+      // el atajo puede pegar la fecha entera de la muestra de Health
+      expect(parseClock('2026-08-06T07:03:00-03:00')).toBe('07:03');
+      expect(parseClock('6 ago 2026 23:12')).toBe('23:12');
+      expect(parseClock('11:30 p. m.')).toBe('23:30');
+      expect(parseClock('7:05 a. m.')).toBe('07:05');
+    });
+
+    it('should return null when there is no time in there', () => {
+      expect(parseClock('anoche')).toBeNull();
+      expect(parseClock(undefined)).toBeNull();
+    });
+  });
+
+  describe('minutesBetween', () => {
+    it('should measure the night crossing midnight', () => {
+      expect(minutesBetween('23:15', '07:00')).toBe(465);
+      expect(minutesBetween('01:00', '08:30')).toBe(450);
+    });
+
+    it('should work with the raw dates of the Health sample', () => {
+      expect(
+        minutesBetween('2026-08-05T23:15:00-03:00', '2026-08-06T07:00:00-03:00'),
+      ).toBe(465);
+    });
+
+    it('should return null if a time is missing or unreadable', () => {
+      expect(minutesBetween('23:15', undefined)).toBeNull();
+      expect(minutesBetween('cualquiera', '07:00')).toBeNull();
     });
   });
 

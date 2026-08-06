@@ -367,10 +367,32 @@ describe('QuickActionsService', () => {
       expect(r.message).toContain('7h 45m');
     });
 
-    it('should reject a duration it cannot understand', async () => {
+    it('should compute the duration from the times when the Wake automation sends no duration', async () => {
+      // La automatización Wake de iOS no pasa input: el atajo manda los
+      // horarios crudos de la muestra de Health y la cuenta la hacemos acá.
+      const r = await service.sueno(userId, {
+        acoste: '2026-08-05T23:15:00-03:00',
+        desperte: '2026-08-06T07:00:00-03:00',
+      });
+
+      expect(sleep.upsertSleep).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({
+          minutesAsleep: 465,
+          bedTime: '23:15',
+          wakeTime: '07:00',
+        }),
+      );
+      expect(r.message).toContain('7h 45m');
+    });
+
+    it('should reject when there is neither a duration nor usable times', async () => {
       await expect(
         service.sueno(userId, { duracion: 'dormí mal' }),
       ).rejects.toThrow(BadRequestException);
+      await expect(service.sueno(userId, { acoste: '23:15' })).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
