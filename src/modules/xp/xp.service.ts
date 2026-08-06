@@ -72,6 +72,15 @@ export class XpService {
   }
 
   /**
+   * XP acumulada con la que ARRANCA un nivel. El nivel 1 arranca en 0 (no en
+   * 100, que es la XP para completarlo): tomarlo como piso daba progreso
+   * negativo en la pantalla de Navi ("-25 / 120 XP · -21%").
+   */
+  xpFloorForLevel(level: number): number {
+    return level <= 1 ? 0 : this.calculateXpForLevel(level);
+  }
+
+  /**
    * Calcula el nivel basado en la XP total
    */
   calculateLevelFromTotalXp(totalXp: number): number {
@@ -183,7 +192,7 @@ export class XpService {
         if (existingDayComplete) {
           // Ya se otorgó el bonus hoy, retornar sin agregar XP
           const nextLevelXp = this.calculateXpForLevel(user.level + 1);
-          const currentLevelXp = this.calculateXpForLevel(user.level);
+          const currentLevelXp = this.xpFloorForLevel(user.level);
           return {
             newLevel: user.level,
             xpEarned: 0,
@@ -252,8 +261,8 @@ export class XpService {
       const newTotalXp = user.totalXp + xpAmount;
       const newLevel = this.calculateLevelFromTotalXp(newTotalXp);
       const nextLevelXp = this.calculateXpForLevel(newLevel + 1);
-      const currentLevelXp = this.calculateXpForLevel(newLevel);
-      const newXp = newTotalXp - currentLevelXp;
+      const currentLevelXp = this.xpFloorForLevel(newLevel);
+      const newXp = Math.max(0, newTotalXp - currentLevelXp);
 
       const leveledUp = newLevel > oldLevel;
 
@@ -357,16 +366,23 @@ export class XpService {
     }
 
     const nextLevelXp = this.calculateXpForLevel(user.level + 1);
-    const currentLevelXp = this.calculateXpForLevel(user.level);
+    const currentLevelXp = this.xpFloorForLevel(user.level);
     const xpForNextLevel = nextLevelXp - currentLevelXp;
-    const xpProgressPercentage = Math.round((user.xp / xpForNextLevel) * 100);
+    // La XP dentro del nivel se deriva del total (fuente de verdad): la
+    // columna `xp` de usuarios viejos puede tener el valor negativo que
+    // dejaba el piso mal calculado.
+    const xpInLevel = Math.max(0, user.totalXp - currentLevelXp);
+    const xpProgressPercentage = Math.min(
+      100,
+      Math.max(0, Math.round((xpInLevel / xpForNextLevel) * 100)),
+    );
 
     // Obtener todas las rachas
     const allStreaks = await this.streakService.getAllStreaks(userId);
 
     return {
       level: user.level,
-      xp: user.xp,
+      xp: xpInLevel,
       totalXp: user.totalXp,
       xpForNextLevel,
       xpProgressPercentage,

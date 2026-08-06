@@ -363,12 +363,32 @@ describe('XpService', () => {
   });
 
   describe('getXpStats', () => {
+    it('should report level 1 progress from 0, never negative', async () => {
+      // Nivel 1 va de 0 a 220 XP: con 75 acumulados el progreso es 75/220.
+      // Antes se tomaba 100 (la XP para COMPLETAR el nivel 1) como piso y la
+      // pantalla de Navi mostraba "-25 / 120 XP · -21%".
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...mockUser,
+        level: 1,
+        xp: -25, // valor viejo mal guardado en la DB
+        totalXp: 75,
+        xpLogs: [],
+      });
+
+      const result = await service.getXpStats(userId);
+
+      expect(result.xp).toBe(75);
+      expect(result.xpForNextLevel).toBe(220);
+      expect(result.xpProgressPercentage).toBe(34);
+    });
+
     it('should return full XP stats with streaks', async () => {
       const userWithLogs = {
         ...mockUser,
         level: 2,
-        xp: 50,
-        totalXp: 150,
+        // nivel 2 arranca en 220 → 250 totales = 30 dentro del nivel
+        xp: 30,
+        totalXp: 250,
         xpLogs: [
           {
             id: 'log-1',
@@ -386,8 +406,9 @@ describe('XpService', () => {
       const result = await service.getXpStats(userId);
 
       expect(result.level).toBe(2);
-      expect(result.xp).toBe(50);
-      expect(result.totalXp).toBe(150);
+      expect(result.xp).toBe(30);
+      expect(result.totalXp).toBe(250);
+      expect(result.xpForNextLevel).toBe(140); // 360 - 220
       expect(result.streaks).toBeDefined();
       expect(result.streaks.habits).toBeDefined();
       expect(result.streaks.nutrition).toBeDefined();
