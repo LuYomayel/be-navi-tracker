@@ -763,6 +763,7 @@ model Expense {
   description        String
   categoryId         String?
   source             String   @default("manual") // manual | recurring | mercadopago
+  card               String? // para consumos de crédito: null = la Visa propia, texto = otra tarjeta (ej "Hermano")
   recurringExpenseId String? // si lo generó un pago recurrente
   externalId         String? // id externo (ej: mp:<SOURCE_ID>) para dedup de imports
   goalId             String? // inversión para un objetivo (ej: filamento 3D → fondo NZ)

@@ -205,10 +205,12 @@ Respondé SOLO un JSON válido sin markdown:
         skipped++;
         continue;
       }
-      // Si el consumo ya estaba como tarjeta-pendiente (lo trajo el MP sync
-      // durante el período), el gasto del resumen lo reemplaza
+      // Si el consumo ya estaba como tarjeta-pendiente (lo cargó el shortcut
+      // de Apple Pay o el MP sync), el gasto del resumen lo reemplaza. Solo
+      // el buffer de la tarjeta propia (card null) — las ajenas se liquidan
+      // transfiriendo, no con este resumen.
       await this.prisma.expense.deleteMany({
-        where: { userId, source: 'tarjeta-pendiente', amount: m.amount },
+        where: { userId, source: 'tarjeta-pendiente', amount: m.amount, card: null },
       });
       await this.prisma.expense.create({
         data: {

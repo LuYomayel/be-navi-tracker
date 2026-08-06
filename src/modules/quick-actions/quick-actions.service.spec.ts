@@ -347,15 +347,25 @@ describe('QuickActionsService', () => {
     it('should send credit-card expenses to the tarjeta-pendiente buffer (no gasto del mes)', async () => {
       const r = await service.gasto(userId, 43678, 'Filamentos Proyectocolor', true);
 
-      expect(expenses.createExpense).not.toHaveBeenCalled();
-      expect((service as any).prisma.expense.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(expenses.createExpense).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({
           amount: 43678,
-          source: 'tarjeta-pendiente',
-          description: 'Filamentos Proyectocolor (Visa crédito)',
+          description: 'Filamentos Proyectocolor',
+          tarjeta: true,
         }),
-      });
+      );
       expect(r.message).toContain('próximo resumen');
+    });
+
+    it('should buffer on another card when tarjeta is a card name', async () => {
+      const r = await service.gasto(userId, 12000, 'Cena', 'Hermano');
+
+      expect(expenses.createExpense).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({ tarjeta: true, card: 'Hermano' }),
+      );
+      expect(r.message).toContain('Hermano');
     });
 
     it('should attach the configured default category when it exists', async () => {

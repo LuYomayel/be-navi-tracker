@@ -163,6 +163,23 @@ describe('CardStatementService', () => {
       });
     });
 
+    it('should clear only MY card buffer (card null), never another card', async () => {
+      await service.confirmImport(userId, {
+        statementKey: 'icbc-2026-07-30',
+        dueDate: '2026-08-11',
+        movements: [movements[0]],
+      });
+
+      expect(prisma.expense.deleteMany).toHaveBeenCalledWith({
+        where: {
+          userId,
+          source: 'tarjeta-pendiente',
+          amount: 8413.47,
+          card: null,
+        },
+      });
+    });
+
     it('should skip rows already imported (externalId) or matching an existing expense', async () => {
       (prisma.expense.findFirst as jest.Mock).mockImplementation(({ where }) =>
         where.externalId === 'card:icbc-2026-07-30:0' ||

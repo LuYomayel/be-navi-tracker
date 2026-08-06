@@ -15,6 +15,38 @@ export interface CreateExpenseDto {
   description: string;
   categoryId?: string | null;
   goalId?: string | null; // inversión para un objetivo (ej: filamento 3D)
+  tarjeta?: boolean; // consumo con tarjeta de crédito → buffer del próximo resumen
+  card?: string | null; // qué tarjeta: null/vacío = la Visa propia, texto = otra (ej "Hermano")
+}
+
+/** Etiqueta de la tarjeta propia (card = null en la DB). */
+export const DEFAULT_CARD_LABEL = 'Visa';
+
+/** Consumos de crédito pendientes agrupados por tarjeta (la propia primero). */
+function groupByCard(
+  rows: { id: string; date: string; amount: number; description: string; card: string | null }[],
+) {
+  const byCard = new Map<string | null, typeof rows>();
+  for (const r of rows) {
+    const key = r.card ?? null;
+    if (!byCard.has(key)) byCard.set(key, []);
+    byCard.get(key)!.push(r);
+  }
+  return [...byCard.entries()]
+    .sort(([a], [b]) =>
+      a === null ? -1 : b === null ? 1 : a.localeCompare(b),
+    )
+    .map(([card, items]) => ({
+      card,
+      label: card ?? DEFAULT_CARD_LABEL,
+      total: items.reduce((s, e) => s + e.amount, 0),
+      items: items.map((e) => ({
+        id: e.id,
+        date: e.date,
+        amount: e.amount,
+        description: e.description,
+      })),
+    }));
 }
 
 export interface UpdateExpenseDto {
@@ -145,6 +177,8 @@ export class ExpensesService {
         .catch(() => null);
       categoryId = sug?.categoryId || null;
     }
+    const card = dto.card?.trim() || null;
+    const esTarjeta = dto.tarjeta || !!card;
     return this.prisma.expense.create({
       data: {
         userId,
@@ -153,7 +187,9 @@ export class ExpensesService {
         description: dto.description.trim(),
         categoryId,
         goalId: dto.goalId || null,
-        source: 'manual',
+        // Consumo de crédito: va al buffer del próximo resumen, no al mes
+        source: esTarjeta ? 'tarjeta-pendiente' : 'manual',
+        card: esTarjeta ? card : null,
       },
       include: { category: true },
     });
@@ -684,8 +720,10 @@ export class ExpensesService {
         date: e.date,
         amount: e.amount,
         description: e.description,
+        card: e.card,
       })),
       tarjetaPendienteTotal: tarjetaPendiente.reduce((a, e) => a + e.amount, 0),
+      tarjetaPendientePorTarjeta: groupByCard(tarjetaPendiente),
     };
   }
 

@@ -135,6 +135,44 @@ describe('ExpensesService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(prisma.expense.create).not.toHaveBeenCalled();
     });
+
+    it('should buffer a credit card consumption (tarjeta) instead of a regular expense', async () => {
+      (prisma.expense.create as jest.Mock).mockResolvedValue(mockExpense);
+
+      await service.createExpense(userId, {
+        date: '2026-08-06',
+        amount: 20000,
+        description: 'Nafta YPF',
+        tarjeta: true,
+      });
+
+      expect(prisma.expense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          source: 'tarjeta-pendiente',
+          card: null,
+        }),
+        include: { category: true },
+      });
+    });
+
+    it('should buffer on another card when card is given', async () => {
+      (prisma.expense.create as jest.Mock).mockResolvedValue(mockExpense);
+
+      await service.createExpense(userId, {
+        date: '2026-08-06',
+        amount: 8000,
+        description: 'Comida',
+        card: 'Hermano',
+      });
+
+      expect(prisma.expense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          source: 'tarjeta-pendiente',
+          card: 'Hermano',
+        }),
+        include: { category: true },
+      });
+    });
   });
 
   describe('getExpenses', () => {
@@ -833,6 +871,49 @@ describe('ExpensesService', () => {
         expect(pr.saldoHoy).toBe(400000); // 500k - 100k
         // 400k - 50k futuro - 167k recurrente + 205k aguinaldo
         expect(pr.disponibleProyectado).toBe(388000);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should group pending card consumptions by card (mia = null primero, luego el resto)', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 6, 12));
+      try {
+        (prisma.expense.findMany as jest.Mock).mockImplementation(({ where }) =>
+          where.source === 'tarjeta-pendiente'
+            ? Promise.resolve([
+                { id: 't1', date: '2026-08-03', amount: 43678, description: 'Filamentos', card: null },
+                { id: 't2', date: '2026-08-04', amount: 12000, description: 'Cena', card: 'Hermano' },
+                { id: 't3', date: '2026-08-05', amount: 3490, description: 'Meli+', card: null },
+              ])
+            : Promise.resolve([]),
+        );
+        (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([]);
+
+        const pr = await service.getMonthProjection(userId, '2026-08');
+
+        expect(pr.tarjetaPendienteTotal).toBe(59168);
+        expect(pr.tarjetaPendientePorTarjeta).toEqual([
+          expect.objectContaining({
+            card: null,
+            label: 'Visa',
+            total: 47168,
+            items: [
+              expect.objectContaining({ id: 't1' }),
+              expect.objectContaining({ id: 't3' }),
+            ],
+          }),
+          expect.objectContaining({
+            card: 'Hermano',
+            label: 'Hermano',
+            total: 12000,
+            items: [expect.objectContaining({ id: 't2' })],
+          }),
+        ]);
+        // los items del flat siguen saliendo (compat con la app vieja) y traen card
+        expect(pr.tarjetaPendiente).toHaveLength(3);
+        expect(pr.tarjetaPendiente[1].card).toBe('Hermano');
       } finally {
         jest.useRealTimers();
       }

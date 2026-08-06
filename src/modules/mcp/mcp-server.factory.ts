@@ -1726,6 +1726,12 @@ export class McpServerFactory {
             .describe(
               'true si es una inversión del negocio de impresión 3D (filamento, repuestos, muestras) — se linkea al objetivo NZ',
             ),
+          tarjeta: z
+            .union([z.boolean(), z.string()])
+            .optional()
+            .describe(
+              'Consumo con tarjeta de CRÉDITO: true = la Visa propia, o el nombre de otra tarjeta (ej "Hermano"). Va al buffer del próximo resumen, NO al gasto del mes.',
+            ),
         },
       },
       async (a) => {
@@ -1750,13 +1756,21 @@ export class McpServerFactory {
           goalId = active?.id;
         }
         const fecha = a.fecha || getLocalDateString();
+        const card = typeof a.tarjeta === 'string' ? a.tarjeta.trim() : null;
         const exp = await this.expenses.createExpense(userId, {
           date: fecha,
           amount: a.monto,
           description: a.descripcion,
           categoryId,
           goalId,
+          tarjeta: !!a.tarjeta,
+          card,
         });
+        if (a.tarjeta) {
+          return text(
+            `💳 Anotado en el próximo resumen (${card || 'Visa'}): ${ars(exp.amount)} — ${exp.description}${catLabel}. No cuenta como gasto del mes hasta que llegue el resumen. id ${exp.id}.`,
+          );
+        }
         return text(
           `Gasto registrado (${fecha}): ${ars(exp.amount)} — ${exp.description}${catLabel}${goalId ? ' 🖨️ inversión del negocio 3D' : ''}. id ${exp.id}.`,
         );
@@ -2517,6 +2531,16 @@ export class McpServerFactory {
         lines.push(
           `💰 Disponible real para el resto del mes: ${pr.disponibleProyectado >= 0 ? '+' : ''}${ars(pr.disponibleProyectado)}`,
         );
+        if (pr.tarjetaPendienteTotal > 0) {
+          lines.push(
+            `💳 Próximo resumen de tarjeta (${ars(pr.tarjetaPendienteTotal)}) — no cuenta en el disponible:`,
+          );
+          for (const t of pr.tarjetaPendientePorTarjeta) {
+            lines.push(`  ${t.label}: ${ars(t.total)}`);
+            for (const c of t.items)
+              lines.push(`    • ${c.date} ${ars(c.amount)} — ${c.description}`);
+          }
+        }
         return text(lines.join('\n'));
       },
     );
