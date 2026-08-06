@@ -49,6 +49,9 @@ export interface RecurringDto {
   dayOfMonth?: number;
   kind?: 'recurring' | 'subscription';
   active?: boolean;
+  totalInstallments?: number | null; // cantidad de cuotas (null = sin fin)
+  installmentsPaid?: number; // cuotas ya pagadas (override explícito)
+  startPeriod?: string | null; // YYYY-MM de la primera cuota (puede ser pasado)
 }
 
 /** Última fecha válida del mes YYYY-MM (para el filtro lte). */
@@ -58,6 +61,45 @@ function monthRange(month: string): { gte: string; lte: string } {
 
 function periodOf(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Meses de b - a (ambos YYYY-MM). Positivo si b es posterior. */
+function monthsBetween(a: string, b: string): number {
+  const [ay, am] = a.split('-').map(Number);
+  const [by, bm] = b.split('-').map(Number);
+  return (by - ay) * 12 + (bm - am);
+}
+
+function addMonths(period: string, n: number): string {
+  const [y, m] = period.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return periodOf(d);
+}
+
+/**
+ * Mes (YYYY-MM) de la última cuota de un recurrente, o null si no tiene fin
+ * o ya terminó. Con startPeriod es exacto; sin él estima desde el contador.
+ */
+export function recurringEndPeriod(
+  rec: {
+    totalInstallments: number | null;
+    installmentsPaid: number;
+    startPeriod: string | null;
+    lastPostedPeriod: string | null;
+  },
+  now: Date = new Date(),
+): string | null {
+  if (!rec.totalInstallments) return null;
+  const remaining = rec.totalInstallments - rec.installmentsPaid;
+  if (remaining <= 0) return null;
+  if (rec.startPeriod) {
+    return addMonths(rec.startPeriod, rec.totalInstallments - 1);
+  }
+  const current = periodOf(now);
+  // Si la de este mes ya se posteó, la próxima cuota es el mes que viene
+  const monthsAhead =
+    rec.lastPostedPeriod === current ? remaining : remaining - 1;
+  return addMonths(current, monthsAhead);
 }
 
 @Injectable()
@@ -202,8 +244,30 @@ export class ExpensesService {
     if (!dto.amount || dto.amount <= 0) {
       throw new BadRequestException('El monto debe ser mayor a 0');
     }
+    if (dto.totalInstallments !== undefined && dto.totalInstallments !== null) {
+      if (!Number.isInteger(dto.totalInstallments) || dto.totalInstallments < 1) {
+        throw new BadRequestException('Las cuotas deben ser un entero >= 1');
+      }
+    }
+    if (dto.startPeriod && !/^\d{4}-\d{2}$/.test(dto.startPeriod)) {
+      throw new BadRequestException('Primer mes inválido (YYYY-MM)');
+    }
     // 1-28 para que exista en todos los meses
     const day = Math.min(Math.max(dto.dayOfMonth || 1, 1), 28);
+    const total = dto.totalInstallments ?? null;
+
+    // Cuotas ya pagadas: explícito, o derivado de un primer mes en el pasado
+    // (los meses ANTERIORES al actual cuentan pagados; la del mes en curso la
+    // postea el cron normal así aparece como gasto del mes).
+    let paid = dto.installmentsPaid;
+    if (paid === undefined) {
+      paid = dto.startPeriod
+        ? Math.max(0, monthsBetween(dto.startPeriod, periodOf(new Date())))
+        : 0;
+    }
+    if (paid < 0) throw new BadRequestException('Cuotas pagadas inválidas');
+    if (total !== null) paid = Math.min(paid, total);
+
     return this.prisma.recurringExpense.create({
       data: {
         userId,
@@ -212,6 +276,10 @@ export class ExpensesService {
         categoryId: dto.categoryId || null,
         dayOfMonth: day,
         kind: dto.kind === 'subscription' ? 'subscription' : 'recurring',
+        totalInstallments: total,
+        installmentsPaid: paid,
+        startPeriod: dto.startPeriod || null,
+        active: total === null || paid < total,
       },
       include: { category: true },
     });
@@ -234,6 +302,13 @@ export class ExpensesService {
             : undefined,
         kind: dto.kind,
         active: dto.active,
+        totalInstallments:
+          dto.totalInstallments === undefined
+            ? undefined
+            : dto.totalInstallments,
+        installmentsPaid: dto.installmentsPaid,
+        startPeriod:
+          dto.startPeriod === undefined ? undefined : dto.startPeriod,
       },
       include: { category: true },
     });
@@ -276,12 +351,18 @@ export class ExpensesService {
     for (const rec of due) {
       if (rec.dayOfMonth > day) continue;
       if (rec.lastPostedPeriod === period) continue;
+      // Cuotas que arrancan en un mes futuro: todavía no se pagan
+      if (rec.startPeriod && rec.startPeriod > period) continue;
+
+      const cuota = rec.totalInstallments ? rec.installmentsPaid + 1 : null;
       await this.prisma.expense.create({
         data: {
           userId: rec.userId,
           date: `${period}-${String(rec.dayOfMonth).padStart(2, '0')}`,
           amount: rec.amount,
-          description: rec.description,
+          description:
+            rec.description +
+            (cuota ? ` (cuota ${cuota}/${rec.totalInstallments})` : ''),
           categoryId: rec.categoryId,
           source: 'recurring',
           recurringExpenseId: rec.id,
@@ -289,7 +370,16 @@ export class ExpensesService {
       });
       await this.prisma.recurringExpense.update({
         where: { id: rec.id },
-        data: { lastPostedPeriod: period },
+        data: {
+          lastPostedPeriod: period,
+          // Al pagar la última cuota el recurrente se apaga solo
+          ...(cuota
+            ? {
+                installmentsPaid: cuota,
+                active: cuota < (rec.totalInstallments as number),
+              }
+            : {}),
+        },
       });
       posted++;
     }

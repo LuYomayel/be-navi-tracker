@@ -782,6 +782,9 @@ model RecurringExpense {
   kind             String   @default("recurring") // recurring (pago fijo) | subscription
   active           Boolean  @default(true)
   lastPostedPeriod String? // YYYY-MM del último mes ya generado (dedup)
+  totalInstallments Int? // cantidad total de cuotas (null = sin fin)
+  installmentsPaid  Int     @default(0) // cuotas ya pagadas (incluye previas a cargarlo)
+  startPeriod       String? // YYYY-MM de la primera cuota (puede ser pasado; deriva pagadas y fecha de fin)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

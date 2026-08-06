@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { ExpensesService } from './expenses.service';
+import { ExpensesService, recurringEndPeriod } from './expenses.service';
 import { PrismaService } from '../../config/prisma.service';
 
 describe('ExpensesService', () => {
@@ -43,6 +43,9 @@ describe('ExpensesService', () => {
     kind: 'subscription',
     active: true,
     lastPostedPeriod: null,
+    totalInstallments: null,
+    installmentsPaid: 0,
+    startPeriod: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -232,6 +235,247 @@ describe('ExpensesService', () => {
         data: expect.objectContaining({ dayOfMonth: 28 }),
         include: { category: true },
       });
+    });
+  });
+
+  // ── Cuotas (pagos recurrentes con fin) ────────────────────
+
+  describe('createRecurring con cuotas', () => {
+    it('should persist total and explicit paid installments', async () => {
+      (prisma.recurringExpense.create as jest.Mock).mockResolvedValue({});
+
+      await service.createRecurring(userId, {
+        description: 'Cuota celular',
+        amount: 50000,
+        dayOfMonth: 10,
+        totalInstallments: 12,
+        installmentsPaid: 3,
+      });
+
+      expect(prisma.recurringExpense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          totalInstallments: 12,
+          installmentsPaid: 3,
+          active: true,
+        }),
+        include: { category: true },
+      });
+    });
+
+    it('should derive paid installments from a past startPeriod (months before the current one)', async () => {
+      // Arrancó en marzo; estamos en agosto → mar/abr/may/jun/jul = 5 pagadas.
+      // La de agosto la postea el cron normal (aparece como gasto del mes).
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 15));
+      try {
+        (prisma.recurringExpense.create as jest.Mock).mockResolvedValue({});
+
+        await service.createRecurring(userId, {
+          description: 'Cuota heladera',
+          amount: 80000,
+          dayOfMonth: 10,
+          totalInstallments: 12,
+          startPeriod: '2026-03',
+        });
+
+        expect(prisma.recurringExpense.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            startPeriod: '2026-03',
+            totalInstallments: 12,
+            installmentsPaid: 5,
+            active: true,
+          }),
+          include: { category: true },
+        });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should create finished (inactive) if the past startPeriod already covers all installments', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 15));
+      try {
+        (prisma.recurringExpense.create as jest.Mock).mockResolvedValue({});
+
+        await service.createRecurring(userId, {
+          description: 'Cuota vieja',
+          amount: 10000,
+          dayOfMonth: 10,
+          totalInstallments: 3,
+          startPeriod: '2026-01',
+        });
+
+        expect(prisma.recurringExpense.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            installmentsPaid: 3,
+            active: false,
+          }),
+          include: { category: true },
+        });
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should reject invalid installments or startPeriod format', async () => {
+      await expect(
+        service.createRecurring(userId, {
+          description: 'X',
+          amount: 100,
+          dayOfMonth: 1,
+          totalInstallments: 0,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.createRecurring(userId, {
+          description: 'X',
+          amount: 100,
+          dayOfMonth: 1,
+          startPeriod: 'marzo',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.recurringExpense.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('postDueRecurringExpenses con cuotas', () => {
+    const cuotaRec = {
+      ...mockRecurring,
+      id: 'rec-2',
+      description: 'Cuota celular',
+      amount: 50000,
+      totalInstallments: 12,
+      installmentsPaid: 5,
+      startPeriod: '2026-03',
+    };
+
+    it('should post with the installment number in the description and increment the counter', async () => {
+      (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+        cuotaRec,
+      ]);
+      (prisma.expense.create as jest.Mock).mockResolvedValue({});
+      (prisma.recurringExpense.update as jest.Mock).mockResolvedValue({});
+
+      await service.postDueRecurringExpenses(new Date(2026, 7, 10));
+
+      expect(prisma.expense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          description: 'Cuota celular (cuota 6/12)',
+        }),
+      });
+      expect(prisma.recurringExpense.update).toHaveBeenCalledWith({
+        where: { id: 'rec-2' },
+        data: expect.objectContaining({
+          lastPostedPeriod: '2026-08',
+          installmentsPaid: 6,
+          active: true,
+        }),
+      });
+    });
+
+    it('should deactivate the recurring after posting the last installment', async () => {
+      (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+        { ...cuotaRec, installmentsPaid: 11 },
+      ]);
+      (prisma.expense.create as jest.Mock).mockResolvedValue({});
+      (prisma.recurringExpense.update as jest.Mock).mockResolvedValue({});
+
+      await service.postDueRecurringExpenses(new Date(2026, 7, 10));
+
+      expect(prisma.expense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          description: 'Cuota celular (cuota 12/12)',
+        }),
+      });
+      expect(prisma.recurringExpense.update).toHaveBeenCalledWith({
+        where: { id: 'rec-2' },
+        data: expect.objectContaining({
+          installmentsPaid: 12,
+          active: false,
+        }),
+      });
+    });
+
+    it('should not post before the startPeriod (cuotas que arrancan en el futuro)', async () => {
+      (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+        { ...cuotaRec, startPeriod: '2026-10', installmentsPaid: 0 },
+      ]);
+
+      const posted = await service.postDueRecurringExpenses(
+        new Date(2026, 7, 10),
+      );
+
+      expect(posted).toBe(0);
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('recurringEndPeriod', () => {
+    it('should compute the end month from startPeriod + total installments', () => {
+      // Arrancó 2026-03, 12 cuotas → la última es 2027-02
+      expect(
+        recurringEndPeriod(
+          {
+            totalInstallments: 12,
+            installmentsPaid: 5,
+            startPeriod: '2026-03',
+            lastPostedPeriod: '2026-07',
+          },
+          new Date(2026, 7, 15),
+        ),
+      ).toBe('2027-02');
+    });
+
+    it('should estimate from the counter when there is no startPeriod', () => {
+      // 12 cuotas, 3 pagadas, la de este mes aún no se posteó:
+      // ago=4 ... abr=12 → termina 2027-04
+      expect(
+        recurringEndPeriod(
+          {
+            totalInstallments: 12,
+            installmentsPaid: 3,
+            startPeriod: null,
+            lastPostedPeriod: '2026-07',
+          },
+          new Date(2026, 7, 15),
+        ),
+      ).toBe('2027-04');
+      // Si la de este mes ya se posteó, la próxima es sep → termina 2027-04
+      expect(
+        recurringEndPeriod(
+          {
+            totalInstallments: 12,
+            installmentsPaid: 4,
+            startPeriod: null,
+            lastPostedPeriod: '2026-08',
+          },
+          new Date(2026, 7, 15),
+        ),
+      ).toBe('2027-04');
+    });
+
+    it('should return null for endless or finished recurrings', () => {
+      expect(
+        recurringEndPeriod(
+          {
+            totalInstallments: null,
+            installmentsPaid: 0,
+            startPeriod: null,
+            lastPostedPeriod: null,
+          },
+          new Date(2026, 7, 15),
+        ),
+      ).toBeNull();
+      expect(
+        recurringEndPeriod(
+          {
+            totalInstallments: 12,
+            installmentsPaid: 12,
+            startPeriod: '2025-01',
+            lastPostedPeriod: '2025-12',
+          },
+          new Date(2026, 7, 15),
+        ),
+      ).toBeNull();
     });
   });
 

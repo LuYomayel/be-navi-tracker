@@ -24,7 +24,10 @@ import {
   buildTaskUpdateFromMcpArgs,
 } from './task-edit-utils';
 import { SweatTestService } from '../sweat-test/sweat-test.service';
-import { ExpensesService } from '../expenses/expenses.service';
+import {
+  ExpensesService,
+  recurringEndPeriod,
+} from '../expenses/expenses.service';
 import {
   parseDiasHabito,
   formatDias,
@@ -1899,11 +1902,11 @@ export class McpServerFactory {
     add(
       'crear_gasto_recurrente',
       {
-        title: 'Crear pago recurrente / suscripción',
+        title: 'Crear pago recurrente / suscripción / cuotas',
         description:
-          'Crea un pago recurrente o suscripción mensual (ej: Netflix, alquiler). Se registra solo como gasto todos los meses en el día indicado.',
+          'Crea un pago recurrente o suscripción mensual (ej: Netflix, alquiler) o un plan de CUOTAS con fin (ej: "12 cuotas de la heladera"). Se registra solo como gasto cada mes. Con cuotas + primer_mes (puede ser un mes pasado, ej arrancaste a pagar en marzo) el sistema deriva cuántas van pagadas, avisa cuándo termina y se desactiva solo en la última.',
         inputSchema: {
-          descripcion: z.string().describe('Qué es (ej: "Netflix")'),
+          descripcion: z.string().describe('Qué es (ej: "Netflix", "Cuota heladera")'),
           monto: z.number().describe('Monto mensual en ARS'),
           dia_del_mes: z
             .number()
@@ -1913,6 +1916,20 @@ export class McpServerFactory {
             .optional()
             .describe('subscription para suscripciones, recurring para pagos fijos'),
           categoria: z.string().optional().describe('Nombre de la categoría'),
+          cuotas: z
+            .number()
+            .optional()
+            .describe('Cantidad total de cuotas (ej: 12). Sin esto, no tiene fin.'),
+          primer_mes: z
+            .string()
+            .optional()
+            .describe(
+              'Mes de la primera cuota YYYY-MM. Puede ser pasado (ej: "2026-03" si arrancaste en marzo) o futuro. Los meses ya transcurridos cuentan como cuotas pagadas.',
+            ),
+          cuotas_pagadas: z
+            .number()
+            .optional()
+            .describe('Override manual de cuotas ya pagadas (si no querés usar primer_mes)'),
         },
       },
       async (a) => {
@@ -1931,10 +1948,65 @@ export class McpServerFactory {
           dayOfMonth: a.dia_del_mes,
           kind: a.tipo,
           categoryId,
+          totalInstallments: a.cuotas,
+          installmentsPaid: a.cuotas_pagadas,
+          startPeriod: a.primer_mes,
         });
+        const label =
+          rec.kind === 'subscription' ? 'Suscripción' : 'Pago recurrente';
+        if (!rec.totalInstallments) {
+          return text(
+            `${label} creado: "${rec.description}" ${ars(rec.amount)}/mes el día ${rec.dayOfMonth}. id ${rec.id}.`,
+          );
+        }
+        const end = recurringEndPeriod(rec as any);
         return text(
-          `${rec.kind === 'subscription' ? 'Suscripción' : 'Pago recurrente'} creado: "${rec.description}" ${ars(rec.amount)}/mes el día ${rec.dayOfMonth}. id ${rec.id}.`,
+          `${label} en cuotas creado: "${rec.description}" ${ars(rec.amount)}/mes el día ${rec.dayOfMonth} — van ${rec.installmentsPaid}/${rec.totalInstallments} pagadas.` +
+            (rec.active && end
+              ? ` Última cuota: ${end} (ahí se liberan ${ars(rec.amount)}/mes).`
+              : ' ✅ Ya está terminado.') +
+            ` id ${rec.id}.`,
         );
+      },
+    );
+
+    add(
+      'list_recurrentes',
+      {
+        title: 'Listar recurrentes, suscripciones y cuotas',
+        description:
+          'Lista los pagos recurrentes: suscripciones, pagos fijos y planes en cuotas, con cuántas cuotas van, cuándo termina cada uno y cuánta plata se libera por mes al terminar.',
+        inputSchema: {},
+      },
+      async () => {
+        const list = (await this.expenses.getRecurring(userId)) as any[];
+        if (!list.length) return text('No hay pagos recurrentes cargados.');
+        const active = list.filter((r) => r.active);
+        const lines: string[] = [];
+        const monthlyTotal = active.reduce((acc, r) => acc + r.amount, 0);
+        lines.push(
+          `Pagos recurrentes activos: ${active.length} — ${ars(monthlyTotal)}/mes`,
+        );
+        for (const r of list) {
+          const end = recurringEndPeriod(r);
+          const cuotaInfo = r.totalInstallments
+            ? ` · cuota ${r.installmentsPaid}/${r.totalInstallments}${end ? ` · termina ${end}` : ' · ✅ terminado'}`
+            : '';
+          lines.push(
+            `• ${r.active ? '' : '(inactivo) '}${r.description}: ${ars(r.amount)}/mes el día ${r.dayOfMonth}${r.kind === 'subscription' ? ' [sub]' : ''}${cuotaInfo}`,
+          );
+        }
+        const liberations = active
+          .map((r) => ({ r, end: recurringEndPeriod(r) }))
+          .filter((x) => x.end)
+          .sort((a, b) => a.end!.localeCompare(b.end!));
+        if (liberations.length) {
+          lines.push('💸 Plata que se libera:');
+          for (const { r, end } of liberations) {
+            lines.push(`• ${end}: +${ars(r.amount)}/mes (termina ${r.description})`);
+          }
+        }
+        return text(lines.join('\n'));
       },
     );
 
