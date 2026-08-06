@@ -14,6 +14,7 @@ export enum XpAction {
   DAY_WON = 'day_won',
   DAY_PARTIAL = 'day_partial',
   HYDRATION_GOAL = 'hydration_goal',
+  SLEEP_LOG = 'sleep_log',
 }
 
 export class AddXpDto {

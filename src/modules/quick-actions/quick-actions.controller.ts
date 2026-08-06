@@ -93,6 +93,35 @@ export class QuickActionsController {
     });
   }
 
+  // Atajo de la mañana (automatización "al despertar" del Watch/iPhone).
+  // `duracion` acepta "7:45", "7h 30m", horas decimales o minutos.
+  @Post('sueno')
+  async sueno(
+    @Body()
+    body: {
+      duracion?: number | string;
+      minutos?: number | string;
+      calidad?: number;
+      acoste?: string;
+      desperte?: string;
+      profundo?: number;
+      rem?: number;
+      despierto?: number;
+      pulsaciones?: number;
+    },
+  ) {
+    return this.quick.sueno(await this.userId(), {
+      duracion: body?.duracion ?? body?.minutos,
+      calidad: body?.calidad !== undefined ? Number(body.calidad) : undefined,
+      acoste: body?.acoste ? String(body.acoste) : undefined,
+      desperte: body?.desperte ? String(body.desperte) : undefined,
+      profundo: body?.profundo ? Number(body.profundo) : undefined,
+      rem: body?.rem ? Number(body.rem) : undefined,
+      despierto: body?.despierto ? Number(body.despierto) : undefined,
+      pulsaciones: body?.pulsaciones ? Number(body.pulsaciones) : undefined,
+    });
+  }
+
   @Post('gasto')
   async gasto(
     @Body()

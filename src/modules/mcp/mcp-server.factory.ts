@@ -23,6 +23,11 @@ import {
   matchTaskByTitle,
   buildTaskUpdateFromMcpArgs,
 } from './task-edit-utils';
+import {
+  SleepService,
+  formatDuration,
+  parseDuration,
+} from '../sleep/sleep.service';
 import { SweatTestService } from '../sweat-test/sweat-test.service';
 import {
   ExpensesService,
@@ -86,6 +91,7 @@ export class McpServerFactory {
     private readonly mercadoPago: MercadoPagoService,
     private readonly categorizer: ExpenseCategorizerService,
     private readonly sweatTests: SweatTestService,
+    private readonly sleep: SleepService,
   ) {}
 
   /**
@@ -122,6 +128,7 @@ export class McpServerFactory {
     this.registerNotesAndTasksTools(server, userId, add);
     this.registerPhysicalActivityTools(server, userId, add);
     this.registerExpenseTools(server, userId, add);
+    this.registerSleepTools(server, userId, add);
     return server;
   }
 
@@ -2799,4 +2806,102 @@ export class McpServerFactory {
     const jsDay = new Date(`${fecha}T12:00:00`).getDay(); // 0=Dom..6=Sab
     return (jsDay + 6) % 7; // 0=Lun..6=Dom
   }
+
+  /** Sueño: registrar la noche y consultar cómo viene la semana. */
+  private registerSleepTools(
+    _server: McpServer,
+    userId: string,
+    add: (n: string, c: ToolConfig, h: (a: any) => Promise<any>) => void,
+  ) {
+    add(
+      'registrar_sueno',
+      {
+        title: 'Registrar cuánto dormí',
+        description:
+          'Guarda el sueño de una noche. La fecha es el día en que te DESPERTASTE (si dormiste del 5 al 6, va el 6). Se puede correr de nuevo el mismo día: pisa el dato en vez de duplicar.',
+        inputSchema: {
+          duracion: z
+            .union([z.number(), z.string()])
+            .describe('Cuánto dormiste: minutos (465), "7:45" o "7h 30m"'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Día en que te despertaste YYYY-MM-DD. Por defecto hoy.'),
+          calidad: z
+            .number()
+            .optional()
+            .describe('Qué tan bien dormiste, 1 a 5'),
+          acoste: z.string().optional().describe('Hora en que te acostaste HH:mm'),
+          desperte: z.string().optional().describe('Hora en que te despertaste HH:mm'),
+          notas: z.string().optional().describe('Nota libre (ej: "me desperté 3 veces")'),
+        },
+      },
+      async (a) => {
+        const minutos = parseDuration(a.duracion);
+        if (!minutos) {
+          return text(
+            'No entendí la duración. Pasame minutos (465), "7:45" o "7h 30m".',
+          );
+        }
+        const fecha = a.fecha || getLocalDateString();
+        const log = await this.sleep.upsertSleep(userId, {
+          date: fecha,
+          minutesAsleep: minutos,
+          quality: a.calidad,
+          bedTime: a.acoste,
+          wakeTime: a.desperte,
+          notes: a.notas,
+          source: 'manual',
+        });
+        return text(
+          `😴 Sueño del ${fecha}: ${formatDuration(log.minutesAsleep)}` +
+            (log.quality ? ` · calidad ${log.quality}/5` : '') +
+            (log.bedTime && log.wakeTime
+              ? ` (${log.bedTime} → ${log.wakeTime})`
+              : ''),
+        );
+      },
+    );
+
+    add(
+      'get_sueno',
+      {
+        title: 'Cómo vengo durmiendo',
+        description:
+          'Promedio de sueño de las últimas noches, calidad promedio, mejor y peor noche, y el detalle noche por noche.',
+        inputSchema: {
+          dias: z
+            .number()
+            .optional()
+            .describe('Cuántas noches mirar hacia atrás (por defecto 7)'),
+        },
+      },
+      async (a) => {
+        const stats = await this.sleep.getStats(userId, a.dias || 7);
+        if (stats.noches === 0) {
+          return text('Todavía no hay noches registradas.');
+        }
+        const lines = [
+          `😴 Últimas ${stats.noches} noches: promedio ${stats.promedioTexto}` +
+            (stats.calidadPromedio
+              ? ` · calidad ${stats.calidadPromedio}/5`
+              : ''),
+        ];
+        if (stats.mejorNoche && stats.peorNoche) {
+          lines.push(
+            `Mejor: ${stats.mejorNoche.date} (${formatDuration(stats.mejorNoche.minutesAsleep)}) · Peor: ${stats.peorNoche.date} (${formatDuration(stats.peorNoche.minutesAsleep)})`,
+          );
+        }
+        for (const l of stats.logs) {
+          lines.push(
+            `• ${l.date}: ${formatDuration(l.minutesAsleep)}` +
+              (l.quality ? ` · ${l.quality}/5` : '') +
+              (l.bedTime && l.wakeTime ? ` (${l.bedTime}→${l.wakeTime})` : ''),
+          );
+        }
+        return text(lines.join('\n'));
+      },
+    );
+  }
+
 }

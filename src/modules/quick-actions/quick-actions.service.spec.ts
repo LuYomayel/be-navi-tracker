@@ -13,6 +13,7 @@ import { ExpenseCategorizerService } from '../expenses/expense-categorizer.servi
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { PhysicalActivitiesService } from '../physical-activities/physical-activities.service';
 import { NutritionService } from '../nutrition/nutrition.service';
+import { SleepService } from '../sleep/sleep.service';
 import { PrismaService } from '../../config/prisma.service';
 
 describe('slotForHour', () => {
@@ -45,6 +46,7 @@ describe('QuickActionsService', () => {
   let analyzeFood: AnalyzeFoodService;
   let nutrition: NutritionService;
   let physical: PhysicalActivitiesService;
+  let sleep: SleepService;
 
   const userId = 'user-1';
 
@@ -109,6 +111,16 @@ describe('QuickActionsService', () => {
           },
         },
         {
+          provide: SleepService,
+          useValue: {
+            upsertSleep: jest
+              .fn()
+              .mockImplementation((_u, dto) =>
+                Promise.resolve({ id: 'sleep-1', ...dto }),
+              ),
+          },
+        },
+        {
           provide: PrismaService,
           useValue: {
             userPreferences: {
@@ -135,6 +147,7 @@ describe('QuickActionsService', () => {
     analyzeFood = module.get(AnalyzeFoodService);
     nutrition = module.get(NutritionService);
     physical = module.get(PhysicalActivitiesService);
+    sleep = module.get(SleepService);
   });
 
   describe('config', () => {
@@ -328,6 +341,36 @@ describe('QuickActionsService', () => {
       await expect(service.entreno(userId, {})).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  describe('sueno', () => {
+    it('should log last night with what the shortcut sends and answer with the duration', async () => {
+      const r = await service.sueno(userId, {
+        duracion: '7:45',
+        calidad: 4,
+        acoste: '23:15',
+        desperte: '07:00',
+      });
+
+      expect(sleep.upsertSleep).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({
+          date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+          minutesAsleep: 465,
+          quality: 4,
+          bedTime: '23:15',
+          wakeTime: '07:00',
+          source: 'shortcut',
+        }),
+      );
+      expect(r.message).toContain('7h 45m');
+    });
+
+    it('should reject a duration it cannot understand', async () => {
+      await expect(
+        service.sueno(userId, { duracion: 'dormí mal' }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

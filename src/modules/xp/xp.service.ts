@@ -45,6 +45,7 @@ export class XpService {
     [XpAction.DAY_WON]: 25,
     [XpAction.DAY_PARTIAL]: 15,
     [XpAction.HYDRATION_GOAL]: 20,
+    [XpAction.SLEEP_LOG]: 10,
   };
 
   /**

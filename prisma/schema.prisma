@@ -52,6 +52,7 @@ model User {
   googleCalendarConnection GoogleCalendarConnection?
   dayScores                DayScore[]
   hydrationLogs            HydrationLog[]
+  sleepLogs                SleepLog[]
   sweatTests               SweatTest[]
   shoppingLists            ShoppingList[]
   userPreferences          UserPreferences?
@@ -669,6 +670,33 @@ model HydrationLog {
   @@unique([userId, date])
   @@index([userId, date])
   @@map("hydration_logs")
+}
+
+// Sueño de la noche. `date` es el día en que se DESPIERTA (el sueño del
+// 5→6 se guarda como 2026-08-06), así se cruza con el resto del día.
+model SleepLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date            String // YYYY-MM-DD (día en que se despertó)
+  minutesAsleep   Int // total dormido
+  bedTime         String? // HH:mm en que se acostó
+  wakeTime        String? // HH:mm en que se despertó
+  quality         Int? // 1-5 percibido
+  deepMinutes     Int? // sueño profundo (Apple Watch)
+  remMinutes      Int?
+  awakeMinutes    Int?
+  heartRateAvg    Int? // pulsaciones promedio durmiendo
+  source          String  @default("manual") // manual | shortcut | apple-health
+  notes           String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("sleep_logs")
 }
 
 // ==========================================

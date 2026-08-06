@@ -6,6 +6,11 @@ import { ExpensesService } from '../expenses/expenses.service';
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { NutritionService } from '../nutrition/nutrition.service';
 import { PhysicalActivitiesService } from '../physical-activities/physical-activities.service';
+import {
+  SleepService,
+  parseDuration,
+  formatDuration,
+} from '../sleep/sleep.service';
 import { PrismaService } from '../../config/prisma.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
@@ -77,6 +82,7 @@ export class QuickActionsService {
     private readonly analyzeFood: AnalyzeFoodService,
     private readonly nutrition: NutritionService,
     private readonly physical: PhysicalActivitiesService,
+    private readonly sleep: SleepService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -215,6 +221,47 @@ export class QuickActionsService {
     ].filter(Boolean);
     return {
       message: `🏋️ Entreno registrado${datos.tipo ? ` (${datos.tipo})` : ''}: ${partes.join(' · ')} +60 XP`,
+    };
+  }
+
+  /**
+   * Sueño de anoche (automatización "al despertar" del Watch/iPhone). Se
+   * guarda en el día de HOY, que es cuando se despertó.
+   */
+  async sueno(
+    userId: string,
+    datos: {
+      duracion?: number | string;
+      calidad?: number;
+      acoste?: string;
+      desperte?: string;
+      profundo?: number;
+      rem?: number;
+      despierto?: number;
+      pulsaciones?: number;
+    },
+  ) {
+    const minutos = parseDuration(datos.duracion);
+    if (!minutos) {
+      throw new BadRequestException(
+        'No entendí cuánto dormiste. Mandá "7:45", "7h 30m" o los minutos.',
+      );
+    }
+    await this.sleep.upsertSleep(userId, {
+      date: getLocalDateString(),
+      minutesAsleep: minutos,
+      quality: datos.calidad,
+      bedTime: datos.acoste,
+      wakeTime: datos.desperte,
+      deepMinutes: datos.profundo,
+      remMinutes: datos.rem,
+      awakeMinutes: datos.despierto,
+      heartRateAvg: datos.pulsaciones,
+      source: 'shortcut',
+    });
+    const extra = datos.calidad ? ` · calidad ${datos.calidad}/5` : '';
+    return {
+      message: `😴 Dormiste ${formatDuration(minutos)}${extra}. ¡Buen día!`,
     };
   }
 
