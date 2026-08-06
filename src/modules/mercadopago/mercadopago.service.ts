@@ -70,6 +70,13 @@ function parseAmount(raw: string | undefined): number {
 // Retiros a cuenta bancaria propia: no son gastos, es mover tu propia plata
 const SELF_TYPES = new Set(['WITHDRAWAL', 'WITHDRAWAL_CANCEL']);
 
+// Transferencias a cuentas bancarias (CBU): el reporte NO trae la contraparte,
+// así que no se puede distinguir "me mandé plata a mi banco" de "le pagué a
+// alguien por CBU". Verificado 2026-08-06 con datos reales: el dry-run habría
+// importado $1.16M de transferencias propias. Se saltean y se reportan para
+// carga manual de las que sí sean gastos.
+const BANK_TRANSFER_TYPES = new Set(['PAYOUT', 'PAYOUTS']);
+
 /** Clasifica una fila del reporte en gasto / ingreso / skip (con motivo). */
 export function classifyRow(row: MpRow): MpMovement {
   const net = parseAmount(row.SETTLEMENT_NET_AMOUNT) || parseAmount(row.TRANSACTION_AMOUNT);
@@ -93,6 +100,14 @@ export function classifyRow(row: MpRow): MpMovement {
       ...base,
       kind: 'skip',
       reason: 'retiro/transferencia a cuenta propia',
+    };
+  }
+  if (BANK_TRANSFER_TYPES.has(row.TRANSACTION_TYPE) && net < 0) {
+    return {
+      ...base,
+      kind: 'skip',
+      reason:
+        'transferencia a cuenta bancaria (CBU) — puede ser tuya; si es un gasto real cargalo a mano',
     };
   }
   if (net < 0) return { ...base, kind: 'gasto' };

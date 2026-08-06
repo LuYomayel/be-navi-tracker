@@ -85,6 +85,23 @@ describe('classifyRow', () => {
     expect(m.reason).toContain('cuenta propia');
   });
 
+  it('should skip negative PAYOUTS (transferencia a CBU, puede ser cuenta propia)', () => {
+    const m = classifyRow(
+      row({
+        TRANSACTION_TYPE: 'PAYOUTS',
+        SETTLEMENT_NET_AMOUNT: '-1100000.00',
+      }),
+    );
+    expect(m.kind).toBe('skip');
+    expect(m.reason).toContain('CBU');
+    // Un PAYOUT positivo (cancelación devuelta) no es gasto: cae como ingreso
+    expect(
+      classifyRow(
+        row({ TRANSACTION_TYPE: 'PAYOUTS', SETTLEMENT_NET_AMOUNT: '500.00' }),
+      ).kind,
+    ).toBe('ingreso');
+  });
+
   it('should skip zero-amount rows and fall back to TRANSACTION_AMOUNT', () => {
     expect(
       classifyRow(row({ SETTLEMENT_NET_AMOUNT: '0.00', TRANSACTION_AMOUNT: '0.00' }))
