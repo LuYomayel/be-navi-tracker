@@ -12,6 +12,7 @@ describe('MealPrepService', () => {
   let service: MealPrepService;
   let prisma: PrismaService;
   let nutritionService: NutritionService;
+  let aiCostService: AICostService;
 
   const userId = 'user-1';
 
@@ -149,6 +150,7 @@ describe('MealPrepService', () => {
     service = module.get<MealPrepService>(MealPrepService);
     prisma = module.get<PrismaService>(PrismaService);
     nutritionService = module.get<NutritionService>(NutritionService);
+    aiCostService = module.get<AICostService>(AICostService);
   });
 
   // ═══════════════════════════════════════════════════════════
@@ -198,6 +200,100 @@ describe('MealPrepService', () => {
       const result = await service.getActiveNutritionistPlan(userId);
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('computePlanGoals', () => {
+    it('should use explicit targets from the plan when present', async () => {
+      (prisma.nutritionistPlan.findFirst as jest.Mock).mockResolvedValue(
+        mockNutritionistPlan,
+      );
+
+      const r = await service.computePlanGoals('plan-1', userId);
+
+      expect(r.source).toBe('plan');
+      expect(r.goals).toEqual({
+        dailyCalorieGoal: 2000,
+        proteinGoal: 120,
+        carbsGoal: 200,
+        fatGoal: 70,
+      });
+      expect(r.planName).toBe(mockNutritionistPlan.name);
+    });
+
+    it('should average the daily totals when there are no explicit targets', async () => {
+      (prisma.nutritionistPlan.findFirst as jest.Mock).mockResolvedValue({
+        ...mockNutritionistPlan,
+        parsedPlan: {
+          days: {
+            monday: {
+              breakfast: { name: 'A', estimatedCalories: 500 },
+              lunch: { name: 'B', estimatedCalories: 700 },
+            },
+            tuesday: { lunch: { name: 'C', estimatedCalories: 1400 } },
+          },
+          targetCalories: null,
+          targetMacros: null,
+        },
+      });
+
+      const r = await service.computePlanGoals('plan-1', userId);
+
+      expect(r.source).toBe('promedio-dias');
+      expect(r.goals.dailyCalorieGoal).toBe(1300); // (1200 + 1400) / 2
+    });
+
+    it('should estimate with AI when the plan has no calories at all (porciones de la nutri)', async () => {
+      (prisma.nutritionistPlan.findFirst as jest.Mock).mockResolvedValue({
+        ...mockNutritionistPlan,
+        parsedPlan: {
+          days: {
+            monday: {
+              lunch: {
+                name: 'Almuerzo',
+                foods: ['1/3 proteinas (200g)', '1/3 hidratos (120g cocidos)', '1/3 verduras'],
+                estimatedCalories: null,
+              },
+            },
+          },
+          targetCalories: null,
+          targetMacros: { protein: null, carbs: null, fat: null },
+        },
+      });
+      (service as any).openai = {
+        chat: {
+          completions: {
+            create: jest.fn().mockResolvedValue({
+              choices: [
+                {
+                  message: {
+                    content:
+                      '{"dailyCalorieGoal": 2350, "proteinGoal": 160, "carbsGoal": 240, "fatGoal": 75, "rationale": "Estimado por porciones"}',
+                  },
+                },
+              ],
+              usage: { prompt_tokens: 100, completion_tokens: 50 },
+            }),
+          },
+        },
+      };
+
+      const r = await service.computePlanGoals('plan-1', userId);
+
+      expect(r.source).toBe('estimado-ia');
+      expect(r.goals).toEqual({
+        dailyCalorieGoal: 2350,
+        proteinGoal: 160,
+        carbsGoal: 240,
+        fatGoal: 75,
+      });
+      expect(r.rationale).toContain('porciones');
+      expect(aiCostService.logFromCompletion).toHaveBeenCalled();
+    });
+
+    it('should throw for a foreign or missing plan', async () => {
+      (prisma.nutritionistPlan.findFirst as jest.Mock).mockResolvedValue(null);
+      await expect(service.computePlanGoals('nope', userId)).rejects.toThrow();
     });
   });
 

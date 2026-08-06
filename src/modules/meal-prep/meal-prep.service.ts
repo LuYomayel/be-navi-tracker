@@ -75,6 +75,131 @@ export class MealPrepService {
     });
   }
 
+  /**
+   * Calcula los objetivos nutricionales (kcal + macros) que se desprenden de
+   * un plan importado, SIN aplicarlos. Tres caminos, en orden:
+   *  1. targets explícitos del PDF ('plan')
+   *  2. promedio de las calorías diarias del plan ('promedio-dias')
+   *  3. estimación con IA desde las porciones ('estimado-ia') — el caso real
+   *     de la nutri de Luciano: "1/3 proteínas (200g)..." sin ninguna caloría.
+   */
+  async computePlanGoals(
+    planId: string,
+    userId: string,
+  ): Promise<{
+    planId: string;
+    planName: string;
+    source: 'plan' | 'promedio-dias' | 'estimado-ia';
+    goals: {
+      dailyCalorieGoal?: number;
+      proteinGoal?: number;
+      carbsGoal?: number;
+      fatGoal?: number;
+    };
+    rationale?: string | null;
+  }> {
+    const plan = await this.prisma.nutritionistPlan.findFirst({
+      where: { id: planId, userId },
+    });
+    if (!plan) throw new NotFoundException('Plan no encontrado');
+    const parsed = plan.parsedPlan as any;
+
+    const base = { planId: plan.id, planName: plan.name };
+
+    // 1) Targets explícitos del PDF
+    if (parsed?.targetCalories) {
+      const tm = parsed.targetMacros || {};
+      return {
+        ...base,
+        source: 'plan' as const,
+        goals: {
+          dailyCalorieGoal: Math.round(parsed.targetCalories),
+          proteinGoal: tm.protein ? Math.round(tm.protein) : undefined,
+          carbsGoal: tm.carbs ? Math.round(tm.carbs) : undefined,
+          fatGoal: tm.fat ? Math.round(tm.fat) : undefined,
+        },
+      };
+    }
+
+    // 2) Promedio de los días que tengan calorías estimadas
+    const dailyCals: number[] = [];
+    for (const dayKey of DAY_KEYS) {
+      const day = parsed?.days?.[dayKey];
+      if (!day) continue;
+      let dayCal = 0;
+      for (const slot of ['breakfast', 'lunch', 'merienda', 'snack', 'dinner']) {
+        dayCal += day[slot]?.estimatedCalories || 0;
+      }
+      if (dayCal > 0) dailyCals.push(dayCal);
+    }
+    if (dailyCals.length > 0) {
+      return {
+        ...base,
+        source: 'promedio-dias' as const,
+        goals: {
+          dailyCalorieGoal: Math.round(
+            dailyCals.reduce((a, b) => a + b, 0) / dailyCals.length,
+          ),
+        },
+      };
+    }
+
+    // 3) Estimación con IA desde porciones/alimentos
+    if (!this.openai) {
+      throw new BadRequestException(
+        'El plan no tiene calorías y OpenAI no está configurado para estimarlas',
+      );
+    }
+    const completion = await this.openai.chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.1,
+      messages: [
+        {
+          role: 'system',
+          content: `Sos un nutricionista experto. Te paso el plan semanal de un nutricionista (porciones y alimentos, sin calorías). Estimá los objetivos DIARIOS que ese plan implica: calorías totales y gramos de proteína, carbohidratos y grasas. Usá las porciones indicadas (ej: "200g de proteína magra cocida" ≈ 40-45g de proteína). Respondé SOLO un JSON válido sin markdown:
+{"dailyCalorieGoal": number, "proteinGoal": number, "carbsGoal": number, "fatGoal": number, "rationale": "explicación breve en una frase"}`,
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            days: parsed?.days || {},
+            notas: parsed?.generalNotes || plan.weeklyNotes || null,
+          }),
+        },
+      ],
+    });
+    try {
+      await this.aiCostService.logFromCompletion(
+        userId,
+        'meal-prep-plan-goals',
+        completion as any,
+      );
+    } catch {
+      // logging de costo no crítico
+    }
+
+    const raw = completion.choices[0]?.message?.content || '{}';
+    let estimated: any;
+    try {
+      estimated = JSON.parse(raw.replace(/```json?|```/g, '').trim());
+    } catch {
+      throw new BadRequestException(
+        'La IA no devolvió una estimación válida — probá de nuevo',
+      );
+    }
+    return {
+      ...base,
+      source: 'estimado-ia' as const,
+      goals: {
+        dailyCalorieGoal: Math.round(estimated.dailyCalorieGoal || 0),
+        proteinGoal: Math.round(estimated.proteinGoal || 0),
+        carbsGoal: Math.round(estimated.carbsGoal || 0),
+        fatGoal: Math.round(estimated.fatGoal || 0),
+      },
+      rationale: estimated.rationale || null,
+    };
+  }
+
   async importNutritionistPlan(
     dto: ImportNutritionistPlanDto,
     userId: string,

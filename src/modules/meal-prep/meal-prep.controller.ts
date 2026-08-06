@@ -73,6 +73,18 @@ export class MealPrepController {
     return { success: true, data: plan };
   }
 
+  @Post('nutritionist-plan/:id/compute-goals')
+  async computePlanGoals(
+    @Param('id') id: string,
+    @Req() req: any,
+  ): Promise<ApiResponse<any>> {
+    const result = await this.mealPrepService.computePlanGoals(
+      id,
+      this.requireUserId(req),
+    );
+    return { success: true, data: result };
+  }
+
   @Put('nutritionist-plan/:id')
   async updateNutritionistPlan(
     @Param('id') id: string,
