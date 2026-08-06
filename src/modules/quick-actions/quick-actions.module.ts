@@ -6,6 +6,7 @@ import { NotesModule } from '../notes/notes.module';
 import { ExpensesModule } from '../expenses/expenses.module';
 import { AnalyzeFoodModule } from '../analyze-food/analyze-food.module';
 import { NutritionModule } from '../nutrition/nutrition.module';
+import { PhysicalActivitiesModule } from '../physical-activities/physical-activities.module';
 import { QuickActionsController } from './quick-actions.controller';
 import { QuickActionsConfigController } from './quick-actions-config.controller';
 import { QuickActionsService } from './quick-actions.service';
@@ -18,6 +19,7 @@ import { QuickActionsService } from './quick-actions.service';
     ExpensesModule,
     AnalyzeFoodModule,
     NutritionModule,
+    PhysicalActivitiesModule,
   ],
   controllers: [QuickActionsController, QuickActionsConfigController],
   providers: [QuickActionsService, PrismaService],

@@ -10,6 +10,7 @@ import { MealPrepService } from '../meal-prep/meal-prep.service';
 import { NotesService } from '../notes/notes.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
+import { PhysicalActivitiesService } from '../physical-activities/physical-activities.service';
 import { NutritionService } from '../nutrition/nutrition.service';
 import { PrismaService } from '../../config/prisma.service';
 
@@ -42,6 +43,7 @@ describe('QuickActionsService', () => {
   let expenses: ExpensesService;
   let analyzeFood: AnalyzeFoodService;
   let nutrition: NutritionService;
+  let physical: PhysicalActivitiesService;
 
   const userId = 'user-1';
 
@@ -94,6 +96,14 @@ describe('QuickActionsService', () => {
           useValue: { create: jest.fn().mockResolvedValue({ id: 'na-1' }) },
         },
         {
+          provide: PhysicalActivitiesService,
+          useValue: {
+            create: jest
+              .fn()
+              .mockImplementation((data) => Promise.resolve({ id: 'pa-1', ...data })),
+          },
+        },
+        {
           provide: PrismaService,
           useValue: {
             userPreferences: {
@@ -114,6 +124,7 @@ describe('QuickActionsService', () => {
     expenses = module.get(ExpensesService);
     analyzeFood = module.get(AnalyzeFoodService);
     nutrition = module.get(NutritionService);
+    physical = module.get(PhysicalActivitiesService);
   });
 
   describe('config', () => {
@@ -278,6 +289,33 @@ describe('QuickActionsService', () => {
 
     it('should reject empty text', async () => {
       await expect(service.comida(userId, '  ')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('entreno', () => {
+    it('should log a workout with minutes and calories for today', async () => {
+      const r = await service.entreno(userId, {
+        minutos: 45,
+        kcal: 320,
+        tipo: 'Handball',
+      });
+
+      expect(physical.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+          exerciseMinutes: 45,
+          activeEnergyKcal: 320,
+          context: 'Handball',
+        }),
+        userId,
+      );
+      expect(r.message).toContain('45');
+    });
+
+    it('should reject a workout with no data at all', async () => {
+      await expect(service.entreno(userId, {})).rejects.toThrow(
         BadRequestException,
       );
     });

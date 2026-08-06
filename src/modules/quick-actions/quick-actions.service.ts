@@ -5,6 +5,7 @@ import { NotesService } from '../notes/notes.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { NutritionService } from '../nutrition/nutrition.service';
+import { PhysicalActivitiesService } from '../physical-activities/physical-activities.service';
 import { PrismaService } from '../../config/prisma.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
@@ -75,6 +76,7 @@ export class QuickActionsService {
     private readonly expenses: ExpensesService,
     private readonly analyzeFood: AnalyzeFoodService,
     private readonly nutrition: NutritionService,
+    private readonly physical: PhysicalActivitiesService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -173,6 +175,46 @@ export class QuickActionsService {
     );
     return {
       message: `🍽️ Registrado (${mealType}): ${analysis.totalCalories} kcal — ${analysis.foods.map((f) => f.name).join(', ')} +15 XP`,
+    };
+  }
+
+  /**
+   * Entrenamiento terminado (ej: automatización de Apple Watch Workout).
+   * Con lo que venga: minutos, kcal, distancia y/o tipo.
+   */
+  async entreno(
+    userId: string,
+    datos: {
+      minutos?: number;
+      kcal?: number;
+      distancia_km?: number;
+      tipo?: string;
+    },
+  ) {
+    const minutos = datos.minutos ? Math.round(datos.minutos) : undefined;
+    const kcal = datos.kcal ? Math.round(datos.kcal) : undefined;
+    if (!minutos && !kcal && !datos.distancia_km) {
+      throw new BadRequestException(
+        'Mandá al menos minutos, kcal o distancia del entrenamiento',
+      );
+    }
+    await this.physical.create(
+      {
+        date: getLocalDateString(),
+        exerciseMinutes: minutos,
+        activeEnergyKcal: kcal,
+        distanceKm: datos.distancia_km,
+        context: datos.tipo?.trim() || undefined,
+      } as any,
+      userId,
+    );
+    const partes = [
+      minutos ? `${minutos} min` : null,
+      kcal ? `${kcal} kcal` : null,
+      datos.distancia_km ? `${datos.distancia_km} km` : null,
+    ].filter(Boolean);
+    return {
+      message: `🏋️ Entreno registrado${datos.tipo ? ` (${datos.tipo})` : ''}: ${partes.join(' · ')} +60 XP`,
     };
   }
 

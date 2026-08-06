@@ -72,6 +72,24 @@ export class QuickActionsController {
     return this.quick.comida(await this.userId(), String(body?.texto || ''));
   }
 
+  @Post('entreno')
+  async entreno(
+    @Body()
+    body: {
+      minutos?: number;
+      kcal?: number;
+      distancia_km?: number;
+      tipo?: string;
+    },
+  ) {
+    return this.quick.entreno(await this.userId(), {
+      minutos: body?.minutos ? Number(body.minutos) : undefined,
+      kcal: body?.kcal ? Number(body.kcal) : undefined,
+      distancia_km: body?.distancia_km ? Number(body.distancia_km) : undefined,
+      tipo: body?.tipo ? String(body.tipo) : undefined,
+    });
+  }
+
   @Post('gasto')
   async gasto(@Body() body: { monto: number; descripcion: string }) {
     return this.quick.gasto(
