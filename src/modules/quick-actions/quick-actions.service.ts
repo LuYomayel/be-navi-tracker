@@ -3,6 +3,7 @@ import { HydrationService } from '../hydration/hydration.service';
 import { MealPrepService } from '../meal-prep/meal-prep.service';
 import { NotesService } from '../notes/notes.service';
 import { ExpensesService } from '../expenses/expenses.service';
+import { ExpenseCategorizerService } from '../expenses/expense-categorizer.service';
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { NutritionService } from '../nutrition/nutrition.service';
 import { PhysicalActivitiesService } from '../physical-activities/physical-activities.service';
@@ -74,6 +75,7 @@ export class QuickActionsService {
     private readonly mealPrep: MealPrepService,
     private readonly notes: NotesService,
     private readonly expenses: ExpensesService,
+    private readonly categorizer: ExpenseCategorizerService,
     private readonly analyzeFood: AnalyzeFoodService,
     private readonly nutrition: NutritionService,
     private readonly physical: PhysicalActivitiesService,
@@ -218,7 +220,12 @@ export class QuickActionsService {
     };
   }
 
-  async gasto(userId: string, monto: number, descripcion: string) {
+  async gasto(
+    userId: string,
+    monto: number,
+    descripcion: string,
+    tarjeta = false,
+  ) {
     const config = await this.getConfig(userId);
     let categoryId: string | null = null;
     if (config.gastoCategoriaDefault) {
@@ -228,6 +235,29 @@ export class QuickActionsService {
         cats.find((c) => c.name.toLowerCase() === q)?.id ||
         cats.find((c) => c.name.toLowerCase().includes(q))?.id ||
         null;
+    }
+    // Consumo con tarjeta de CRÉDITO (ej: Apple Pay con la Visa): va al buffer
+    // del próximo resumen, no al gasto del mes. El importador de resumen lo
+    // consume al confirmar (dedup por monto).
+    if (tarjeta) {
+      const sug = categoryId
+        ? null
+        : await this.categorizer
+            .categorize(userId, descripcion)
+            .catch(() => null);
+      await this.prisma.expense.create({
+        data: {
+          userId,
+          date: getLocalDateString(),
+          amount: monto,
+          description: `${descripcion} (Visa crédito)`,
+          categoryId: categoryId || sug?.categoryId || null,
+          source: 'tarjeta-pendiente',
+        },
+      });
+      return {
+        message: `💳 Anotado en el próximo resumen: ${ars(monto)} — ${descripcion}`,
+      };
     }
     const exp = await this.expenses.createExpense(userId, {
       date: getLocalDateString(),

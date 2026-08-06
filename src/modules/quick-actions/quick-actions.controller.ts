@@ -94,11 +94,14 @@ export class QuickActionsController {
   }
 
   @Post('gasto')
-  async gasto(@Body() body: { monto: number; descripcion: string }) {
+  async gasto(
+    @Body() body: { monto: number; descripcion: string; tarjeta?: boolean },
+  ) {
     return this.quick.gasto(
       await this.userId(),
       Number(body?.monto),
       String(body?.descripcion || 'Gasto rápido'),
+      !!body?.tarjeta,
     );
   }
 

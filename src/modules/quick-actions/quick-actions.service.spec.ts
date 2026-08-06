@@ -9,6 +9,7 @@ import { HydrationService } from '../hydration/hydration.service';
 import { MealPrepService } from '../meal-prep/meal-prep.service';
 import { NotesService } from '../notes/notes.service';
 import { ExpensesService } from '../expenses/expenses.service';
+import { ExpenseCategorizerService } from '../expenses/expense-categorizer.service';
 import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { PhysicalActivitiesService } from '../physical-activities/physical-activities.service';
 import { NutritionService } from '../nutrition/nutrition.service';
@@ -81,6 +82,10 @@ describe('QuickActionsService', () => {
           },
         },
         {
+          provide: ExpenseCategorizerService,
+          useValue: { categorize: jest.fn().mockResolvedValue(null) },
+        },
+        {
           provide: AnalyzeFoodService,
           useValue: {
             analyzeManualFood: jest.fn().mockResolvedValue({
@@ -110,6 +115,11 @@ describe('QuickActionsService', () => {
               findUnique: jest.fn().mockResolvedValue(null),
               upsert: jest.fn().mockImplementation(({ create, update }) =>
                 Promise.resolve({ ...create, ...update }),
+              ),
+            },
+            expense: {
+              create: jest.fn().mockImplementation(({ data }) =>
+                Promise.resolve({ id: 'tp-1', ...data }),
               ),
             },
           },
@@ -332,6 +342,20 @@ describe('QuickActionsService', () => {
         categoryId: null,
       });
       expect(r.message).toContain('5.000');
+    });
+
+    it('should send credit-card expenses to the tarjeta-pendiente buffer (no gasto del mes)', async () => {
+      const r = await service.gasto(userId, 43678, 'Filamentos Proyectocolor', true);
+
+      expect(expenses.createExpense).not.toHaveBeenCalled();
+      expect((service as any).prisma.expense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          amount: 43678,
+          source: 'tarjeta-pendiente',
+          description: 'Filamentos Proyectocolor (Visa crédito)',
+        }),
+      });
+      expect(r.message).toContain('próximo resumen');
     });
 
     it('should attach the configured default category when it exists', async () => {
