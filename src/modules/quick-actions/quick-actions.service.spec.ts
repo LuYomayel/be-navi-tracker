@@ -9,6 +9,8 @@ import { HydrationService } from '../hydration/hydration.service';
 import { MealPrepService } from '../meal-prep/meal-prep.service';
 import { NotesService } from '../notes/notes.service';
 import { ExpensesService } from '../expenses/expenses.service';
+import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
+import { NutritionService } from '../nutrition/nutrition.service';
 import { PrismaService } from '../../config/prisma.service';
 
 describe('slotForHour', () => {
@@ -38,6 +40,8 @@ describe('QuickActionsService', () => {
   let mealPrep: MealPrepService;
   let notes: NotesService;
   let expenses: ExpensesService;
+  let analyzeFood: AnalyzeFoodService;
+  let nutrition: NutritionService;
 
   const userId = 'user-1';
 
@@ -75,6 +79,21 @@ describe('QuickActionsService', () => {
           },
         },
         {
+          provide: AnalyzeFoodService,
+          useValue: {
+            analyzeManualFood: jest.fn().mockResolvedValue({
+              foods: [{ name: 'Milanesa con puré', calories: 650 }],
+              totalCalories: 650,
+              macronutrients: { protein: 35, carbs: 60, fat: 28 },
+              confidence: 0.85,
+            }),
+          },
+        },
+        {
+          provide: NutritionService,
+          useValue: { create: jest.fn().mockResolvedValue({ id: 'na-1' }) },
+        },
+        {
           provide: PrismaService,
           useValue: {
             userPreferences: {
@@ -93,6 +112,8 @@ describe('QuickActionsService', () => {
     mealPrep = module.get(MealPrepService);
     notes = module.get(NotesService);
     expenses = module.get(ExpensesService);
+    analyzeFood = module.get(AnalyzeFoodService);
+    nutrition = module.get(NutritionService);
   });
 
   describe('config', () => {
@@ -223,6 +244,42 @@ describe('QuickActionsService', () => {
         BadRequestException,
       );
       expect(mealPrep.markSlotEaten).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('comida (fuera del meal prep, dictada)', () => {
+    it('should analyze the dictated text and persist it with the current slot', async () => {
+      // 15:00 UTC = 12:00 ART → lunch
+      jest.useFakeTimers().setSystemTime(new Date('2026-08-06T15:00:00Z'));
+      try {
+        const r = await service.comida(userId, 'milanesa con puré y una coca');
+
+        expect(analyzeFood.analyzeManualFood).toHaveBeenCalledWith(
+          'milanesa con puré y una coca',
+          1,
+          'lunch',
+          undefined,
+          userId,
+        );
+        expect(nutrition.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            date: '2026-08-06',
+            mealType: 'lunch',
+            totalCalories: 650,
+            aiConfidence: 0.85,
+          }),
+          userId,
+        );
+        expect(r.message).toContain('650');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should reject empty text', async () => {
+      await expect(service.comida(userId, '  ')).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 

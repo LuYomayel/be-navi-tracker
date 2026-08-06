@@ -3,6 +3,8 @@ import { HydrationService } from '../hydration/hydration.service';
 import { MealPrepService } from '../meal-prep/meal-prep.service';
 import { NotesService } from '../notes/notes.service';
 import { ExpensesService } from '../expenses/expenses.service';
+import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
+import { NutritionService } from '../nutrition/nutrition.service';
 import { PrismaService } from '../../config/prisma.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
@@ -71,6 +73,8 @@ export class QuickActionsService {
     private readonly mealPrep: MealPrepService,
     private readonly notes: NotesService,
     private readonly expenses: ExpensesService,
+    private readonly analyzeFood: AnalyzeFoodService,
+    private readonly nutrition: NutritionService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -136,6 +140,39 @@ export class QuickActionsService {
     const name = (result as any)?.slot?.name || '';
     return {
       message: `🍽️ Registrado (${mealType})${name ? `: ${name}` : ''} +15 XP`,
+    };
+  }
+
+  /**
+   * Comida FUERA del meal prep, dictada: "milanesa con puré y una coca".
+   * OpenAI estima calorías/macros y se loguea en el slot de la hora actual.
+   */
+  async comida(userId: string, texto: string) {
+    if (!texto?.trim()) {
+      throw new BadRequestException('Falta la descripción de la comida');
+    }
+    const mealType = slotForHour(localHour());
+    const analysis = await this.analyzeFood.analyzeManualFood(
+      texto.trim(),
+      1,
+      mealType as any,
+      undefined,
+      userId,
+    );
+    await this.nutrition.create(
+      {
+        date: getLocalDateString(),
+        mealType,
+        foods: analysis.foods,
+        totalCalories: analysis.totalCalories,
+        macronutrients: analysis.macronutrients,
+        aiConfidence: analysis.confidence,
+        context: `Quick action: "${texto.trim()}"`,
+      } as any,
+      userId,
+    );
+    return {
+      message: `🍽️ Registrado (${mealType}): ${analysis.totalCalories} kcal — ${analysis.foods.map((f) => f.name).join(', ')} +15 XP`,
     };
   }
 

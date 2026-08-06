@@ -67,6 +67,11 @@ export class QuickActionsController {
     return this.quick.comidaPlan(await this.userId());
   }
 
+  @Post('comida')
+  async comida(@Body() body: { texto: string }) {
+    return this.quick.comida(await this.userId(), String(body?.texto || ''));
+  }
+
   @Post('gasto')
   async gasto(@Body() body: { monto: number; descripcion: string }) {
     return this.quick.gasto(
