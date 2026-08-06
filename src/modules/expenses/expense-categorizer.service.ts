@@ -41,6 +41,10 @@ export const CATEGORY_RULES: [RegExp, string][] = [
   ],
   [/filamento|bambu|impresion 3d|impresión 3d|pla\b|petg|3d\b/i, 'Impresión 3D'],
   [/regalo|cumpleaños|cumple\b|juguetería|jugueteria/i, 'Regalos'],
+  [/meridional|seguro automotor|seguro del auto/i, 'Transporte'],
+  [/tuenti/i, 'Hogar'],
+  [/liomac/i, 'Salidas'],
+  [/zapatill|nike\b|adidas|indumentaria|dexter|solodeportes|moov\b|ropa\b/i, 'Ropa'],
 ];
 
 export function matchCategoryByRules(description: string): string | null {

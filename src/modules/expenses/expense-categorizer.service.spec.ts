@@ -16,6 +16,9 @@ describe('matchCategoryByRules', () => {
     expect(matchCategoryByRules('Farmacity Palermo')).toBe('Salud');
     expect(matchCategoryByRules('Cuota del club de handball')).toBe('Deporte');
     expect(matchCategoryByRules('Filamento PLA Bambu')).toBe('Impresión 3D');
+    expect(matchCategoryByRules('Seguros La Meridional - Visa ICBC')).toBe('Transporte');
+    expect(matchCategoryByRules('Tuenti recargas')).toBe('Hogar');
+    expect(matchCategoryByRules('Zapatillas - MP GRID (cuota 4/6)')).toBe('Ropa');
     expect(matchCategoryByRules('Transferencia a Juan')).toBeNull();
   });
 });
