@@ -126,6 +126,40 @@ describe('SleepService', () => {
     });
   });
 
+  describe('minutesBetween con la LISTA de muestras del Watch', () => {
+    // El Watch guarda la noche partida en fragmentos (Core/Deep/REM/Awake).
+    // Si el atajo manda todas las fechas juntas (una por línea), hay que
+    // tomar la primera de las de inicio y la última de las de fin.
+    const inicios = [
+      '2026-08-05T23:15:00-03:00',
+      '2026-08-06T01:40:00-03:00',
+      '2026-08-06T04:05:00-03:00',
+    ].join('\n');
+    const fines = [
+      '2026-08-06T01:35:00-03:00',
+      '2026-08-06T04:00:00-03:00',
+      '2026-08-06T07:00:00-03:00',
+    ].join('\n');
+
+    it('should span from the first sample to the last one', () => {
+      expect(minutesBetween(inicios, fines)).toBe(465);
+    });
+
+    it('should not care about the order the list comes in', () => {
+      const desordenado = inicios.split('\n').reverse().join(', ');
+      expect(minutesBetween(desordenado, fines)).toBe(465);
+    });
+
+    it('should keep working with a single sample', () => {
+      expect(
+        minutesBetween(
+          '2026-08-05T23:15:00-03:00',
+          '2026-08-06T07:00:00-03:00',
+        ),
+      ).toBe(465);
+    });
+  });
+
   describe('upsertSleep', () => {
     it('should upsert by day so re-running the shortcut does not duplicate', async () => {
       await service.upsertSleep(userId, {

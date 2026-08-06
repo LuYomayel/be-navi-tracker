@@ -82,11 +82,41 @@ export function parseClock(value?: string | null): string | null {
   return `${pad(hour)}:${pad(min)}`;
 }
 
-/** Minutos entre dos horarios, cruzando la medianoche. */
+const ISO_RE = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+
+/**
+ * Todas las fechas ISO que haya en el texto. El Watch parte la noche en
+ * fragmentos (Core/Deep/REM/Awake), así que el atajo puede mandar la lista
+ * entera de muestras en un solo campo (una por línea).
+ */
+export function parseInstants(value?: string | null): Date[] {
+  if (!value) return [];
+  const matches = String(value).match(ISO_RE) || [];
+  return matches
+    .map((m) => new Date(m.replace(' ', 'T')))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+}
+
+/**
+ * Minutos dormidos entre el inicio y el fin. Si vienen fechas completas usa
+ * la PRIMERA de las de inicio y la ÚLTIMA de las de fin (así una noche
+ * partida en fragmentos se mide entera). Con horarios sueltos ("23:15"),
+ * cruza la medianoche.
+ */
 export function minutesBetween(
   from?: string | null,
   to?: string | null,
 ): number | null {
+  const inicios = parseInstants(from);
+  const fines = parseInstants(to);
+  if (inicios.length && fines.length) {
+    const desde = inicios[0];
+    const hasta = fines[fines.length - 1];
+    const diff = Math.round((hasta.getTime() - desde.getTime()) / 60000);
+    return diff > 0 ? diff : null;
+  }
+
   const a = parseClock(from);
   const b = parseClock(to);
   if (!a || !b) return null;
@@ -95,6 +125,18 @@ export function minutesBetween(
   let diff = bh * 60 + bm - (ah * 60 + am);
   if (diff <= 0) diff += 24 * 60;
   return diff;
+}
+
+/** Hora "HH:mm" de la primera (o última) marca de una lista de fechas. */
+export function clockFromList(
+  value: string | null | undefined,
+  which: 'first' | 'last',
+): string | null {
+  const instants = parseInstants(value);
+  if (!instants.length) return parseClock(value);
+  const d = which === 'first' ? instants[0] : instants[instants.length - 1];
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 @Injectable()

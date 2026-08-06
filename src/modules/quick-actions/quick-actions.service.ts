@@ -10,7 +10,7 @@ import {
   SleepService,
   parseDuration,
   formatDuration,
-  parseClock,
+  clockFromList,
   minutesBetween,
 } from '../sleep/sleep.service';
 import { PrismaService } from '../../config/prisma.service';
@@ -258,8 +258,10 @@ export class QuickActionsService {
       date: getLocalDateString(),
       minutesAsleep: minutos,
       quality: datos.calidad,
-      bedTime: parseClock(datos.acoste),
-      wakeTime: parseClock(datos.desperte),
+      // Si vino la lista de fragmentos: se acostó en el primero y se
+      // despertó en el último.
+      bedTime: clockFromList(datos.acoste, 'first'),
+      wakeTime: clockFromList(datos.desperte, 'last'),
       deepMinutes: datos.profundo,
       remMinutes: datos.rem,
       awakeMinutes: datos.despierto,
