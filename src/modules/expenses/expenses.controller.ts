@@ -22,6 +22,7 @@ import {
   RecurringDto,
   UpdateExpenseDto,
 } from './expenses.service';
+import { ExpenseCategorizerService } from './expense-categorizer.service';
 
 function currentMonth(): string {
   const now = new Date();
@@ -31,7 +32,25 @@ function currentMonth(): string {
 @Controller('expenses')
 @UseGuards(JwtAuthGuard)
 export class ExpensesController {
-  constructor(private readonly expenses: ExpensesService) {}
+  constructor(
+    private readonly expenses: ExpensesService,
+    private readonly categorizer: ExpenseCategorizerService,
+  ) {}
+
+  // ── Categorización automática (backfill) ─────────────────
+  @Post('auto-categorize')
+  async autoCategorize(
+    @Body() body: { month?: string; dryRun?: boolean },
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.categorizer.backfill(req.user.userId, {
+        month: body?.month,
+        dryRun: body?.dryRun,
+      }),
+    };
+  }
 
   // ── Resumen ──────────────────────────────────────────────
   @Get('summary')

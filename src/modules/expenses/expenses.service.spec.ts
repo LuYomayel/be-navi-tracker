@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ExpensesService, recurringEndPeriod } from './expenses.service';
+import { ExpenseCategorizerService } from './expense-categorizer.service';
 import { PrismaService } from '../../config/prisma.service';
 
 describe('ExpensesService', () => {
@@ -54,6 +55,10 @@ describe('ExpensesService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExpensesService,
+        {
+          provide: ExpenseCategorizerService,
+          useValue: { categorize: jest.fn().mockResolvedValue(null) },
+        },
         {
           provide: PrismaService,
           useValue: {

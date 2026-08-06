@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../config/prisma.service';
+import { ExpenseCategorizerService } from './expense-categorizer.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
 export interface CreateExpenseDto {
@@ -106,7 +107,10 @@ export function recurringEndPeriod(
 export class ExpensesService {
   private readonly logger = new Logger(ExpensesService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private categorizer: ExpenseCategorizerService,
+  ) {}
 
   // ── Gastos ────────────────────────────────────────────────
 
@@ -128,13 +132,22 @@ export class ExpensesService {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dto.date || '')) {
       throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
     }
+    // Sin categoría explícita, el categorizador la sugiere (reglas →
+    // historial → IA con umbral). Si duda, queda sin categoría.
+    let categoryId = dto.categoryId || null;
+    if (!categoryId) {
+      const sug = await this.categorizer
+        .categorize(userId, dto.description.trim())
+        .catch(() => null);
+      categoryId = sug?.categoryId || null;
+    }
     return this.prisma.expense.create({
       data: {
         userId,
         date: dto.date,
         amount: dto.amount,
         description: dto.description.trim(),
-        categoryId: dto.categoryId || null,
+        categoryId,
         goalId: dto.goalId || null,
         source: 'manual',
       },

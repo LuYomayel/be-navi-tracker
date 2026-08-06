@@ -3,8 +3,8 @@ import {
   MercadoPagoService,
   parseSettlementCsv,
   classifyRow,
-  matchCategoryName,
 } from './mercadopago.service';
+import { ExpenseCategorizerService } from '../expenses/expense-categorizer.service';
 import { PrismaService } from '../../config/prisma.service';
 
 const HEADER =
@@ -115,16 +115,6 @@ describe('classifyRow', () => {
   });
 });
 
-describe('matchCategoryName', () => {
-  it('should map merchants to canonical category names', () => {
-    expect(matchCategoryName('Ausa - pago de peaje')).toBe('Transporte');
-    expect(matchCategoryName("Mcdonald's pago en tienda")).toBe('Comida');
-    expect(matchCategoryName('Meli+ pago automático')).toBe('Suscripciones');
-    expect(matchCategoryName('Coto sucursal 22')).toBe('Supermercado');
-    expect(matchCategoryName('Transferencia a Juan')).toBeNull();
-  });
-});
-
 describe('MercadoPagoService.sync', () => {
   let service: MercadoPagoService;
   let prisma: PrismaService;
@@ -156,6 +146,21 @@ describe('MercadoPagoService.sync', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MercadoPagoService,
+        {
+          provide: ExpenseCategorizerService,
+          useValue: {
+            categorize: jest.fn().mockImplementation((_u: string, desc: string) =>
+              desc.includes('Ausa')
+                ? Promise.resolve({
+                    categoryId: 'cat-tr',
+                    categoryName: 'Transporte',
+                    source: 'reglas',
+                    confidence: 0.95,
+                  })
+                : Promise.resolve(null),
+            ),
+          },
+        },
         {
           provide: PrismaService,
           useValue: {

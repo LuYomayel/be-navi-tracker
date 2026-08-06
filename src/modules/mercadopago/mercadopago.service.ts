@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../config/prisma.service';
+import { ExpenseCategorizerService } from '../expenses/expense-categorizer.service';
 import {
   getLocalDateString,
   toLocalDateString,
@@ -115,27 +116,14 @@ export function classifyRow(row: MpRow): MpMovement {
   return { ...base, kind: 'skip', reason: 'monto cero' };
 }
 
-// Reglas comercio → nombre canónico de categoría (solo se asocia si existe)
-const CATEGORY_RULES: [RegExp, string][] = [
-  [/peaje|ausa|ausol|gco|ceamse|autopista|sube|ypf|shell|axion|nafta|estacionamiento/i, 'Transporte'],
-  [/mcdonald|burger|mostaza|rappi|pedidosya|restaurant|cafe|café|pizzer/i, 'Comida'],
-  [/meli\+|netflix|spotify|disney|hbo|max|prime|youtube|suscripci/i, 'Suscripciones'],
-  [/coto|carrefour|día|dia %|jumbo|vea|chango|supermercado|almacen|verduler/i, 'Supermercado'],
-  [/farmacia|farmacity|hospital|medic/i, 'Salud'],
-];
-
-export function matchCategoryName(description: string): string | null {
-  for (const [re, name] of CATEGORY_RULES) {
-    if (re.test(description)) return name;
-  }
-  return null;
-}
-
 @Injectable()
 export class MercadoPagoService {
   private readonly logger = new Logger(MercadoPagoService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private categorizer: ExpenseCategorizerService,
+  ) {}
 
   isEnabled(): boolean {
     return !!process.env.MP_ACCESS_TOKEN;
@@ -194,9 +182,6 @@ export class MercadoPagoService {
     try {
       const csv = await this.fetchReportCsv(from, to, pollIntervalMs, maxPolls);
       const movements = parseSettlementCsv(csv).map(classifyRow);
-      const categories = await this.prisma.expenseCategory.findMany({
-        where: { userId: user.id },
-      });
 
       for (const m of movements) {
         if (m.kind === 'skip') {
@@ -256,14 +241,10 @@ export class MercadoPagoService {
           continue;
         }
 
-        const catName = matchCategoryName(m.description);
-        const cat = catName
-          ? categories.find(
-              (c) => c.name.toLowerCase() === catName.toLowerCase(),
-            ) || categories.find((c) =>
-              c.name.toLowerCase().includes(catName.toLowerCase()),
-            )
-          : null;
+        // Categorización completa: reglas → historial → IA con umbral
+        const sug = await this.categorizer
+          .categorize(user.id, m.description)
+          .catch(() => null);
 
         if (!dryRun) {
           await this.prisma.expense.create({
@@ -272,7 +253,7 @@ export class MercadoPagoService {
               date: m.date,
               amount: m.amount,
               description: m.description,
-              categoryId: cat?.id || null,
+              categoryId: sug?.categoryId || null,
               source: 'mercadopago',
               externalId,
             },

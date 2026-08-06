@@ -29,6 +29,7 @@ import {
   recurringEndPeriod,
 } from '../expenses/expenses.service';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
+import { ExpenseCategorizerService } from '../expenses/expense-categorizer.service';
 import {
   parseDiasHabito,
   formatDias,
@@ -83,6 +84,7 @@ export class McpServerFactory {
     private readonly xp: XpService,
     private readonly expenses: ExpensesService,
     private readonly mercadoPago: MercadoPagoService,
+    private readonly categorizer: ExpenseCategorizerService,
     private readonly sweatTests: SweatTestService,
   ) {}
 
@@ -2434,6 +2436,43 @@ export class McpServerFactory {
             `Ingresos detectados (no se autocargan): ${s.ingresosDetectados
               .map((i) => `${i.date} ${ars(i.amount)} ${i.description}`)
               .join(' · ')}`,
+          );
+        }
+        return text(lines.join('\n'));
+      },
+    );
+
+    add(
+      'categorizar_gastos',
+      {
+        title: 'Categorizar gastos automáticamente',
+        description:
+          'Pasa los gastos SIN categoría por el categorizador (reglas por comercio → historial de tus correcciones → IA con umbral de confianza). Con simular=true muestra qué categorizaría sin escribir. Los que quedan sin categoría son los ambiguos (ej: transferencias a personas) — esos se arreglan con editar_gasto y el sistema aprende para la próxima.',
+        inputSchema: {
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM. Sin mes procesa TODOS los sin categoría.'),
+          simular: z
+            .boolean()
+            .optional()
+            .describe('true = solo mostrar, no escribir'),
+        },
+      },
+      async (a) => {
+        const r = await this.categorizer.backfill(userId, {
+          month: a.mes,
+          dryRun: a.simular,
+        });
+        if (!r.procesados) {
+          return text('No hay gastos sin categoría. 🎉');
+        }
+        const lines = [
+          `${a.simular ? '🔍 Simulación' : '✅ Categorización'}: ${r.categorizados}/${r.procesados} gastos categorizados.`,
+        ];
+        for (const d of r.detalles) {
+          lines.push(
+            `${d.categoria ? '•' : '∅'} ${d.date} ${ars(d.amount)} ${d.description} → ${d.categoria ? `${d.categoria} (${d.fuente})` : 'sin categoría (decidilo vos)'}`,
           );
         }
         return text(lines.join('\n'));
