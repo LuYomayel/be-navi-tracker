@@ -55,7 +55,11 @@ export class QuickActionsController {
 
   @Post('agua')
   async agua(@Body() body: { vasos?: number }) {
-    return this.quick.agua(await this.userId(), body?.vasos || 1);
+    // Sin vasos explícitos manda la config (vasos por tap del panel)
+    return this.quick.agua(
+      await this.userId(),
+      body?.vasos ? Number(body.vasos) : undefined,
+    );
   }
 
   @Post('comida-plan')

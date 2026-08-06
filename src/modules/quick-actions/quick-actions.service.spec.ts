@@ -9,6 +9,7 @@ import { HydrationService } from '../hydration/hydration.service';
 import { MealPrepService } from '../meal-prep/meal-prep.service';
 import { NotesService } from '../notes/notes.service';
 import { ExpensesService } from '../expenses/expenses.service';
+import { PrismaService } from '../../config/prisma.service';
 
 describe('slotForHour', () => {
   it('should map hours to meal prep slots', () => {
@@ -70,6 +71,18 @@ describe('QuickActionsService', () => {
               .mockImplementation((_u, dto) =>
                 Promise.resolve({ id: 'exp-1', ...dto }),
               ),
+            getCategories: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: PrismaService,
+          useValue: {
+            userPreferences: {
+              findUnique: jest.fn().mockResolvedValue(null),
+              upsert: jest.fn().mockImplementation(({ create, update }) =>
+                Promise.resolve({ ...create, ...update }),
+              ),
+            },
           },
         },
       ],
@@ -82,6 +95,66 @@ describe('QuickActionsService', () => {
     expenses = module.get(ExpensesService);
   });
 
+  describe('config', () => {
+    let prisma: PrismaService;
+
+    beforeEach(() => {
+      prisma = (service as any).prisma;
+    });
+
+    it('should return defaults when nothing is stored', async () => {
+      const c = await service.getConfig(userId);
+      expect(c).toEqual({
+        aguaVasosPorTap: 1,
+        notaMoodDefault: 3,
+        gastoCategoriaDefault: null,
+      });
+    });
+
+    it('should merge stored values over defaults', async () => {
+      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue({
+        quickActions: { aguaVasosPorTap: 3 },
+      });
+      const c = await service.getConfig(userId);
+      expect(c.aguaVasosPorTap).toBe(3);
+      expect(c.notaMoodDefault).toBe(3);
+    });
+
+    it('should validate and persist partial updates', async () => {
+      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue({
+        quickActions: { notaMoodDefault: 4 },
+      });
+
+      await service.setConfig(userId, { aguaVasosPorTap: 3 });
+
+      expect(prisma.userPreferences.upsert).toHaveBeenCalledWith({
+        where: { userId },
+        create: expect.objectContaining({
+          userId,
+          quickActions: expect.objectContaining({
+            aguaVasosPorTap: 3,
+            notaMoodDefault: 4,
+          }),
+        }),
+        update: expect.objectContaining({
+          quickActions: expect.objectContaining({
+            aguaVasosPorTap: 3,
+            notaMoodDefault: 4,
+          }),
+        }),
+      });
+    });
+
+    it('should reject out-of-range values', async () => {
+      await expect(
+        service.setConfig(userId, { aguaVasosPorTap: 0 }),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.setConfig(userId, { notaMoodDefault: 6 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
   describe('agua', () => {
     it('should add one glass for today and report progress', async () => {
       const r = await service.agua(userId);
@@ -91,6 +164,18 @@ describe('QuickActionsService', () => {
         delta: 1,
       });
       expect(r.message).toContain('5/8');
+    });
+
+    it('should use the configured vasos-por-tap when no explicit count', async () => {
+      ((service as any).prisma.userPreferences.findUnique as jest.Mock)
+        .mockResolvedValue({ quickActions: { aguaVasosPorTap: 3 } });
+
+      await service.agua(userId);
+
+      expect(hydration.adjust).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({ delta: 3 }),
+      );
     });
 
     it('should accept a custom glass count', async () => {
@@ -149,8 +234,26 @@ describe('QuickActionsService', () => {
         date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
         amount: 5000,
         description: 'Kiosco',
+        categoryId: null,
       });
       expect(r.message).toContain('5.000');
+    });
+
+    it('should attach the configured default category when it exists', async () => {
+      ((service as any).prisma.userPreferences.findUnique as jest.Mock)
+        .mockResolvedValue({
+          quickActions: { gastoCategoriaDefault: 'Comida' },
+        });
+      (expenses.getCategories as jest.Mock).mockResolvedValue([
+        { id: 'cat-food', name: 'Comida' },
+      ]);
+
+      await service.gasto(userId, 5000, 'Kiosco');
+
+      expect(expenses.createExpense).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({ categoryId: 'cat-food' }),
+      );
     });
   });
 
@@ -164,6 +267,18 @@ describe('QuickActionsService', () => {
           content: 'Buen día, entrené y comí bien',
           mood: 3,
         }),
+        userId,
+      );
+    });
+
+    it('should use the configured default mood', async () => {
+      ((service as any).prisma.userPreferences.findUnique as jest.Mock)
+        .mockResolvedValue({ quickActions: { notaMoodDefault: 4 } });
+
+      await service.nota(userId, 'día pesado');
+
+      expect(notes.create).toHaveBeenCalledWith(
+        expect.objectContaining({ mood: 4 }),
         userId,
       );
     });

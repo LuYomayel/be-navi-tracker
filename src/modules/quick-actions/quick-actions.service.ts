@@ -3,7 +3,20 @@ import { HydrationService } from '../hydration/hydration.service';
 import { MealPrepService } from '../meal-prep/meal-prep.service';
 import { NotesService } from '../notes/notes.service';
 import { ExpensesService } from '../expenses/expenses.service';
+import { PrismaService } from '../../config/prisma.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
+
+export interface QuickActionsConfig {
+  aguaVasosPorTap: number; // 1-10 vasos por tap (ej: botella 750ml = 3)
+  notaMoodDefault: number; // 1-5
+  gastoCategoriaDefault: string | null; // nombre de categoría
+}
+
+const CONFIG_DEFAULTS: QuickActionsConfig = {
+  aguaVasosPorTap: 1,
+  notaMoodDefault: 3,
+  gastoCategoriaDefault: null,
+};
 
 /**
  * Acciones de 1 tap para tags NFC / Atajos de iOS / complicaciones del Watch.
@@ -58,11 +71,47 @@ export class QuickActionsService {
     private readonly mealPrep: MealPrepService,
     private readonly notes: NotesService,
     private readonly expenses: ExpensesService,
+    private readonly prisma: PrismaService,
   ) {}
 
-  async agua(userId: string, vasos = 1) {
+  async getConfig(userId: string): Promise<QuickActionsConfig> {
+    const prefs = await this.prisma.userPreferences.findUnique({
+      where: { userId },
+    });
+    return { ...CONFIG_DEFAULTS, ...((prefs?.quickActions as any) || {}) };
+  }
+
+  async setConfig(userId: string, partial: Partial<QuickActionsConfig>) {
+    if (
+      partial.aguaVasosPorTap !== undefined &&
+      (!Number.isInteger(partial.aguaVasosPorTap) ||
+        partial.aguaVasosPorTap < 1 ||
+        partial.aguaVasosPorTap > 10)
+    ) {
+      throw new BadRequestException('Vasos por tap: entero entre 1 y 10');
+    }
+    if (
+      partial.notaMoodDefault !== undefined &&
+      (!Number.isInteger(partial.notaMoodDefault) ||
+        partial.notaMoodDefault < 1 ||
+        partial.notaMoodDefault > 5)
+    ) {
+      throw new BadRequestException('Mood default: entero entre 1 y 5');
+    }
+    const current = await this.getConfig(userId);
+    const merged = { ...current, ...partial };
+    await this.prisma.userPreferences.upsert({
+      where: { userId },
+      create: { userId, quickActions: merged as any },
+      update: { quickActions: merged as any },
+    });
+    return merged;
+  }
+
+  async agua(userId: string, vasos?: number) {
     const date = getLocalDateString();
-    const log = await this.hydration.adjust(userId, { date, delta: vasos });
+    const delta = vasos ?? (await this.getConfig(userId)).aguaVasosPorTap;
+    const log = await this.hydration.adjust(userId, { date, delta });
     const goal = await this.hydration.getGoal(userId);
     const done = log.glassesConsumed >= goal.goalGlasses;
     return {
@@ -91,10 +140,21 @@ export class QuickActionsService {
   }
 
   async gasto(userId: string, monto: number, descripcion: string) {
+    const config = await this.getConfig(userId);
+    let categoryId: string | null = null;
+    if (config.gastoCategoriaDefault) {
+      const cats = await this.expenses.getCategories(userId);
+      const q = config.gastoCategoriaDefault.toLowerCase();
+      categoryId =
+        cats.find((c) => c.name.toLowerCase() === q)?.id ||
+        cats.find((c) => c.name.toLowerCase().includes(q))?.id ||
+        null;
+    }
     const exp = await this.expenses.createExpense(userId, {
       date: getLocalDateString(),
       amount: monto,
       description: descripcion,
+      categoryId,
     });
     return { message: `💸 Gasto registrado: ${ars(exp.amount)} — ${exp.description}` };
   }
@@ -103,8 +163,9 @@ export class QuickActionsService {
     if (!texto?.trim()) {
       throw new BadRequestException('Falta el texto de la reflexión');
     }
-    const clamped =
-      mood === undefined ? 3 : Math.max(1, Math.min(5, Math.round(mood)));
+    const effective =
+      mood ?? (await this.getConfig(userId)).notaMoodDefault;
+    const clamped = Math.max(1, Math.min(5, Math.round(effective)));
     await this.notes.create(
       {
         date: getLocalDateString(),

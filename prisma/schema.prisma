@@ -230,6 +230,9 @@ model UserPreferences {
   fatGoal          Float? // gramos
   fiberGoal        Float? // gramos
 
+  // Config de quick actions (NFC/Atajos): { aguaVasosPorTap, notaMoodDefault, gastoCategoriaDefault }
+  quickActions Json?
+
   // Metadatos
   lastBodyAnalysisId String? // ID del último body analysis usado para calcular
   bmr                Float? // Metabolismo basal calculado
