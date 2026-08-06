@@ -67,6 +67,7 @@ describe('CardStatementService', () => {
           useValue: {
             expense: {
               findFirst: jest.fn().mockResolvedValue(null),
+              deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
               create: jest.fn().mockImplementation(({ data }) =>
                 Promise.resolve({ id: 'new', ...data }),
               ),

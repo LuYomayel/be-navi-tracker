@@ -23,7 +23,7 @@ const MP_API = 'https://api.mercadopago.com/v1/account/settlement_report';
 export type MpRow = Record<string, string>;
 
 export interface MpMovement {
-  kind: 'gasto' | 'ingreso' | 'skip';
+  kind: 'gasto' | 'ingreso' | 'tarjeta' | 'skip';
   reason?: string;
   date: string; // YYYY-MM-DD (ART)
   amount: number; // siempre positivo
@@ -111,6 +111,15 @@ export function classifyRow(row: MpRow): MpMovement {
         'transferencia a cuenta bancaria (CBU) — puede ser tuya; si es un gasto real cargalo a mano',
     };
   }
+  // Consumos con tarjeta de CRÉDITO: la plata sale recién al pagar el resumen
+  // → deuda del próximo resumen (tarjeta-pendiente), no gasto del mes
+  if (
+    net < 0 &&
+    (row.PAYMENT_METHOD_TYPE === 'credit_card' ||
+      row.PAYMENT_METHOD_TYPE === 'prepaid_card')
+  ) {
+    return { ...base, kind: 'tarjeta' };
+  }
   if (net < 0) return { ...base, kind: 'gasto' };
   if (net > 0) return { ...base, kind: 'ingreso' };
   return { ...base, kind: 'skip', reason: 'monto cero' };
@@ -193,6 +202,40 @@ export class MercadoPagoService {
             amount: m.amount,
             description: m.description,
           });
+          continue;
+        }
+        if (m.kind === 'tarjeta') {
+          const externalId = `mp:${m.sourceId}`;
+          const already = await this.prisma.expense.findFirst({
+            where: { userId: user.id, externalId },
+          });
+          if (!already) {
+            if (!dryRun) {
+              const sug = await this.categorizer
+                .categorize(user.id, m.description)
+                .catch(() => null);
+              await this.prisma.expense.create({
+                data: {
+                  userId: user.id,
+                  date: m.date,
+                  amount: m.amount,
+                  description: m.description,
+                  categoryId: sug?.categoryId || null,
+                  source: 'tarjeta-pendiente',
+                  externalId,
+                },
+              });
+            }
+            summary.detalles.push({
+              accion: 'importado',
+              motivo: 'consumo de tarjeta → próximo resumen (no gasto del mes)',
+              date: m.date,
+              amount: m.amount,
+              description: m.description,
+            });
+          } else {
+            summary.skipped++;
+          }
           continue;
         }
         if (m.kind === 'ingreso') {

@@ -116,7 +116,11 @@ export class ExpensesService {
 
   async getExpenses(userId: string, month: string) {
     return this.prisma.expense.findMany({
-      where: { userId, date: monthRange(month) },
+      where: {
+        userId,
+        date: monthRange(month),
+        source: { not: 'tarjeta-pendiente' },
+      },
       include: { category: true },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     });
@@ -536,7 +540,11 @@ export class ExpensesService {
   async getMonthlyBalance(userId: string, month: string) {
     const [expenses, incomes, pending] = await Promise.all([
       this.prisma.expense.findMany({
-        where: { userId, date: monthRange(month) },
+        where: {
+          userId,
+          date: monthRange(month),
+          source: { not: 'tarjeta-pendiente' },
+        },
       }),
       this.prisma.income.findMany({
         where: { userId, status: 'received', date: monthRange(month) },
@@ -583,9 +591,13 @@ export class ExpensesService {
    */
   async getMonthProjection(userId: string, month: string) {
     const today = getLocalDateString();
-    const [expenses, incomes, pendingIncomes, recurring] = await Promise.all([
+    const [expenses, incomes, pendingIncomes, recurring, tarjetaPendiente] = await Promise.all([
       this.prisma.expense.findMany({
-        where: { userId, date: monthRange(month) },
+        where: {
+          userId,
+          date: monthRange(month),
+          source: { not: 'tarjeta-pendiente' },
+        },
         orderBy: { date: 'asc' },
       }),
       this.prisma.income.findMany({
@@ -596,6 +608,10 @@ export class ExpensesService {
         orderBy: { date: 'asc' },
       }),
       this.prisma.recurringExpense.findMany({ where: { userId, active: true } }),
+      this.prisma.expense.findMany({
+        where: { userId, source: 'tarjeta-pendiente' },
+        orderBy: { date: 'asc' },
+      }),
     ]);
 
     const ejecutados = expenses.filter((e) => e.date <= today);
@@ -662,6 +678,14 @@ export class ExpensesService {
       })),
       ingresosEsperadosTotal,
       disponibleProyectado,
+      // Deuda de tarjeta acumulada: consumos de crédito que van al próximo resumen
+      tarjetaPendiente: tarjetaPendiente.map((e) => ({
+        id: e.id,
+        date: e.date,
+        amount: e.amount,
+        description: e.description,
+      })),
+      tarjetaPendienteTotal: tarjetaPendiente.reduce((a, e) => a + e.amount, 0),
     };
   }
 
@@ -674,10 +698,18 @@ export class ExpensesService {
 
     const [expenses, prevExpenses, categories, recurring] = await Promise.all([
       this.prisma.expense.findMany({
-        where: { userId, date: monthRange(month) },
+        where: {
+          userId,
+          date: monthRange(month),
+          source: { not: 'tarjeta-pendiente' },
+        },
       }),
       this.prisma.expense.findMany({
-        where: { userId, date: monthRange(prevMonth) },
+        where: {
+          userId,
+          date: monthRange(prevMonth),
+          source: { not: 'tarjeta-pendiente' },
+        },
       }),
       this.prisma.expenseCategory.findMany({ where: { userId } }),
       this.prisma.recurringExpense.findMany({

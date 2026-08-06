@@ -102,6 +102,18 @@ describe('classifyRow', () => {
     ).toBe('ingreso');
   });
 
+  it('should classify credit-card rows as tarjeta (deuda del proximo resumen, no gasto del mes)', () => {
+    const m = classifyRow(
+      row({
+        PAYMENT_METHOD_TYPE: 'credit_card',
+        PAYMENT_METHOD: 'visa',
+        SETTLEMENT_NET_AMOUNT: '-43678.00',
+      }),
+    );
+    expect(m.kind).toBe('tarjeta');
+    expect(m.amount).toBe(43678);
+  });
+
   it('should skip zero-amount rows and fall back to TRANSACTION_AMOUNT', () => {
     expect(
       classifyRow(row({ SETTLEMENT_NET_AMOUNT: '0.00', TRANSACTION_AMOUNT: '0.00' }))

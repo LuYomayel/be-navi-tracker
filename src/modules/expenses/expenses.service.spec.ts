@@ -144,7 +144,11 @@ describe('ExpensesService', () => {
       const result = await service.getExpenses(userId, '2026-08');
 
       expect(prisma.expense.findMany).toHaveBeenCalledWith({
-        where: { userId, date: { gte: '2026-08-01', lte: '2026-08-31' } },
+        where: {
+          userId,
+          date: { gte: '2026-08-01', lte: '2026-08-31' },
+          source: { not: 'tarjeta-pendiente' },
+        },
         include: { category: true },
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       });
@@ -836,6 +840,21 @@ describe('ExpensesService', () => {
   });
 
   describe('getMonthlyBalance', () => {
+    it('should exclude tarjeta-pendiente consumptions from the month expenses', async () => {
+      (prisma.expense.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.getMonthlyBalance(userId, '2026-08');
+
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            source: { not: 'tarjeta-pendiente' },
+          }),
+        }),
+      );
+    });
+
     it('should compute incomes vs expenses with refunds and pending broken out', async () => {
       (prisma.expense.findMany as jest.Mock).mockResolvedValue([
         { ...mockExpense, amount: 100000 },

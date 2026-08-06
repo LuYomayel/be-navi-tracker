@@ -205,6 +205,11 @@ Respondé SOLO un JSON válido sin markdown:
         skipped++;
         continue;
       }
+      // Si el consumo ya estaba como tarjeta-pendiente (lo trajo el MP sync
+      // durante el período), el gasto del resumen lo reemplaza
+      await this.prisma.expense.deleteMany({
+        where: { userId, source: 'tarjeta-pendiente', amount: m.amount },
+      });
       await this.prisma.expense.create({
         data: {
           userId,
