@@ -85,17 +85,58 @@ export function parseClock(value?: string | null): string | null {
 const ISO_RE = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g;
 
 /**
- * Todas las fechas ISO que haya en el texto. El Watch parte la noche en
- * fragmentos (Core/Deep/REM/Awake), así que el atajo puede mandar la lista
- * entera de muestras en un solo campo (una por línea).
+ * Formato con el que Shortcuts entrega las fechas de Health cuando no se
+ * formatean a mano: "6 Aug 2026 at 2:21 PM" (o "6 ago 2026, 14:21"). Y la
+ * lista de muestras llega TODA pegada en una línea, así que hay que barrer
+ * el texto entero, no parsear una sola.
+ */
+const LOCALIZED_RE =
+  /(\d{1,2})\s+([a-zá-úñ]{3,12})\.?\s+(\d{4})(?:\s*(?:at|a las|,)\s*|\s+)(\d{1,2}):(\d{2})(?::\d{2})?\s*(a\.?\s?m\.?|p\.?\s?m\.?)?/gi;
+
+const MONTHS: Record<string, number> = {
+  jan: 0, ene: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3, abr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7, ago: 7,
+  sep: 8, sept: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11, dic: 11,
+};
+
+/**
+ * Todas las fechas que haya en el texto (ISO o localizadas), ordenadas. El
+ * Watch parte la noche en fragmentos (Core/Deep/REM/Awake), así que el atajo
+ * puede mandar la lista entera de muestras en un solo campo.
  */
 export function parseInstants(value?: string | null): Date[] {
   if (!value) return [];
-  const matches = String(value).match(ISO_RE) || [];
-  return matches
-    .map((m) => new Date(m.replace(' ', 'T')))
-    .filter((d) => !Number.isNaN(d.getTime()))
-    .sort((a, b) => a.getTime() - b.getTime());
+  const raw = String(value);
+  const fechas: Date[] = [];
+
+  for (const m of raw.match(ISO_RE) || []) {
+    const d = new Date(m.replace(' ', 'T'));
+    if (!Number.isNaN(d.getTime())) fechas.push(d);
+  }
+
+  for (const m of raw.matchAll(LOCALIZED_RE)) {
+    const [, dia, mesTexto, anio, hora, min, meridiem] = m;
+    const mes = MONTHS[mesTexto.toLowerCase().slice(0, 4)] ??
+      MONTHS[mesTexto.toLowerCase().slice(0, 3)];
+    if (mes === undefined) continue;
+    let h = Number(hora);
+    const mer = meridiem?.replace(/[.\s]/g, '').toLowerCase();
+    if (mer === 'pm' && h < 12) h += 12;
+    if (mer === 'am' && h === 12) h = 0;
+    const d = new Date(Number(anio), mes, Number(dia), h, Number(min));
+    if (!Number.isNaN(d.getTime())) fechas.push(d);
+  }
+
+  return fechas.sort((a, b) => a.getTime() - b.getTime());
 }
 
 /**

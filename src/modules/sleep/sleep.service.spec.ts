@@ -4,6 +4,8 @@ import {
   SleepService,
   parseDuration,
   parseClock,
+  parseInstants,
+  clockFromList,
   minutesBetween,
 } from './sleep.service';
 import { PrismaService } from '../../config/prisma.service';
@@ -155,6 +157,37 @@ describe('SleepService', () => {
         minutesBetween(
           '2026-08-05T23:15:00-03:00',
           '2026-08-06T07:00:00-03:00',
+        ),
+      ).toBe(465);
+    });
+  });
+
+  describe('fechas como las manda Shortcuts de verdad', () => {
+    // Formato real capturado del iPhone de Luciano (2026-08-06): la lista de
+    // muestras llega pegada en UNA línea y con la fecha localizada.
+    const inicios =
+      '5 Aug 2026 at 11:15 PM 6 Aug 2026 at 1:40 AM 6 Aug 2026 at 4:05 AM';
+    const fines =
+      '6 Aug 2026 at 1:35 AM 6 Aug 2026 at 4:00 AM 6 Aug 2026 at 7:00 AM';
+
+    it('should parse the localized list and span the whole night', () => {
+      expect(minutesBetween(inicios, fines)).toBe(465);
+    });
+
+    it('should read each date in the list, not just the first', () => {
+      expect(parseInstants(inicios)).toHaveLength(3);
+    });
+
+    it('should take the clock of the first sample for bedtime', () => {
+      expect(clockFromList(inicios, 'first')).toBe('23:15');
+      expect(clockFromList(fines, 'last')).toBe('07:00');
+    });
+
+    it('should also read the Spanish format', () => {
+      expect(
+        minutesBetween(
+          '5 ago 2026, 23:15',
+          '6 ago 2026, 7:00',
         ),
       ).toBe(465);
     });
