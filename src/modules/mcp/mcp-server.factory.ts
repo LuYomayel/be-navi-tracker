@@ -1948,6 +1948,12 @@ export class McpServerFactory {
             .number()
             .optional()
             .describe('Override manual de cuotas ya pagadas (si no querés usar primer_mes)'),
+          tarjeta: z
+            .union([z.boolean(), z.string()])
+            .optional()
+            .describe(
+              'Se paga con tarjeta de CRÉDITO: true = la Visa propia, o el nombre de otra tarjeta (ej "Hermano"). Cada mes va a la deuda del próximo resumen de esa tarjeta en vez de restar de la plata del mes.',
+            ),
         },
       },
       async (a) => {
@@ -1969,12 +1975,17 @@ export class McpServerFactory {
           totalInstallments: a.cuotas,
           installmentsPaid: a.cuotas_pagadas,
           startPeriod: a.primer_mes,
+          tarjeta: !!a.tarjeta,
+          card: typeof a.tarjeta === 'string' ? a.tarjeta.trim() : null,
         });
         const label =
           rec.kind === 'subscription' ? 'Suscripción' : 'Pago recurrente';
+        const tarjetaLabel = rec.tarjeta
+          ? ` 💳 se paga con la tarjeta ${rec.card || 'Visa'} (va a la deuda del próximo resumen, no al gasto del mes)`
+          : '';
         if (!rec.totalInstallments) {
           return text(
-            `${label} creado: "${rec.description}" ${ars(rec.amount)}/mes el día ${rec.dayOfMonth}. id ${rec.id}.`,
+            `${label} creado: "${rec.description}" ${ars(rec.amount)}/mes el día ${rec.dayOfMonth}.${tarjetaLabel} id ${rec.id}.`,
           );
         }
         const end = recurringEndPeriod(rec as any);
@@ -1983,6 +1994,7 @@ export class McpServerFactory {
             (rec.active && end
               ? ` Última cuota: ${end} (ahí se liberan ${ars(rec.amount)}/mes).`
               : ' ✅ Ya está terminado.') +
+            tarjetaLabel +
             ` id ${rec.id}.`,
         );
       },
@@ -2010,8 +2022,9 @@ export class McpServerFactory {
           const cuotaInfo = r.totalInstallments
             ? ` · cuota ${r.installmentsPaid}/${r.totalInstallments}${end ? ` · termina ${end}` : ' · ✅ terminado'}`
             : '';
+          const tarjetaInfo = r.tarjeta ? ` · 💳 ${r.card || 'Visa'}` : '';
           lines.push(
-            `• ${r.active ? '' : '(inactivo) '}${r.description}: ${ars(r.amount)}/mes el día ${r.dayOfMonth}${r.kind === 'subscription' ? ' [sub]' : ''}${cuotaInfo}`,
+            `• ${r.active ? '' : '(inactivo) '}${r.description}: ${ars(r.amount)}/mes el día ${r.dayOfMonth}${r.kind === 'subscription' ? ' [sub]' : ''}${cuotaInfo}${tarjetaInfo}`,
           );
         }
         const liberations = active

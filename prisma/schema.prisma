@@ -808,6 +808,8 @@ model RecurringExpense {
   totalInstallments Int? // cantidad total de cuotas (null = sin fin)
   installmentsPaid  Int     @default(0) // cuotas ya pagadas (incluye previas a cargarlo)
   startPeriod       String? // YYYY-MM de la primera cuota (puede ser pasado; deriva pagadas y fecha de fin)
+  tarjeta           Boolean @default(false) // se paga con tarjeta de crédito → va al buffer del resumen
+  card              String? // qué tarjeta: null = la Visa propia, texto = otra (ej "Hermano")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

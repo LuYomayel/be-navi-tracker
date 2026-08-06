@@ -24,7 +24,14 @@ export const DEFAULT_CARD_LABEL = 'Visa';
 
 /** Consumos de crédito pendientes agrupados por tarjeta (la propia primero). */
 function groupByCard(
-  rows: { id: string; date: string; amount: number; description: string; card: string | null }[],
+  rows: {
+    id: string;
+    date: string;
+    amount: number;
+    description: string;
+    card: string | null;
+    pending?: boolean;
+  }[],
 ) {
   const byCard = new Map<string | null, typeof rows>();
   for (const r of rows) {
@@ -45,6 +52,7 @@ function groupByCard(
         date: e.date,
         amount: e.amount,
         description: e.description,
+        pending: !!e.pending, // aún no consumido: lo postea el cron ese día
       })),
     }));
 }
@@ -85,6 +93,8 @@ export interface RecurringDto {
   totalInstallments?: number | null; // cantidad de cuotas (null = sin fin)
   installmentsPaid?: number; // cuotas ya pagadas (override explícito)
   startPeriod?: string | null; // YYYY-MM de la primera cuota (puede ser pasado)
+  tarjeta?: boolean; // se paga con tarjeta de crédito
+  card?: string | null; // qué tarjeta: null = la Visa propia, texto = otra
 }
 
 /** Última fecha válida del mes YYYY-MM (para el filtro lte). */
@@ -333,6 +343,8 @@ export class ExpensesService {
         installmentsPaid: paid,
         startPeriod: dto.startPeriod || null,
         active: total === null || paid < total,
+        tarjeta: dto.tarjeta || !!dto.card?.trim(),
+        card: dto.card?.trim() || null,
       },
       include: { category: true },
     });
@@ -362,6 +374,12 @@ export class ExpensesService {
         installmentsPaid: dto.installmentsPaid,
         startPeriod:
           dto.startPeriod === undefined ? undefined : dto.startPeriod,
+        tarjeta:
+          dto.tarjeta === undefined && dto.card === undefined
+            ? undefined
+            : dto.tarjeta || !!dto.card?.trim(),
+        card:
+          dto.card === undefined ? undefined : dto.card?.trim() || null,
       },
       include: { category: true },
     });
@@ -417,7 +435,10 @@ export class ExpensesService {
             rec.description +
             (cuota ? ` (cuota ${cuota}/${rec.totalInstallments})` : ''),
           categoryId: rec.categoryId,
-          source: 'recurring',
+          // Si se paga con crédito no es gasto del mes: queda como deuda del
+          // próximo resumen de esa tarjeta.
+          source: rec.tarjeta ? 'tarjeta-pendiente' : 'recurring',
+          card: rec.tarjeta ? rec.card : null,
           recurringExpenseId: rec.id,
         },
       });
@@ -661,7 +682,7 @@ export class ExpensesService {
     );
 
     // Recurrentes que todavía no postearon su gasto de este mes
-    const recurrentesPorVenir = recurring.filter((r) => {
+    const porVenir = recurring.filter((r) => {
       if (r.lastPostedPeriod === month) return false;
       if (r.startPeriod && r.startPeriod > month) return false;
       if (
@@ -671,10 +692,39 @@ export class ExpensesService {
         return false;
       return true;
     });
+    // Los que se pagan con crédito no salen de la plata del mes: son deuda
+    // del próximo resumen de esa tarjeta.
+    const recurrentesPorVenir = porVenir.filter((r) => !r.tarjeta);
     const recurrentesPorVenirTotal = recurrentesPorVenir.reduce(
       (a, r) => a + r.amount,
       0,
     );
+    const recurrentesEnTarjeta = porVenir
+      .filter((r) => r.tarjeta)
+      .map((r) => ({
+        id: r.id,
+        date: `${month}-${String(r.dayOfMonth).padStart(2, '0')}`,
+        amount: r.amount,
+        description:
+          r.description +
+          (r.totalInstallments
+            ? ` (cuota ${r.installmentsPaid + 1}/${r.totalInstallments})`
+            : ''),
+        card: r.card,
+        pending: true, // todavía no lo consumió: lo postea el cron el día X
+      }));
+
+    const deudaTarjeta = [
+      ...tarjetaPendiente.map((e) => ({
+        id: e.id,
+        date: e.date,
+        amount: e.amount,
+        description: e.description,
+        card: e.card,
+        pending: false,
+      })),
+      ...recurrentesEnTarjeta,
+    ].sort((a, b) => a.date.localeCompare(b.date));
 
     const saldoHoy = ingresosCobrados - gastosEjecutados;
     const disponibleProyectado =
@@ -714,16 +764,18 @@ export class ExpensesService {
       })),
       ingresosEsperadosTotal,
       disponibleProyectado,
-      // Deuda de tarjeta acumulada: consumos de crédito que van al próximo resumen
-      tarjetaPendiente: tarjetaPendiente.map((e) => ({
+      // Deuda de tarjeta: lo ya consumido + los recurrentes que todavía no
+      // postearon pero se van a cobrar con esa tarjeta este mes.
+      tarjetaPendiente: deudaTarjeta.map((e) => ({
         id: e.id,
         date: e.date,
         amount: e.amount,
         description: e.description,
         card: e.card,
+        pending: e.pending,
       })),
-      tarjetaPendienteTotal: tarjetaPendiente.reduce((a, e) => a + e.amount, 0),
-      tarjetaPendientePorTarjeta: groupByCard(tarjetaPendiente),
+      tarjetaPendienteTotal: deudaTarjeta.reduce((a, e) => a + e.amount, 0),
+      tarjetaPendientePorTarjeta: groupByCard(deudaTarjeta),
     };
   }
 

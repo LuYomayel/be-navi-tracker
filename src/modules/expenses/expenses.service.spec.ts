@@ -442,6 +442,24 @@ describe('ExpensesService', () => {
       });
     });
 
+    it('should post a card recurring into the tarjeta-pendiente buffer of that card', async () => {
+      (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+        { ...cuotaRec, tarjeta: true, card: 'Hermano' },
+      ]);
+      (prisma.expense.create as jest.Mock).mockResolvedValue({});
+      (prisma.recurringExpense.update as jest.Mock).mockResolvedValue({});
+
+      await service.postDueRecurringExpenses(new Date(2026, 7, 10));
+
+      expect(prisma.expense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          description: 'Cuota celular (cuota 6/12)',
+          source: 'tarjeta-pendiente',
+          card: 'Hermano',
+        }),
+      });
+    });
+
     it('should not post before the startPeriod (cuotas que arrancan en el futuro)', async () => {
       (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
         { ...cuotaRec, startPeriod: '2026-10', installmentsPaid: 0 },
@@ -914,6 +932,50 @@ describe('ExpensesService', () => {
         // los items del flat siguen saliendo (compat con la app vieja) y traen card
         expect(pr.tarjetaPendiente).toHaveLength(3);
         expect(pr.tarjetaPendiente[1].card).toBe('Hermano');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should keep card recurrings out of the cash projection and show them as pending on their card', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 6, 12));
+      try {
+        (prisma.expense.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+          // en efectivo/débito: sí resta del disponible
+          { ...mockRecurring, id: 'r-cash', amount: 90000, dayOfMonth: 10 },
+          // con la tarjeta del hermano: NO resta, va a la deuda de esa tarjeta
+          {
+            ...mockRecurring,
+            id: 'r-card',
+            description: 'Spotify',
+            amount: 8000,
+            dayOfMonth: 20,
+            tarjeta: true,
+            card: 'Hermano',
+          },
+        ]);
+
+        const pr = await service.getMonthProjection(userId, '2026-08');
+
+        expect(pr.recurrentesPorVenirTotal).toBe(90000);
+        expect(pr.recurrentesPorVenir.map((r) => r.id)).toEqual(['r-cash']);
+        expect(pr.disponibleProyectado).toBe(-90000);
+
+        const hermano = pr.tarjetaPendientePorTarjeta.find(
+          (g) => g.card === 'Hermano',
+        )!;
+        expect(hermano.total).toBe(8000);
+        expect(hermano.items[0]).toEqual(
+          expect.objectContaining({
+            description: 'Spotify',
+            amount: 8000,
+            date: '2026-08-20',
+            pending: true,
+          }),
+        );
+        expect(pr.tarjetaPendienteTotal).toBe(8000);
       } finally {
         jest.useRealTimers();
       }
