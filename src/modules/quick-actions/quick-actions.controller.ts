@@ -7,10 +7,12 @@ import {
   Post,
   UnauthorizedException,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../config/prisma.service';
 import { QuickActionsService } from './quick-actions.service';
+import { QuickFriendlyErrorsInterceptor } from './quick-friendly-errors.interceptor';
 
 /**
  * Guard por token estático para Atajos de iOS (no pueden renovar JWT).
@@ -37,6 +39,7 @@ export class QuickTokenGuard implements CanActivate {
 
 @Controller('quick')
 @UseGuards(QuickTokenGuard)
+@UseInterceptors(QuickFriendlyErrorsInterceptor)
 export class QuickActionsController {
   constructor(
     private readonly quick: QuickActionsService,
