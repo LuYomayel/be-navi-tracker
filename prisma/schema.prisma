@@ -759,8 +759,9 @@ model Expense {
   amount             Float // ARS
   description        String
   categoryId         String?
-  source             String   @default("manual") // manual | recurring
+  source             String   @default("manual") // manual | recurring | mercadopago
   recurringExpenseId String? // si lo generó un pago recurrente
+  externalId         String? // id externo (ej: mp:<SOURCE_ID>) para dedup de imports
   goalId             String? // inversión para un objetivo (ej: filamento 3D → fondo NZ)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -768,8 +769,26 @@ model Expense {
   user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  @@unique([userId, externalId])
   @@index([userId, date])
   @@map("expenses")
+}
+
+// Log de cada corrida del sync de Mercado Pago (cron diario o manual)
+model MpSyncLog {
+  id       String   @id @default(cuid())
+  userId   String
+  runAt    DateTime @default(now())
+  fromDate String // YYYY-MM-DD (ART)
+  toDate   String // YYYY-MM-DD (ART)
+  dryRun   Boolean  @default(false)
+  imported Int      @default(0)
+  skipped  Int      @default(0)
+  error    String?  @db.Text
+  details  Json? // resumen: gastos creados, dups, ingresos detectados
+
+  @@index([userId, runAt])
+  @@map("mp_sync_logs")
 }
 
 model RecurringExpense {

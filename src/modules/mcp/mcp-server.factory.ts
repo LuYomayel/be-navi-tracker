@@ -28,6 +28,7 @@ import {
   ExpensesService,
   recurringEndPeriod,
 } from '../expenses/expenses.service';
+import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import {
   parseDiasHabito,
   formatDias,
@@ -81,6 +82,7 @@ export class McpServerFactory {
     private readonly physicalActivities: PhysicalActivitiesService,
     private readonly xp: XpService,
     private readonly expenses: ExpensesService,
+    private readonly mercadoPago: MercadoPagoService,
     private readonly sweatTests: SweatTestService,
   ) {}
 
@@ -2384,6 +2386,57 @@ export class McpServerFactory {
         return text(
           `Ingreso borrado: ${ingreso.date} ${ars(ingreso.amount)} — ${ingreso.description}.`,
         );
+      },
+    );
+
+    add(
+      'sync_mercadopago',
+      {
+        title: 'Importar gastos desde Mercado Pago',
+        description:
+          'Importa los gastos desde el reporte de Mercado Pago para un rango de días (por defecto hoy). Dedup automático: nunca duplica lo ya importado ni lo cargado a mano, y saltea retiros a cuenta propia. Con simular=true muestra qué importaría sin escribir nada. El cron lo corre solo todos los días a las 07:20.',
+        inputSchema: {
+          desde: z
+            .string()
+            .optional()
+            .describe('Día inicial YYYY-MM-DD (ART). Por defecto hoy.'),
+          hasta: z
+            .string()
+            .optional()
+            .describe('Día final YYYY-MM-DD exclusivo. Por defecto hoy.'),
+          simular: z
+            .boolean()
+            .optional()
+            .describe('true = dry-run: muestra qué importaría sin escribir'),
+        },
+      },
+      async (a) => {
+        if (!this.mercadoPago.isEnabled()) {
+          return text(
+            'El sync de Mercado Pago está deshabilitado: falta MP_ACCESS_TOKEN en el .env del server.',
+          );
+        }
+        const s = await this.mercadoPago.sync({
+          from: a.desde,
+          to: a.hasta,
+          dryRun: a.simular,
+        });
+        const lines: string[] = [
+          `${s.dryRun ? '🔍 Simulación' : '✅ Sync'} MP ${s.from} → ${s.to}: ${s.imported} gasto(s) ${s.dryRun ? 'a importar' : 'importados'}, ${s.skipped} salteados.`,
+        ];
+        for (const d of s.detalles.slice(0, 20)) {
+          lines.push(
+            `• ${d.accion === 'importado' ? '+' : '–'} ${d.date} ${ars(d.amount)} ${d.description}${d.motivo ? ` (${d.motivo})` : ''}`,
+          );
+        }
+        if (s.ingresosDetectados.length) {
+          lines.push(
+            `Ingresos detectados (no se autocargan): ${s.ingresosDetectados
+              .map((i) => `${i.date} ${ars(i.amount)} ${i.description}`)
+              .join(' · ')}`,
+          );
+        }
+        return text(lines.join('\n'));
       },
     );
 

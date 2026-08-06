@@ -18,6 +18,7 @@ import { NotesModule } from '../notes/notes.module';
 import { PhysicalActivitiesModule } from '../physical-activities/physical-activities.module';
 import { XpModule } from '../xp/xp.module';
 import { ExpensesModule } from '../expenses/expenses.module';
+import { MercadoPagoModule } from '../mercadopago/mercadopago.module';
 import { SweatTestModule } from '../sweat-test/sweat-test.module';
 
 import { McpController } from './mcp.controller';
@@ -59,6 +60,7 @@ import { McpServerFactory } from './mcp-server.factory';
     PhysicalActivitiesModule,
     XpModule,
     ExpensesModule,
+    MercadoPagoModule,
     SweatTestModule,
   ],
   controllers: [McpController, OAuthController],
