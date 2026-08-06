@@ -394,6 +394,17 @@ describe('QuickActionsService', () => {
         BadRequestException,
       );
     });
+
+    it('should echo back what arrived so the shortcut can be debugged', async () => {
+      // Sin esto, desde el celular no hay forma de ver qué mandó el atajo.
+      await expect(
+        service.sueno(userId, { acoste: '', desperte: '' }),
+      ).rejects.toThrow(/acoste=\(vacío\).*desperte=\(vacío\)/s);
+
+      await expect(
+        service.sueno(userId, { acoste: 'Hoy 23:15', desperte: '' }),
+      ).rejects.toThrow(/acoste="Hoy 23:15"/);
+    });
   });
 
   describe('gasto', () => {

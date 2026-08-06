@@ -250,8 +250,15 @@ export class QuickActionsService {
       parseDuration(datos.duracion) ??
       minutesBetween(datos.acoste, datos.desperte);
     if (!minutos) {
+      // Devolvemos lo que llegó: desde el celular es la única forma de ver
+      // qué mandó el atajo (vacío = la búsqueda de Health no encontró nada).
+      const muestra = (v: unknown) => {
+        const s = v == null ? '' : String(v).replace(/\s+/g, ' ').trim();
+        if (!s) return '(vacío)';
+        return `"${s.length > 60 ? `${s.slice(0, 60)}…` : s}"`;
+      };
       throw new BadRequestException(
-        'No entendí cuánto dormiste. Mandá "duracion" ("7:45", "7h 30m" o minutos) o "acoste" y "desperte".',
+        `No entendí cuánto dormiste. Recibí acoste=${muestra(datos.acoste)} · desperte=${muestra(datos.desperte)} · duracion=${muestra(datos.duracion)}. Si están vacíos, la búsqueda de Health no devolvió muestras (revisá el filtro de fechas).`,
       );
     }
     await this.sleep.upsertSleep(userId, {
