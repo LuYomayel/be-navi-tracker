@@ -267,8 +267,8 @@ export class QuickActionsService {
       quality: datos.calidad,
       // Si vino la lista de fragmentos: se acostó en el primero y se
       // despertó en el último.
-      bedTime: clockFromList(datos.acoste, 'first'),
-      wakeTime: clockFromList(datos.desperte, 'last'),
+      bedTime: clockFromList(datos.acoste, 'first', datos.desperte),
+      wakeTime: clockFromList(datos.desperte, 'last', datos.acoste),
       deepMinutes: datos.profundo,
       remMinutes: datos.rem,
       awakeMinutes: datos.despierto,

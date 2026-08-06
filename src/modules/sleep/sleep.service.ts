@@ -139,22 +139,55 @@ export function parseInstants(value?: string | null): Date[] {
   return fechas.sort((a, b) => a.getTime() - b.getTime());
 }
 
+/** Hueco máximo entre dos muestras para seguir siendo la misma noche. */
+const MAX_GAP_MIN = 3 * 60;
+
 /**
- * Minutos dormidos entre el inicio y el fin. Si vienen fechas completas usa
- * la PRIMERA de las de inicio y la ÚLTIMA de las de fin (así una noche
- * partida en fragmentos se mide entera). Con horarios sueltos ("23:15"),
+ * De todas las muestras que llegaron, la ventana de la ÚLTIMA noche.
+ *
+ * El filtro de Shortcuts no tiene unidad de horas (lo más chico es "1 day"),
+ * así que la búsqueda trae también las siestas de ayer. La noche es el
+ * último bloque de muestras encadenadas: se arranca de la más reciente y se
+ * camina para atrás mientras el hueco con la anterior sea chico.
+ */
+export function nightWindow(
+  from?: string | null,
+  to?: string | null,
+): { start: Date; end: Date } | null {
+  const inicios = parseInstants(from);
+  const fines = parseInstants(to);
+  if (!inicios.length || !fines.length) return null;
+
+  // Sin poder aparear inicios con fines, se usa todo el rango.
+  if (inicios.length !== fines.length) {
+    return { start: inicios[0], end: fines[fines.length - 1] };
+  }
+
+  const tramos = inicios.map((start, i) => ({ start, end: fines[i] }));
+  let desde = tramos.length - 1;
+  for (let i = tramos.length - 1; i > 0; i--) {
+    const hueco =
+      (tramos[i].start.getTime() - tramos[i - 1].end.getTime()) / 60000;
+    if (hueco > MAX_GAP_MIN) break;
+    desde = i - 1;
+  }
+  return { start: tramos[desde].start, end: tramos[tramos.length - 1].end };
+}
+
+/**
+ * Minutos dormidos. Con fechas completas mide la última noche entera
+ * (fragmentos incluidos, siestas afuera). Con horarios sueltos ("23:15"),
  * cruza la medianoche.
  */
 export function minutesBetween(
   from?: string | null,
   to?: string | null,
 ): number | null {
-  const inicios = parseInstants(from);
-  const fines = parseInstants(to);
-  if (inicios.length && fines.length) {
-    const desde = inicios[0];
-    const hasta = fines[fines.length - 1];
-    const diff = Math.round((hasta.getTime() - desde.getTime()) / 60000);
+  const noche = nightWindow(from, to);
+  if (noche) {
+    const diff = Math.round(
+      (noche.end.getTime() - noche.start.getTime()) / 60000,
+    );
     return diff > 0 ? diff : null;
   }
 
@@ -168,16 +201,29 @@ export function minutesBetween(
   return diff;
 }
 
-/** Hora "HH:mm" de la primera (o última) marca de una lista de fechas. */
+const hhmm = (d: Date) =>
+  `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+/**
+ * Hora "HH:mm" de la primera (o última) marca de una lista de fechas.
+ * Pasando la lista contraria (`counterpart`) se limita a la última noche, y
+ * así la hora de acostarse no sale de una siesta de la tarde.
+ */
 export function clockFromList(
   value: string | null | undefined,
   which: 'first' | 'last',
+  counterpart?: string | null,
 ): string | null {
+  if (counterpart) {
+    const noche =
+      which === 'first'
+        ? nightWindow(value, counterpart)
+        : nightWindow(counterpart, value);
+    if (noche) return hhmm(which === 'first' ? noche.start : noche.end);
+  }
   const instants = parseInstants(value);
   if (!instants.length) return parseClock(value);
-  const d = which === 'first' ? instants[0] : instants[instants.length - 1];
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return hhmm(which === 'first' ? instants[0] : instants[instants.length - 1]);
 }
 
 @Injectable()

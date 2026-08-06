@@ -193,6 +193,43 @@ describe('SleepService', () => {
     });
   });
 
+  describe('descartar la siesta cuando el filtro trae todo el día', () => {
+    // El filtro de Shortcuts NO tiene unidad de horas: lo más chico es
+    // "1 day", así que la búsqueda trae también lo de ayer a la tarde. La
+    // noche es el ÚLTIMO bloque de muestras encadenadas.
+    const inicios = [
+      '5 Aug 2026 at 2:21 PM', // siesta
+      '5 Aug 2026 at 11:15 PM',
+      '6 Aug 2026 at 1:40 AM',
+      '6 Aug 2026 at 4:05 AM',
+    ].join(' ');
+    const fines = [
+      '5 Aug 2026 at 3:00 PM', // fin de la siesta
+      '6 Aug 2026 at 1:35 AM',
+      '6 Aug 2026 at 4:00 AM',
+      '6 Aug 2026 at 7:00 AM',
+    ].join(' ');
+
+    it('should measure only the night, not the nap eight hours earlier', () => {
+      expect(minutesBetween(inicios, fines)).toBe(465); // 23:15 -> 07:00
+    });
+
+    it('should report the bedtime of the night, not of the nap', () => {
+      expect(clockFromList(inicios, 'first', fines)).toBe('23:15');
+      expect(clockFromList(fines, 'last')).toBe('07:00');
+    });
+
+    it('should keep the whole night together even with awake gaps', () => {
+      // hueco de 1h despierto en el medio: sigue siendo la misma noche
+      expect(
+        minutesBetween(
+          '5 Aug 2026 at 11:15 PM 6 Aug 2026 at 3:00 AM',
+          '6 Aug 2026 at 2:00 AM 6 Aug 2026 at 7:00 AM',
+        ),
+      ).toBe(465);
+    });
+  });
+
   describe('upsertSleep', () => {
     it('should upsert by day so re-running the shortcut does not duplicate', async () => {
       await service.upsertSleep(userId, {
