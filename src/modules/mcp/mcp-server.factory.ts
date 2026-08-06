@@ -2480,6 +2480,48 @@ export class McpServerFactory {
     );
 
     add(
+      'proyeccion_mes',
+      {
+        title: 'Proyección del resto del mes',
+        description:
+          'Cuánta plata disponés REALMENTE para lo que queda del mes: saldo de hoy menos los gastos ya agendados a futuro (ej: sesión de psicóloga de la semana que viene) y las cuotas/recurrentes que faltan pagar, más los ingresos esperados (ej: aguinaldo pendiente). Para agendar un gasto futuro usá registrar_gasto con fecha futura; para un ingreso esperado, registrar_ingreso con pendiente=true.',
+        inputSchema: {
+          mes: z
+            .string()
+            .optional()
+            .describe('Mes YYYY-MM. Por defecto el actual.'),
+        },
+      },
+      async (a) => {
+        const mes = a.mes || getLocalDateString().slice(0, 7);
+        const pr = await this.expenses.getMonthProjection(userId, mes);
+        const lines: string[] = [
+          `📊 Proyección de ${mes} (al ${pr.today}):`,
+          `Saldo del mes hoy: ${pr.saldoHoy >= 0 ? '+' : ''}${ars(pr.saldoHoy)} (ingresos ${ars(pr.ingresosCobrados)} − gastos ${ars(pr.gastosEjecutados)})`,
+        ];
+        if (pr.gastosFuturos.length) {
+          lines.push(`Gastos agendados (${ars(pr.gastosFuturosTotal)}):`);
+          for (const g of pr.gastosFuturos)
+            lines.push(`  • ${g.date} ${ars(g.amount)} — ${g.description}`);
+        }
+        if (pr.recurrentesPorVenir.length) {
+          lines.push(`Cuotas/recurrentes por pagar (${ars(pr.recurrentesPorVenirTotal)}):`);
+          for (const r of pr.recurrentesPorVenir)
+            lines.push(`  • día ${r.dayOfMonth} ${ars(r.amount)} — ${r.description}${r.cuota ? ` (cuota ${r.cuota})` : ''}`);
+        }
+        if (pr.ingresosEsperados.length) {
+          lines.push(`Ingresos esperados (+${ars(pr.ingresosEsperadosTotal)}):`);
+          for (const i of pr.ingresosEsperados)
+            lines.push(`  • ${i.date} ${ars(i.amount)} — ${i.description}`);
+        }
+        lines.push(
+          `💰 Disponible real para el resto del mes: ${pr.disponibleProyectado >= 0 ? '+' : ''}${ars(pr.disponibleProyectado)}`,
+        );
+        return text(lines.join('\n'));
+      },
+    );
+
+    add(
       'balance_mes',
       {
         title: 'Balance del mes (ingresos vs gastos)',

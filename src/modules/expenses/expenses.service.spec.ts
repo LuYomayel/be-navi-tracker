@@ -780,6 +780,61 @@ describe('ExpensesService', () => {
     });
   });
 
+  describe('getMonthProjection', () => {
+    it('should project the rest of the month: committed future expenses, pending recurrings and expected incomes', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 6, 12)); // 6 de agosto
+      try {
+        (prisma.expense.findMany as jest.Mock).mockResolvedValue([
+          { ...mockExpense, amount: 100000, date: '2026-08-03' }, // ejecutado
+          {
+            ...mockExpense,
+            id: 'exp-f',
+            amount: 50000,
+            date: '2026-08-11',
+            description: 'Sesión psicóloga',
+          }, // futuro
+        ]);
+        (prisma.income.findMany as jest.Mock)
+          // cobrados del mes
+          .mockResolvedValueOnce([
+            { id: 'i1', amount: 500000, source: 'sueldo', status: 'received', date: '2026-08-01' },
+          ])
+          // pendientes con fecha en el mes
+          .mockResolvedValueOnce([
+            {
+              id: 'i2',
+              amount: 205000,
+              source: 'sueldo',
+              status: 'pending',
+              date: '2026-08-21',
+              description: 'Aguinaldo',
+            },
+          ]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+          // pendiente de postear este mes (día 16)
+          { ...mockRecurring, id: 'r1', amount: 167000, dayOfMonth: 16, lastPostedPeriod: '2026-07', totalInstallments: 12, installmentsPaid: 7, startPeriod: '2026-01' },
+          // ya posteado este mes → no cuenta
+          { ...mockRecurring, id: 'r2', amount: 90000, lastPostedPeriod: '2026-08' },
+          // arranca en el futuro → no cuenta este mes
+          { ...mockRecurring, id: 'r3', amount: 500, startPeriod: '2026-10', totalInstallments: 3, installmentsPaid: 0, lastPostedPeriod: null },
+        ]);
+
+        const pr = await service.getMonthProjection(userId, '2026-08');
+
+        expect(pr.gastosEjecutados).toBe(100000);
+        expect(pr.gastosFuturosTotal).toBe(50000);
+        expect(pr.gastosFuturos[0].description).toBe('Sesión psicóloga');
+        expect(pr.recurrentesPorVenirTotal).toBe(167000);
+        expect(pr.ingresosEsperadosTotal).toBe(205000);
+        expect(pr.saldoHoy).toBe(400000); // 500k - 100k
+        // 400k - 50k futuro - 167k recurrente + 205k aguinaldo
+        expect(pr.disponibleProyectado).toBe(388000);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
   describe('getMonthlyBalance', () => {
     it('should compute incomes vs expenses with refunds and pending broken out', async () => {
       (prisma.expense.findMany as jest.Mock).mockResolvedValue([

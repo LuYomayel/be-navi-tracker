@@ -575,6 +575,96 @@ export class ExpensesService {
     };
   }
 
+  /**
+   * Proyección del resto del mes: saldo de hoy − gastos ya agendados a futuro
+   * − cuotas/recurrentes que todavía no se postearon + ingresos esperados
+   * (pendientes con fecha en el mes). Responde "¿cuánta plata dispongo
+   * realmente para lo que queda del mes?".
+   */
+  async getMonthProjection(userId: string, month: string) {
+    const today = getLocalDateString();
+    const [expenses, incomes, pendingIncomes, recurring] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: { userId, date: monthRange(month) },
+        orderBy: { date: 'asc' },
+      }),
+      this.prisma.income.findMany({
+        where: { userId, status: 'received', date: monthRange(month) },
+      }),
+      this.prisma.income.findMany({
+        where: { userId, status: 'pending', date: monthRange(month) },
+        orderBy: { date: 'asc' },
+      }),
+      this.prisma.recurringExpense.findMany({ where: { userId, active: true } }),
+    ]);
+
+    const ejecutados = expenses.filter((e) => e.date <= today);
+    const futuros = expenses.filter((e) => e.date > today);
+    const gastosEjecutados = ejecutados.reduce((a, e) => a + e.amount, 0);
+    const gastosFuturosTotal = futuros.reduce((a, e) => a + e.amount, 0);
+    const ingresosCobrados = incomes.reduce((a, i) => a + i.amount, 0);
+    const ingresosEsperadosTotal = pendingIncomes.reduce(
+      (a, i) => a + i.amount,
+      0,
+    );
+
+    // Recurrentes que todavía no postearon su gasto de este mes
+    const recurrentesPorVenir = recurring.filter((r) => {
+      if (r.lastPostedPeriod === month) return false;
+      if (r.startPeriod && r.startPeriod > month) return false;
+      if (
+        r.totalInstallments &&
+        r.installmentsPaid >= r.totalInstallments
+      )
+        return false;
+      return true;
+    });
+    const recurrentesPorVenirTotal = recurrentesPorVenir.reduce(
+      (a, r) => a + r.amount,
+      0,
+    );
+
+    const saldoHoy = ingresosCobrados - gastosEjecutados;
+    const disponibleProyectado =
+      saldoHoy -
+      gastosFuturosTotal -
+      recurrentesPorVenirTotal +
+      ingresosEsperadosTotal;
+
+    return {
+      month,
+      today,
+      ingresosCobrados,
+      gastosEjecutados,
+      saldoHoy,
+      gastosFuturos: futuros.map((e) => ({
+        id: e.id,
+        date: e.date,
+        amount: e.amount,
+        description: e.description,
+      })),
+      gastosFuturosTotal,
+      recurrentesPorVenir: recurrentesPorVenir.map((r) => ({
+        id: r.id,
+        description: r.description,
+        amount: r.amount,
+        dayOfMonth: r.dayOfMonth,
+        cuota: r.totalInstallments
+          ? `${r.installmentsPaid + 1}/${r.totalInstallments}`
+          : null,
+      })),
+      recurrentesPorVenirTotal,
+      ingresosEsperados: pendingIncomes.map((i) => ({
+        id: i.id,
+        date: i.date,
+        amount: i.amount,
+        description: i.description,
+      })),
+      ingresosEsperadosTotal,
+      disponibleProyectado,
+    };
+  }
+
   // ── Resumen / insights ────────────────────────────────────
 
   async getSummary(userId: string, month: string) {

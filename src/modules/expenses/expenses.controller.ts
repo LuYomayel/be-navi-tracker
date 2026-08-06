@@ -148,6 +148,17 @@ export class ExpensesController {
     };
   }
 
+  @Get('projection')
+  async projection(@Query('month') month: string, @Req() req: any) {
+    return {
+      success: true,
+      data: await this.expenses.getMonthProjection(
+        req.user.userId,
+        month || currentMonth(),
+      ),
+    };
+  }
+
   // ── Ingresos + negocio 3D ────────────────────────────────
   @Get('business-summary')
   async businessSummary(@Req() req: any) {
