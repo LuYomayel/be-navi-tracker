@@ -23,6 +23,7 @@ import { AICostModule } from './modules/ai-cost/ai-cost.module';
 import { MealPrepModule } from './modules/meal-prep/meal-prep.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { MercadoPagoModule } from './modules/mercadopago/mercadopago.module';
+import { QuickActionsModule } from './modules/quick-actions/quick-actions.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { DayScoreModule } from './modules/day-score/day-score.module';
@@ -68,6 +69,7 @@ import { DeviceTokensModule } from './modules/device-tokens/device-tokens.module
     DeviceTokensModule,
     ExpensesModule,
     MercadoPagoModule,
+    QuickActionsModule,
   ],
   controllers: [AppController],
   providers: [
