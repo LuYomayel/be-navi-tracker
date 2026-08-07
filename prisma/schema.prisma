@@ -63,6 +63,10 @@ model User {
   expenseCategories        ExpenseCategory[]
   recurringExpenses        RecurringExpense[]
   incomes                  Income[]
+  printProducts            PrintProduct[]
+  filaments                Filament[]
+  printSales               PrintSale[]
+  printSettings            PrintSettings?
 
   @@map("users")
 }
@@ -134,7 +138,7 @@ model NutritionAnalysis {
   aiCostUsd       Float? // Costo de la llamada a OpenAI en USD
   savedMealId     String? // Si se creo desde un SavedMeal
   dietCompliance  String? // on_diet | off_diet | null (sin marcar). Marcado manual del usuario
-  complianceNote  String? @db.Text // Contexto del porque (cheat planeado, cumple, etc.)
+  complianceNote  String?  @db.Text // Contexto del porque (cheat planeado, cumple, etc.)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -244,8 +248,8 @@ model UserPreferences {
   notifications  Json? // Configuraciones de notificaciones
 
   // Hidratación
-  hydrationGoalGlasses Int? @default(8) // Meta diaria en vasos
-  hydrationMlPerGlass  Int? @default(250) // ml por vaso
+  hydrationGoalGlasses Int?     @default(8) // Meta diaria en vasos
+  hydrationMlPerGlass  Int?     @default(250) // ml por vaso
   hydrationBlocks      Json? // Tramos horarios [{id,label,start,end,targetMl,requiresTraining}] — null = meta simple por vasos
   takesCreatine        Boolean? @default(false) // suma ~400ml/día a la necesidad de agua
 
@@ -636,7 +640,7 @@ model SweatTest {
 
   weightBeforeKg Float
   weightAfterKg  Float
-  fluidIntakeMl  Int  @default(0)
+  fluidIntakeMl  Int   @default(0)
   urineMl        Int?
 
   indoor       Boolean? // cancha cerrada (sin viento + humedad alta = más sudor)
@@ -683,17 +687,17 @@ model SleepLog {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  date            String // YYYY-MM-DD (día en que se despertó)
-  minutesAsleep   Int // total dormido
-  bedTime         String? // HH:mm en que se acostó
-  wakeTime        String? // HH:mm en que se despertó
-  quality         Int? // 1-5 percibido
-  deepMinutes     Int? // sueño profundo (Apple Watch)
-  remMinutes      Int?
-  awakeMinutes    Int?
-  heartRateAvg    Int? // pulsaciones promedio durmiendo
-  source          String  @default("manual") // manual | shortcut | apple-health
-  notes           String? @db.Text
+  date          String // YYYY-MM-DD (día en que se despertó)
+  minutesAsleep Int // total dormido
+  bedTime       String? // HH:mm en que se acostó
+  wakeTime      String? // HH:mm en que se despertó
+  quality       Int? // 1-5 percibido
+  deepMinutes   Int? // sueño profundo (Apple Watch)
+  remMinutes    Int?
+  awakeMinutes  Int?
+  heartRateAvg  Int? // pulsaciones promedio durmiendo
+  source        String  @default("manual") // manual | shortcut | apple-health
+  notes         String? @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -828,22 +832,22 @@ model MpSyncLog {
 }
 
 model RecurringExpense {
-  id               String   @id @default(cuid())
-  userId           String
-  description      String
-  amount           Float // ARS
-  categoryId       String?
-  dayOfMonth       Int // día del mes en que se cobra (1-28)
-  kind             String   @default("recurring") // recurring (pago fijo) | subscription
-  active           Boolean  @default(true)
-  lastPostedPeriod String? // YYYY-MM del último mes ya generado (dedup)
+  id                String   @id @default(cuid())
+  userId            String
+  description       String
+  amount            Float // ARS
+  categoryId        String?
+  dayOfMonth        Int // día del mes en que se cobra (1-28)
+  kind              String   @default("recurring") // recurring (pago fijo) | subscription
+  active            Boolean  @default(true)
+  lastPostedPeriod  String? // YYYY-MM del último mes ya generado (dedup)
   totalInstallments Int? // cantidad total de cuotas (null = sin fin)
-  installmentsPaid  Int     @default(0) // cuotas ya pagadas (incluye previas a cargarlo)
+  installmentsPaid  Int      @default(0) // cuotas ya pagadas (incluye previas a cargarlo)
   startPeriod       String? // YYYY-MM de la primera cuota (puede ser pasado; deriva pagadas y fecha de fin)
-  tarjeta           Boolean @default(false) // se paga con tarjeta de crédito → va al buffer del resumen
+  tarjeta           Boolean  @default(false) // se paga con tarjeta de crédito → va al buffer del resumen
   card              String? // qué tarjeta: null = la Visa propia, texto = otra (ej "Hermano")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -871,4 +875,107 @@ model Income {
 
   @@index([userId, date])
   @@map("incomes")
+}
+
+// ── Negocio de impresion 3D ──────────────────────────────────
+// Modulo AUTONOMO (ver CLAUDE.md): catalogo, costos, ventas y balance salen
+// de estas tablas propias, nunca de Goal. El link a un objetivo es un
+// snapshot opcional (goalId nullable en PrintSale/liquidacion), asi que si
+// el objetivo cambia o se borra el negocio 3D sigue funcionando igual.
+
+// Producto del catalogo (diseños de MakerWorld que se imprimen y venden).
+model PrintProduct {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String
+  author         String? // autor del diseño en MakerWorld
+  makerworldUrl  String?
+  grams          Float // gramos de filamento que consume
+  hours          Float // horas de impresion
+  colorsLabel    String // "1", "7", "multi": cantidad de colores o "multi"
+  sizeMm         String? // medidas, ej "165x165x6"
+  licenseOk      Boolean  @default(false) // la licencia del autor permite vender
+  markupOverride Float? // multiplicador propio (ej familia fuxx = 1.5) en vez del defaultMarkup
+  publicPrice    Float? // precio sugerido de feria/venta al publico (dato manual)
+  active         Boolean  @default(true)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sales PrintSale[]
+
+  @@index([userId])
+  @@map("print_products")
+}
+
+// Compra de filamento (inventario para costear impresiones).
+model Filament {
+  id            String   @id @default(cuid())
+  userId        String
+  brand         String
+  material      String
+  color         String
+  pricePaid     Float // lo pagado por el rollo/recarga
+  grams         Float    @default(1000)
+  pricePerGram  Float // derivado al crear: pricePaid / grams
+  purchasedAt   String // YYYY-MM-DD
+  discarded     Boolean  @default(false)
+  discardReason String?
+  gramsLeft     Float? // stock restante (null = no se trackea stock real)
+  expenseId     String? // Expense creado junto con la compra (snapshot, no FK obligatoria)
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("filaments")
+}
+
+// Parametros de costeo del negocio, 1 fila por usuario. Tambien vive aca el
+// token del catalogo publico (para Marcelito) y el recargo de financiacion
+// del filamento (aparte: no se reparte en el $/g de ningun rollo puntual).
+model PrintSettings {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  costPerGram        Float    @default(20)
+  wastePct           Float    @default(0.15)
+  powerPerHour       Float    @default(12)
+  defaultMarkup      Float    @default(1.3)
+  publicToken        String   @unique
+  financingSurcharge Float    @default(0) // recargo de financiacion de compras de filamento (no prorrateado)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("print_settings")
+}
+
+// Venta o muestra de un producto. costUnit es snapshot del costo al momento
+// de la venta (si sube el filamento despues, no reescribe la historia).
+model PrintSale {
+  id          String   @id @default(cuid())
+  userId      String
+  date        String // YYYY-MM-DD
+  productId   String
+  kind        String   @default("venta") // venta | muestra
+  qty         Int      @default(1)
+  chargedUnit Float    @default(0) // lo cobrado por unidad (0 en muestras)
+  costUnit    Float // snapshot del costo por unidad al momento de la venta
+  status      String   @default("a_liquidar") // a_liquidar | liquidado
+  channel     String?
+  notes       String?  @db.Text
+  incomeId    String? // Income creado al liquidar (snapshot, no FK obligatoria)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product PrintProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([productId])
+  @@map("print_sales")
 }
