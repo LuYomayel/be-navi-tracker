@@ -37,6 +37,65 @@ const CONFIG_DEFAULTS: QuickActionsConfig = {
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
+/**
+ * Muestra un valor recibido para poder debuggear el atajo desde el celular:
+ * la respuesta es lo único que se ve desde el iPhone.
+ */
+function muestra(v: unknown): string {
+  const s = v == null ? '' : String(v).replace(/\s+/g, ' ').trim();
+  if (!s) return '(vacío)';
+  return `"${s.length > 60 ? `${s.slice(0, 60)}…` : s}"`;
+}
+
+/**
+ * El `Amount` de una transacción de Apple Wallet llega formateado como moneda
+ * ("$1.500,00", "ARS 1.500,00", "$1,500.00"): el atajo no lo puede limpiar, así
+ * que lo parseamos acá — mismo criterio que `parseDuration` para el sueño.
+ *
+ * Separador solitario: 3 dígitos detrás = miles ("1.500" → 1500), si no
+ * = decimales ("1.50" → 1.5). Con los dos separadores, el último manda.
+ */
+export function parseMonto(raw: unknown): number | null {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  if (typeof raw !== 'string') return null;
+
+  //   y   son los espacios duros que mete Intl entre símbolo y número
+  const limpio = raw.replace(/[\s  ]/g, '');
+  if (!limpio) return null;
+  const negativo = limpio.includes('-') || /^\(.+\)$/.test(limpio);
+
+  // Fuera el símbolo y el código de moneda ($, ARS, US$…)
+  const numero = limpio.replace(/[^\d.,]/g, '');
+  if (!/\d/.test(numero)) return null;
+
+  const posComa = numero.lastIndexOf(',');
+  const posPunto = numero.lastIndexOf('.');
+  let decimal = '';
+  if (posComa >= 0 && posPunto >= 0) {
+    decimal = posComa > posPunto ? ',' : '.';
+  } else if (posComa >= 0 || posPunto >= 0) {
+    const sep = posComa >= 0 ? ',' : '.';
+    const pos = Math.max(posComa, posPunto);
+    const digitosDetras = numero.length - pos - 1;
+    const apariciones = numero.split(sep).length - 1;
+    decimal = apariciones === 1 && digitosDetras !== 3 ? sep : '';
+  }
+
+  let normalizado: string;
+  if (decimal) {
+    const pos = numero.lastIndexOf(decimal);
+    const entera = numero.slice(0, pos).replace(/[.,]/g, '') || '0';
+    const decimales = numero.slice(pos + 1).replace(/[.,]/g, '');
+    normalizado = `${entera}.${decimales}`;
+  } else {
+    normalizado = numero.replace(/[.,]/g, '');
+  }
+
+  const n = Number(normalizado);
+  if (!Number.isFinite(n)) return null;
+  return negativo ? -n : n;
+}
+
 export type MealSlot = 'breakfast' | 'lunch' | 'snack' | 'dinner';
 
 /** Slot del meal prep según la hora del día (ART). */
@@ -310,11 +369,6 @@ export class QuickActionsService {
     if (!minutos) {
       // Devolvemos lo que llegó: desde el celular es la única forma de ver
       // qué mandó el atajo (vacío = la búsqueda de Health no encontró nada).
-      const muestra = (v: unknown) => {
-        const s = v == null ? '' : String(v).replace(/\s+/g, ' ').trim();
-        if (!s) return '(vacío)';
-        return `"${s.length > 60 ? `${s.slice(0, 60)}…` : s}"`;
-      };
       throw new BadRequestException(
         `No entendí cuánto dormiste. Recibí acoste=${muestra(datos.acoste)} · desperte=${muestra(datos.desperte)} · duracion=${muestra(datos.duracion)}. Si están vacíos, la búsqueda de Health no devolvió muestras (revisá el filtro de fechas).`,
       );
@@ -346,10 +400,19 @@ export class QuickActionsService {
 
   async gasto(
     userId: string,
-    monto: number,
+    monto: number | string,
     descripcion: string,
     tarjeta: boolean | string = false,
   ) {
+    // El atajo de Wallet manda el Amount tal cual lo formatea iOS.
+    const importe = parseMonto(monto);
+    if (importe === null || importe <= 0) {
+      throw new BadRequestException(
+        `No entendí el monto. Recibí monto=${muestra(monto)} · descripcion=${muestra(descripcion)}. Si dice "Amount" o está vacío, la variable del atajo no trajo valor.`,
+      );
+    }
+    // Merchant puede venir vacío (transferencias, algunos comercios).
+    const detalle = String(descripcion || '').trim() || 'Gasto rápido';
     const config = await this.getConfig(userId);
     let categoryId: string | null = null;
     if (config.gastoCategoriaDefault) {
@@ -367,20 +430,20 @@ export class QuickActionsService {
       const card = typeof tarjeta === 'string' ? tarjeta.trim() : null;
       await this.expenses.createExpense(userId, {
         date: getLocalDateString(),
-        amount: monto,
-        description: descripcion,
+        amount: importe,
+        description: detalle,
         categoryId,
         tarjeta: true,
         card,
       });
       return {
-        message: `💳 Anotado en el próximo resumen (${card || 'Visa'}): ${ars(monto)} — ${descripcion}`,
+        message: `💳 Anotado en el próximo resumen (${card || 'Visa'}): ${ars(importe)} — ${detalle}`,
       };
     }
     const exp = await this.expenses.createExpense(userId, {
       date: getLocalDateString(),
-      amount: monto,
-      description: descripcion,
+      amount: importe,
+      description: detalle,
       categoryId,
     });
     return { message: `💸 Gasto registrado: ${ars(exp.amount)} — ${exp.description}` };

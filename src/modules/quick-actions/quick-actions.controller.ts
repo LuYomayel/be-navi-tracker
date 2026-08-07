@@ -132,15 +132,21 @@ export class QuickActionsController {
   @Post('gasto')
   async gasto(
     @Body()
-    body: { monto: number; descripcion: string; tarjeta?: boolean | string },
+    body: {
+      monto: number | string;
+      descripcion: string;
+      tarjeta?: boolean | string;
+    },
   ) {
     // tarjeta: true = crédito con la Visa propia; texto = otra tarjeta ("Hermano")
     const tarjeta =
       typeof body?.tarjeta === 'string' ? body.tarjeta : !!body?.tarjeta;
+    // El monto va CRUDO: el atajo de Wallet manda "$1.500,00" y Number() lo
+    // haría NaN antes de que el service lo pueda parsear.
     return this.quick.gasto(
       await this.userId(),
-      Number(body?.monto),
-      String(body?.descripcion || 'Gasto rápido'),
+      body?.monto,
+      String(body?.descripcion ?? ''),
       tarjeta,
     );
   }

@@ -4,6 +4,7 @@ import {
   QuickActionsService,
   slotForHour,
   dayKeyOf,
+  parseMonto,
 } from './quick-actions.service';
 import { HydrationService } from '../hydration/hydration.service';
 import { MealPrepService } from '../meal-prep/meal-prep.service';
@@ -35,6 +36,50 @@ describe('dayKeyOf', () => {
     expect(dayKeyOf('2026-08-03')).toBe('monday');
     expect(dayKeyOf('2026-08-06')).toBe('thursday');
     expect(dayKeyOf('2026-08-09')).toBe('sunday');
+  });
+});
+
+describe('parseMonto', () => {
+  it('should accept plain numbers', () => {
+    expect(parseMonto(5000)).toBe(5000);
+    expect(parseMonto('5000')).toBe(5000);
+    expect(parseMonto('1500.50')).toBe(1500.5);
+  });
+
+  // El Amount de una transacción de Wallet llega formateado como moneda:
+  // el atajo no puede limpiarlo, así que lo hacemos acá.
+  it('should accept the currency string Wallet/Shortcuts sends (es-AR)', () => {
+    expect(parseMonto('$1.500,00')).toBe(1500);
+    expect(parseMonto('$ 1.500,00')).toBe(1500);
+    expect(parseMonto('ARS 1.500,00')).toBe(1500);
+    expect(parseMonto('$12.345,67')).toBe(12345.67);
+  });
+
+  it('should accept the en-US currency format too', () => {
+    expect(parseMonto('$1,500.00')).toBe(1500);
+    expect(parseMonto('$12,345.67')).toBe(12345.67);
+  });
+
+  it('should handle the non-breaking space Intl inserts', () => {
+    expect(parseMonto('$ 1.500,00')).toBe(1500);
+    expect(parseMonto('1.500,00 ARS')).toBe(1500);
+  });
+
+  // Ambiguo a propósito: 3 dígitos después del separador = miles.
+  it('should read a lone separator by digit count', () => {
+    expect(parseMonto('1.500')).toBe(1500);
+    expect(parseMonto('1,500')).toBe(1500);
+    expect(parseMonto('1.50')).toBe(1.5);
+    expect(parseMonto('1,50')).toBe(1.5);
+  });
+
+  it('should return null for anything it cannot read', () => {
+    expect(parseMonto('')).toBeNull();
+    expect(parseMonto('   ')).toBeNull();
+    expect(parseMonto(undefined)).toBeNull();
+    expect(parseMonto(null)).toBeNull();
+    expect(parseMonto('Merchant')).toBeNull();
+    expect(parseMonto(NaN)).toBeNull();
   });
 });
 
@@ -537,6 +582,46 @@ describe('QuickActionsService', () => {
         expect.objectContaining({ tarjeta: true, card: 'Hermano' }),
       );
       expect(r.message).toContain('Hermano');
+    });
+
+    it('should accept the raw currency string from a Wallet transaction', async () => {
+      const r = await service.gasto(userId, '$4.350,00', 'STARBUCKS');
+
+      expect(expenses.createExpense).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({ amount: 4350, description: 'STARBUCKS' }),
+      );
+      expect(r.message).toContain('4.350');
+    });
+
+    it('should echo what it received when the amount is unreadable', async () => {
+      // Sin esto, desde el iPhone no hay forma de ver qué mandó el atajo.
+      await expect(service.gasto(userId, 'Amount', 'Kiosco')).rejects.toThrow(
+        /monto="Amount"/,
+      );
+      await expect(service.gasto(userId, '', 'Kiosco')).rejects.toThrow(
+        /\(vacío\)/,
+      );
+      expect(expenses.createExpense).not.toHaveBeenCalled();
+    });
+
+    it('should reject amounts that are zero or negative', async () => {
+      await expect(service.gasto(userId, 0, 'Kiosco')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.gasto(userId, '-500', 'Kiosco')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(expenses.createExpense).not.toHaveBeenCalled();
+    });
+
+    it('should fall back to a default description when the merchant is empty', async () => {
+      await service.gasto(userId, 5000, '');
+
+      expect(expenses.createExpense).toHaveBeenCalledWith(
+        userId,
+        expect.objectContaining({ description: 'Gasto rápido' }),
+      );
     });
 
     it('should attach the configured default category when it exists', async () => {
