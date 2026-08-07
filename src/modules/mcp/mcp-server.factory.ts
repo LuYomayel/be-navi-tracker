@@ -40,6 +40,8 @@ import {
   formatDias,
   resolveColorHabito,
 } from './habito-utils';
+import { PrintingService } from '../printing/printing.service';
+import { computePrintCost, computeSalePrice, computeProfit } from '../printing/pricing';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
 function text(message: string) {
@@ -92,6 +94,7 @@ export class McpServerFactory {
     private readonly categorizer: ExpenseCategorizerService,
     private readonly sweatTests: SweatTestService,
     private readonly sleep: SleepService,
+    private readonly printing: PrintingService,
   ) {}
 
   /**
@@ -129,6 +132,7 @@ export class McpServerFactory {
     this.registerPhysicalActivityTools(server, userId, add);
     this.registerExpenseTools(server, userId, add);
     this.registerSleepTools(server, userId, add);
+    this.registerPrintingTools(server, userId, add);
     return server;
   }
 
@@ -2900,6 +2904,245 @@ export class McpServerFactory {
           );
         }
         return text(lines.join('\n'));
+      },
+    );
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  Tools del negocio de impresion 3D (autonomo, ver CLAUDE.md)
+  // ────────────────────────────────────────────────────────────
+  private registerPrintingTools(
+    _server: McpServer,
+    userId: string,
+    add: (n: string, c: ToolConfig, h: (a: any) => Promise<any>) => void,
+  ) {
+    const ars = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
+
+    // Resuelve un producto por id exacto o por nombre parcial (case-insensitive).
+    const resolveProduct = async (
+      query: string,
+    ): Promise<{ producto?: any; error?: string }> => {
+      const list = (await this.printing.getProducts(userId)) as any[];
+      const byId = list.find((p) => p.id === query);
+      if (byId) return { producto: byId };
+      const q = query.toLowerCase();
+      const matches = list.filter((p) => p.name.toLowerCase().includes(q));
+      if (matches.length === 1) return { producto: matches[0] };
+      if (matches.length === 0) {
+        return {
+          error: `No encontré un producto "${query}" en el catálogo. Usá list_catalogo_3d para ver los que hay.`,
+        };
+      }
+      return {
+        error:
+          `Hay ${matches.length} productos que matchean "${query}":\n` +
+          matches.map((p) => `• ${p.name} (id ${p.id})`).join('\n') +
+          '\nRepetí indicando el nombre completo o el id.',
+      };
+    };
+
+    add(
+      'list_catalogo_3d',
+      {
+        title: 'Catálogo de productos del negocio 3D',
+        description:
+          'Lista los productos del catálogo del negocio de impresión 3D con costo real, precio a Marcelito y ganancia (datos internos, no el catálogo público). Incluye si tienen licencia para vender.',
+        inputSchema: {
+          soloActivos: z
+            .boolean()
+            .optional()
+            .describe('true para listar solo los productos activos'),
+        },
+      },
+      async (a) => {
+        const list = (await this.printing.getProducts(userId, {
+          activeOnly: a.soloActivos,
+        })) as any[];
+        if (!list.length) return text('Todavía no cargaste productos en el catálogo.');
+        const lines = list.map(
+          (p) =>
+            `• ${p.name}${p.author ? ` (${p.author})` : ''} — costo ${ars(p.cost)} · a Marcelito ${ars(p.priceToMarcelito)} · ganancia ${ars(p.profit)}${p.licenseOk ? '' : ' ⚠️ sin licencia para vender'}`,
+        );
+        return text(`Catálogo (${list.length} productos):\n${lines.join('\n')}`);
+      },
+    );
+
+    add(
+      'cotizar_producto_3d',
+      {
+        title: 'Cotizar una impresión sin guardarla',
+        description:
+          'Calcula costo, precio a Marcelito y ganancia para unos gramos/horas dados, usando los parámetros de costeo actuales. No guarda nada, es solo para cotizar.',
+        inputSchema: {
+          gramos: z.number().describe('Gramos de filamento que consume'),
+          horas: z.number().describe('Horas de impresión'),
+          markup: z
+            .number()
+            .optional()
+            .describe('Multiplicador propio (ej 1.5). Por defecto el markup default de las settings.'),
+        },
+      },
+      async (a) => {
+        const settings = await this.printing.getSettings(userId);
+        const cost = computePrintCost({
+          grams: a.gramos,
+          hours: a.horas,
+          costPerGram: settings.costPerGram,
+          wastePct: settings.wastePct,
+          powerPerHour: settings.powerPerHour,
+        });
+        const priceToMarcelito = computeSalePrice(
+          cost,
+          a.markup ?? settings.defaultMarkup,
+        );
+        const profit = computeProfit(priceToMarcelito, cost);
+        return text(
+          `Costo ${ars(cost)} · precio a Marcelito ${ars(priceToMarcelito)} · ganancia ${ars(profit)} (${a.gramos}g, ${a.horas}h).`,
+        );
+      },
+    );
+
+    add(
+      'registrar_filamento',
+      {
+        title: 'Registrar una compra de filamento',
+        description:
+          'Registra la compra de un rollo de filamento (inversión del negocio 3D). Crea también el gasto correspondiente, linkeado al objetivo activo si hay uno.',
+        inputSchema: {
+          marca: z.string().describe('Marca (ej "Bambu Lab")'),
+          material: z.string().describe('Material (ej "PLA Lite")'),
+          color: z.string().describe('Color'),
+          precioPagado: z.number().describe('Lo pagado en ARS'),
+          gramos: z
+            .number()
+            .optional()
+            .describe('Gramos del rollo. Por defecto 1000.'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha de compra YYYY-MM-DD. Por defecto hoy.'),
+          notas: z.string().optional().describe('Notas (ej "sin carrete", "recarga")'),
+        },
+      },
+      async (a) => {
+        const filament = await this.printing.createFilament(userId, {
+          brand: a.marca,
+          material: a.material,
+          color: a.color,
+          pricePaid: a.precioPagado,
+          grams: a.gramos,
+          purchasedAt: a.fecha || getLocalDateString(),
+          notes: a.notas,
+        });
+        return text(
+          `Filamento registrado: ${filament.brand} ${filament.material} ${filament.color} — ${ars(filament.pricePaid)} (${filament.grams}g, ${ars(filament.pricePerGram)}/g). id ${filament.id}.`,
+        );
+      },
+    );
+
+    add(
+      'registrar_venta_3d',
+      {
+        title: 'Registrar una venta o muestra del negocio 3D',
+        description:
+          'Registra una venta (o una muestra regalada) de un producto del catálogo, identificado por nombre parcial (ej "tetris"). Para cargar rápido desde la feria por voz. Usá liquidar_ventas_3d cuando Marcelito ya pagó.',
+        inputSchema: {
+          producto: z.string().describe('Nombre (o parte) del producto, o su id'),
+          cantidad: z.number().optional().describe('Cantidad vendida. Por defecto 1.'),
+          tipo: z
+            .enum(['venta', 'muestra'])
+            .optional()
+            .describe('"muestra" para regalar sin cobrar. Por defecto "venta".'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha YYYY-MM-DD. Por defecto hoy.'),
+          precioUnitario: z
+            .number()
+            .optional()
+            .describe('Precio cobrado por unidad. Por defecto el precio a Marcelito calculado.'),
+          canal: z.string().optional().describe('Canal de venta (ej "feria", "Marcelito")'),
+        },
+      },
+      async (a) => {
+        const { producto, error } = await resolveProduct(a.producto);
+        if (error) return text(error);
+        const sale = await this.printing.createSale(userId, {
+          date: a.fecha || getLocalDateString(),
+          productId: producto.id,
+          kind: a.tipo || 'venta',
+          qty: a.cantidad ?? 1,
+          chargedUnit: a.precioUnitario,
+          channel: a.canal,
+        });
+        const total = sale.qty * sale.chargedUnit;
+        return text(
+          `${sale.kind === 'muestra' ? 'Muestra' : 'Venta'} registrada (${sale.date}): ${sale.qty}x ${producto.name}${sale.chargedUnit ? ` — ${ars(total)}` : ' — regalada'}. Estado: ${sale.status}. id ${sale.id}.`,
+        );
+      },
+    );
+
+    add(
+      'liquidar_ventas_3d',
+      {
+        title: 'Liquidar ventas del negocio 3D',
+        description:
+          'Marca como liquidadas las ventas "a liquidar" (Marcelito ya pagó) y crea el ingreso correspondiente para cada una. Sin filtro, liquida todas las pendientes.',
+        inputSchema: {
+          producto: z
+            .string()
+            .optional()
+            .describe('Filtrar por nombre parcial del producto. Sin esto, liquida todas.'),
+        },
+      },
+      async (a) => {
+        const sales = (await this.printing.getSales(userId)) as any[];
+        let pending = sales.filter((s) => s.status === 'a_liquidar');
+        if (a.producto) {
+          const q = a.producto.toLowerCase();
+          pending = pending.filter((s) =>
+            s.product?.name?.toLowerCase().includes(q),
+          );
+        }
+        if (!pending.length) {
+          return text('No hay ventas a liquidar' + (a.producto ? ` de "${a.producto}"` : '') + '.');
+        }
+        let total = 0;
+        const lines: string[] = [];
+        for (const sale of pending) {
+          const liquidada = await this.printing.liquidarVenta(userId, sale.id);
+          const monto = liquidada.qty * liquidada.chargedUnit;
+          total += monto;
+          lines.push(`• ${sale.date} ${sale.qty}x ${sale.product?.name ?? ''} — ${ars(monto)}`);
+        }
+        return text(
+          `Liquidadas ${pending.length} ventas por ${ars(total)}:\n${lines.join('\n')}`,
+        );
+      },
+    );
+
+    add(
+      'balance_3d',
+      {
+        title: 'Balance del negocio de impresión 3D',
+        description:
+          'Balance completo del negocio 3D (módulo propio, no depende del objetivo NZ): invertido en filamento, invertido en muestras regaladas, ganancia de ventas (liquidadas y a liquidar), resultado neto y cuánto falta ganar para cubrir el filamento.',
+        inputSchema: {},
+      },
+      async () => {
+        const s = await this.printing.getSummary(userId);
+        return text(
+          [
+            '🖨️ Negocio 3D:',
+            `Invertido en filamento: ${ars(s.investedFilament)} (${s.filamentsCount} compras)`,
+            `Invertido en muestras: ${ars(s.investedSamples)} (${s.samplesCount} regaladas)`,
+            `Ganancia de ventas: ${ars(s.profitSalesTotal)} — liquidada ${ars(s.profitSalesSettled)} · a liquidar ${ars(s.profitSalesPending)}`,
+            `Resultado (ganancia - muestras): ${s.result >= 0 ? '+' : ''}${ars(s.result)}`,
+            s.missingToCoverFilament > 0
+              ? `Para cubrir el filamento faltan ${ars(s.missingToCoverFilament)} de ganancia en ventas.`
+              : '✅ Filamento cubierto.',
+          ].join('\n'),
+        );
       },
     );
   }

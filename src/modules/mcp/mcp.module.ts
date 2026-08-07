@@ -21,6 +21,7 @@ import { ExpensesModule } from '../expenses/expenses.module';
 import { MercadoPagoModule } from '../mercadopago/mercadopago.module';
 import { SweatTestModule } from '../sweat-test/sweat-test.module';
 import { SleepModule } from '../sleep/sleep.module';
+import { PrintingModule } from '../printing/printing.module';
 
 import { McpController } from './mcp.controller';
 import { OAuthController } from './oauth.controller';
@@ -64,6 +65,7 @@ import { McpServerFactory } from './mcp-server.factory';
     MercadoPagoModule,
     SweatTestModule,
     SleepModule,
+    PrintingModule,
   ],
   controllers: [McpController, OAuthController],
   providers: [McpAuthService, McpServerFactory, PrismaService],

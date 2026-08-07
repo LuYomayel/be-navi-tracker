@@ -35,6 +35,7 @@ import { McpModule } from './modules/mcp/mcp.module';
 import { GoalModule } from './modules/goal/goal.module';
 import { BriefingModule } from './modules/briefing/briefing.module';
 import { DeviceTokensModule } from './modules/device-tokens/device-tokens.module';
+import { PrintingModule } from './modules/printing/printing.module';
 @Module({
   imports: [
     ThrottlerModule.forRoot([{
@@ -72,6 +73,7 @@ import { DeviceTokensModule } from './modules/device-tokens/device-tokens.module
     ExpensesModule,
     MercadoPagoModule,
     QuickActionsModule,
+    PrintingModule,
   ],
   controllers: [AppController],
   providers: [
