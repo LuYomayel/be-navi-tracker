@@ -8,6 +8,7 @@ import { AnalyzeFoodModule } from '../analyze-food/analyze-food.module';
 import { NutritionModule } from '../nutrition/nutrition.module';
 import { PhysicalActivitiesModule } from '../physical-activities/physical-activities.module';
 import { SleepModule } from '../sleep/sleep.module';
+import { DayScoreModule } from '../day-score/day-score.module';
 import { QuickActionsController } from './quick-actions.controller';
 import { QuickActionsConfigController } from './quick-actions-config.controller';
 import { QuickActionsService } from './quick-actions.service';
@@ -22,6 +23,7 @@ import { QuickActionsService } from './quick-actions.service';
     NutritionModule,
     PhysicalActivitiesModule,
     SleepModule,
+    DayScoreModule,
   ],
   controllers: [QuickActionsController, QuickActionsConfigController],
   providers: [QuickActionsService, PrismaService],

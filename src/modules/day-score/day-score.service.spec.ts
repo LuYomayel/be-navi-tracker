@@ -65,6 +65,10 @@ describe('DayScoreService', () => {
             hydrationLog: {
               findUnique: jest.fn().mockResolvedValue(null),
             },
+            sleepLog: {
+              findUnique: jest.fn().mockResolvedValue(null),
+              findFirst: jest.fn().mockResolvedValue(null),
+            },
             userPreferences: {
               findFirst: jest.fn().mockResolvedValue(null),
             },
@@ -312,6 +316,86 @@ describe('DayScoreService', () => {
 
       expect(result.habitsTotal).toBe(1);
       expect(result.habitsCompleted).toBe(1);
+    });
+  });
+
+  describe('calculate: el sueño como item del dia', () => {
+    beforeEach(() => {
+      (prisma.dayScore.upsert as jest.Mock).mockImplementation((args) =>
+        Promise.resolve({ id: 'score-1', userId, ...args.create }),
+      );
+    });
+
+    it('cuenta el sueño como cumplido con 7hs o mas', async () => {
+      (prisma.sleepLog.findFirst as jest.Mock).mockResolvedValue({
+        date: '2026-08-06',
+      });
+      (prisma.sleepLog.findUnique as jest.Mock).mockResolvedValue({
+        date: '2026-08-10',
+        minutesAsleep: 465,
+      });
+
+      const result = await service.calculate(userId, '2026-08-10');
+
+      expect(result.sleepTracked).toBe(true);
+      expect(result.sleepLogged).toBe(true);
+      expect(result.totalItems).toBe(5); // nutricion+ejercicio+reflexion+agua+sueño
+      expect(result.completedItems).toBe(1);
+    });
+
+    it('no lo cuenta cumplido si durmio menos de 7hs', async () => {
+      (prisma.sleepLog.findFirst as jest.Mock).mockResolvedValue({
+        date: '2026-08-06',
+      });
+      (prisma.sleepLog.findUnique as jest.Mock).mockResolvedValue({
+        date: '2026-08-10',
+        minutesAsleep: 380,
+      });
+
+      const result = await service.calculate(userId, '2026-08-10');
+
+      expect(result.sleepTracked).toBe(true);
+      expect(result.sleepLogged).toBe(false);
+      expect(result.totalItems).toBe(5);
+      expect(result.completedItems).toBe(0);
+    });
+
+    it('NO le baja el score a los dias anteriores al primer registro de sueño', async () => {
+      // Luciano tiene meses de historial sin datos de sueño: si el item
+      // entrara en el denominador, recalcular le desplomaria la historia.
+      (prisma.sleepLog.findFirst as jest.Mock).mockResolvedValue({
+        date: '2026-08-06',
+      });
+      (prisma.sleepLog.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const result = await service.calculate(userId, '2026-07-15');
+
+      expect(result.sleepTracked).toBe(false);
+      expect(result.sleepLogged).toBe(false);
+      expect(result.totalItems).toBe(4); // como antes de la feature
+    });
+
+    it('si nunca registro sueño, el dia se calcula como siempre', async () => {
+      (prisma.sleepLog.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.sleepLog.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const result = await service.calculate(userId, '2026-08-10');
+
+      expect(result.sleepTracked).toBe(false);
+      expect(result.totalItems).toBe(4);
+    });
+
+    it('desde el primer registro cuenta aunque ESE dia no haya cargado nada', async () => {
+      (prisma.sleepLog.findFirst as jest.Mock).mockResolvedValue({
+        date: '2026-08-06',
+      });
+      (prisma.sleepLog.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const result = await service.calculate(userId, '2026-08-11');
+
+      expect(result.sleepTracked).toBe(true);
+      expect(result.sleepLogged).toBe(false);
+      expect(result.totalItems).toBe(5);
     });
   });
 

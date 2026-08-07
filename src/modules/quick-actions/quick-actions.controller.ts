@@ -1,5 +1,6 @@
 import {
   Body,
+  Get,
   CanActivate,
   Controller,
   ExecutionContext,
@@ -91,6 +92,12 @@ export class QuickActionsController {
       distancia_km: body?.distancia_km ? Number(body.distancia_km) : undefined,
       tipo: body?.tipo ? String(body.tipo) : undefined,
     });
+  }
+
+  // Cierre del día: automatización de las 22:00 que muestra qué falta.
+  @Get('cierre-dia')
+  async cierreDia() {
+    return this.quick.cierreDia(await this.userId());
   }
 
   // Atajo de la mañana (automatización "al despertar" del Watch/iPhone).

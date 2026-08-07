@@ -606,6 +606,10 @@ model DayScore {
   exerciseLogged   Boolean @default(false)
   reflectionLogged Boolean @default(false)
   hydrationLogged  Boolean @default(false)
+  // sleepTracked = ese día ya entra en la cuenta (hay historial de sueño);
+  // los días anteriores al primer registro se siguen calculando sin sueño.
+  sleepTracked     Boolean @default(false)
+  sleepLogged      Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

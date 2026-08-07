@@ -5,9 +5,10 @@ import { PrismaService } from '../../config/prisma.service';
 import { XpModule } from '../xp/xp.module';
 import { DeviceTokensModule } from '../device-tokens/device-tokens.module';
 import { HydrationCronService } from './hydration-cron.service';
+import { SweatTestModule } from '../sweat-test/sweat-test.module';
 
 @Module({
-  imports: [XpModule, DeviceTokensModule],
+  imports: [XpModule, DeviceTokensModule, SweatTestModule],
   controllers: [HydrationController],
   providers: [HydrationService, HydrationCronService, PrismaService],
   exports: [HydrationService],

@@ -6,6 +6,9 @@ import { XpAction } from '../xp/dto/xp.dto';
 
 const CACHE_TTL_MS = 30_000; // 30 seconds
 
+/** Piso para dar el sueño por cumplido en el día ganado. */
+export const SLEEP_GOAL_MINUTES = 7 * 60;
+
 @Injectable()
 export class DayScoreService {
   private readonly todayCache = new Map<
@@ -32,6 +35,8 @@ export class DayScoreService {
       noteCount,
       hydrationLog,
       prefs,
+      sleepLog,
+      primerSueno,
     ] = await Promise.all([
       this.prisma.activity.findMany({
         where: {
@@ -63,6 +68,14 @@ export class DayScoreService {
       this.prisma.userPreferences.findFirst({
         where: { userId },
       }),
+      this.prisma.sleepLog.findUnique({
+        where: { userId_date: { userId, date } },
+      }),
+      this.prisma.sleepLog.findFirst({
+        where: { userId },
+        orderBy: { date: 'asc' },
+        select: { date: true },
+      }),
     ]);
 
     const scheduledActivities = activities.filter((a) => {
@@ -87,6 +100,12 @@ export class DayScoreService {
     const hydrationLogged =
       (hydrationLog?.glassesConsumed ?? 0) >= hydrationGoal;
 
+    // El sueño solo cuenta desde el día en que empezó a registrarlo: si no,
+    // recalcular meses viejos (sin el dato) les bajaría el score.
+    const sleepTracked = !!primerSueno && date >= primerSueno.date;
+    const sleepLogged =
+      sleepTracked && (sleepLog?.minutesAsleep ?? 0) >= SLEEP_GOAL_MINUTES;
+
     // Calculate score
     let totalItems = habitsTotal + tasksTotal;
     let completedItems = habitsCompleted + tasksCompleted;
@@ -97,6 +116,10 @@ export class DayScoreService {
     if (exerciseLogged) completedItems += 1;
     if (reflectionLogged) completedItems += 1;
     if (hydrationLogged) completedItems += 1;
+    if (sleepTracked) {
+      totalItems += 1;
+      if (sleepLogged) completedItems += 1;
+    }
 
     const percentage =
       totalItems > 0
@@ -129,6 +152,8 @@ export class DayScoreService {
         exerciseLogged,
         reflectionLogged,
         hydrationLogged,
+        sleepTracked,
+        sleepLogged,
       },
       update: {
         totalItems,
@@ -143,6 +168,8 @@ export class DayScoreService {
         exerciseLogged,
         reflectionLogged,
         hydrationLogged,
+        sleepTracked,
+        sleepLogged,
       },
     });
 

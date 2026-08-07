@@ -2,11 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HydrationService } from './hydration.service';
 import { PrismaService } from '../../config/prisma.service';
 import { XpService } from '../xp/xp.service';
+import { SweatTestService } from '../sweat-test/sweat-test.service';
 
 describe('HydrationService', () => {
   let service: HydrationService;
   let prisma: PrismaService;
   let xpService: XpService;
+  let sweatTests: SweatTestService;
 
   const userId = 'user-1';
 
@@ -44,6 +46,10 @@ describe('HydrationService', () => {
           },
         },
         {
+          provide: SweatTestService,
+          useValue: { getRecommendation: jest.fn() },
+        },
+        {
           provide: XpService,
           useValue: {
             addXp: jest.fn().mockResolvedValue({
@@ -60,6 +66,7 @@ describe('HydrationService', () => {
     service = module.get<HydrationService>(HydrationService);
     prisma = module.get<PrismaService>(PrismaService);
     xpService = module.get<XpService>(XpService);
+    sweatTests = module.get<SweatTestService>(SweatTestService);
   });
 
   // ═══════════════════════════════════════════════════════════
@@ -415,6 +422,115 @@ describe('HydrationService', () => {
       const pace = await service.getPace('user-1', '2099-01-01');
       expect(pace.expectedByNowMl).toBe(0);
       expect(pace.deficitMl).toBe(0);
+    });
+
+    it('en dia de entrenamiento usa los tramos del test de sudoracion, no los default', async () => {
+      // Antes, un dia que entrena caia igual a los tramos hardcodeados: la
+      // formula del test de sudoracion (que ya existia) no se usaba nunca.
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue({
+        id: 'act-1',
+      });
+      (sweatTests.getRecommendation as jest.Mock).mockResolvedValue({
+        trainingDay: {
+          drinkMl: 4200,
+          suggestedBlocks: [
+            { id: 'morning', label: 'Mañana', start: '07:00', end: '13:00', targetMl: 1500 },
+            { id: 'afternoon', label: 'Tarde', start: '13:00', end: '20:00', targetMl: 1500 },
+            {
+              id: 'training',
+              label: 'Entrenamiento',
+              start: '20:00',
+              end: '23:00',
+              targetMl: 1200,
+              requiresTraining: true,
+            },
+          ],
+        },
+      });
+
+      const pace = await service.getPace('user-1', '2026-08-04', 600);
+
+      expect(sweatTests.getRecommendation).toHaveBeenCalledWith('user-1');
+      expect(pace.trainingActive).toBe(true);
+      expect(pace.totalTargetMl).toBe(4200);
+    });
+
+    it('los tramos propios del usuario le ganan a la recomendacion', async () => {
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({
+        hydrationBlocks: [
+          { id: 'a', label: 'Unico', start: '08:00', end: '20:00', targetMl: 3000 },
+        ],
+      });
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue({
+        id: 'act-1',
+      });
+
+      const pace = await service.getPace('user-1', '2026-08-04', 840);
+
+      expect(sweatTests.getRecommendation).not.toHaveBeenCalled();
+      expect(pace.totalTargetMl).toBe(3000);
+    });
+
+    it('el XP de la meta usa la MISMA meta que muestra el ritmo en dia de entrenamiento', async () => {
+      // Si no, la app te muestra 4.2L de meta y te premia a los 2L.
+      (prisma.userPreferences.findFirst as jest.Mock).mockResolvedValue({
+        hydrationBlocks: null,
+        hydrationGoalGlasses: 8,
+        hydrationMlPerGlass: 250,
+      });
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue({
+        id: 'act-1',
+      });
+      (sweatTests.getRecommendation as jest.Mock).mockResolvedValue({
+        trainingDay: {
+          suggestedBlocks: [
+            { id: 'day', label: 'Dia', start: '07:00', end: '20:00', targetMl: 3000 },
+            {
+              id: 'training',
+              label: 'Entreno',
+              start: '20:00',
+              end: '23:00',
+              targetMl: 1200,
+              requiresTraining: true,
+            },
+          ],
+        },
+      });
+      // tomó 2,5L: alcanza los 8 vasos clásicos pero NO los 4,2L del día que entrena
+      (prisma.hydrationLog.findUnique as jest.Mock).mockResolvedValue({
+        id: 'log-1',
+        date: '2026-08-04',
+        glassesConsumed: 10,
+        mlConsumed: 2500,
+        trainingDay: null,
+        goalReachedAt: null,
+      });
+      (prisma.hydrationLog.upsert as jest.Mock).mockResolvedValue({
+        id: 'log-1',
+        date: '2026-08-04',
+        glassesConsumed: 10,
+        mlConsumed: 2500,
+        trainingDay: null,
+        goalReachedAt: null,
+      });
+
+      await service.adjust('user-1', { date: '2026-08-04', delta: 0 });
+
+      expect(xpService.addXp).not.toHaveBeenCalled();
+    });
+
+    it('sin peso registrado cae a los tramos default en vez de romper', async () => {
+      (prisma.physicalActivity.findFirst as jest.Mock).mockResolvedValue({
+        id: 'act-1',
+      });
+      (sweatTests.getRecommendation as jest.Mock).mockRejectedValue(
+        new Error('Necesito tu peso'),
+      );
+
+      const pace = await service.getPace('user-1', '2026-08-04', 600);
+
+      expect(pace.trainingActive).toBe(true);
+      expect(pace.totalTargetMl).toBe(3500); // los default de siempre
     });
   });
 

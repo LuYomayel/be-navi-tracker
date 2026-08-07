@@ -14,6 +14,7 @@ import { AnalyzeFoodService } from '../analyze-food/analyze-food.service';
 import { PhysicalActivitiesService } from '../physical-activities/physical-activities.service';
 import { NutritionService } from '../nutrition/nutrition.service';
 import { SleepService } from '../sleep/sleep.service';
+import { DayScoreService } from '../day-score/day-score.service';
 import { PrismaService } from '../../config/prisma.service';
 
 describe('slotForHour', () => {
@@ -47,6 +48,7 @@ describe('QuickActionsService', () => {
   let nutrition: NutritionService;
   let physical: PhysicalActivitiesService;
   let sleep: SleepService;
+  let dayScore: DayScoreService;
 
   const userId = 'user-1';
 
@@ -59,6 +61,7 @@ describe('QuickActionsService', () => {
           useValue: {
             adjust: jest.fn().mockResolvedValue({ glassesConsumed: 5 }),
             getGoal: jest.fn().mockResolvedValue({ goalGlasses: 8 }),
+            getByDate: jest.fn().mockResolvedValue({ glassesConsumed: 6 }),
           },
         },
         {
@@ -121,6 +124,10 @@ describe('QuickActionsService', () => {
           },
         },
         {
+          provide: DayScoreService,
+          useValue: { getOrCalculate: jest.fn() },
+        },
+        {
           provide: PrismaService,
           useValue: {
             userPreferences: {
@@ -148,6 +155,7 @@ describe('QuickActionsService', () => {
     nutrition = module.get(NutritionService);
     physical = module.get(PhysicalActivitiesService);
     sleep = module.get(SleepService);
+    dayScore = module.get(DayScoreService);
   });
 
   describe('config', () => {
@@ -341,6 +349,81 @@ describe('QuickActionsService', () => {
       await expect(service.entreno(userId, {})).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  describe('cierreDia', () => {
+    const score = (over: Record<string, any> = {}) => ({
+      percentage: 60,
+      status: 'partial',
+      habitsTotal: 0,
+      habitsCompleted: 0,
+      tasksTotal: 0,
+      tasksCompleted: 0,
+      nutritionLogged: true,
+      exerciseLogged: true,
+      reflectionLogged: false,
+      hydrationLogged: false,
+      sleepTracked: true,
+      sleepLogged: true,
+      ...over,
+    });
+
+    it('should celebrate without listing anything when the day is already won', async () => {
+      (dayScore.getOrCalculate as jest.Mock).mockResolvedValue(
+        score({ percentage: 100, status: 'won' }),
+      );
+
+      const r = await service.cierreDia(userId);
+
+      expect(r.message).toContain('100');
+      expect(r.message).not.toContain('falta');
+    });
+
+    it('should list only what is missing, in natural language', async () => {
+      (dayScore.getOrCalculate as jest.Mock).mockResolvedValue(score());
+
+      const r = await service.cierreDia(userId);
+
+      expect(r.message).toContain('60%');
+      expect(r.message).toContain('agua');
+      expect(r.message).toContain('reflexión');
+      expect(r.message).toContain(' y ');
+      // lo que ya hizo no se menciona
+      expect(r.message).not.toContain('comida');
+    });
+
+    it('should cap the list at three items so it fits in a notification', async () => {
+      (dayScore.getOrCalculate as jest.Mock).mockResolvedValue(
+        score({
+          percentage: 10,
+          nutritionLogged: false,
+          exerciseLogged: false,
+          reflectionLogged: false,
+          hydrationLogged: false,
+          sleepLogged: false,
+          habitsTotal: 3,
+          habitsCompleted: 0,
+          tasksTotal: 2,
+          tasksCompleted: 0,
+        }),
+      );
+
+      const r = await service.cierreDia(userId);
+
+      // 3 items + el "…y algo más" implícito: nunca una lista interminable
+      expect(r.message.split(',').length).toBeLessThanOrEqual(3);
+      expect(r.message.length).toBeLessThan(180);
+    });
+
+    it('should not mention sleep when it is not part of the score yet', async () => {
+      (dayScore.getOrCalculate as jest.Mock).mockResolvedValue(
+        score({ sleepTracked: false, sleepLogged: false, hydrationLogged: true }),
+      );
+
+      const r = await service.cierreDia(userId);
+
+      expect(r.message).not.toContain('dorm');
     });
   });
 

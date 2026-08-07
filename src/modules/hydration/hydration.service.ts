@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { XpService } from '../xp/xp.service';
+import { SweatTestService } from '../sweat-test/sweat-test.service';
 import { XpAction } from '../xp/dto/xp.dto';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import {
@@ -33,7 +34,24 @@ export class HydrationService {
   constructor(
     private prisma: PrismaService,
     private xpService: XpService,
+    private sweatTests: SweatTestService,
   ) {}
+
+  /**
+   * Tramos del día que entrena, sacados del test de sudoración (la fórmula
+   * ya existía pero no la usaba nadie: un día de handball caía igual a los
+   * tramos hardcodeados). Si no hay peso registrado no se puede calcular y
+   * se vuelve al default de siempre.
+   */
+  private async trainingBlocks(userId: string): Promise<HydrationBlock[] | null> {
+    try {
+      const rec = await this.sweatTests.getRecommendation(userId);
+      const blocks = rec?.trainingDay?.suggestedBlocks;
+      return blocks?.length ? (blocks as HydrationBlock[]) : null;
+    } catch {
+      return null;
+    }
+  }
 
   async getByDate(userId: string, date: string) {
     const log = await this.prisma.hydrationLog.findUnique({
@@ -151,9 +169,17 @@ export class HydrationService {
     const prefs = await this.prisma.userPreferences.findFirst({
       where: { userId },
     });
-    const blocks = prefs?.hydrationBlocks as unknown as HydrationBlock[] | null;
+    const configured = prefs?.hydrationBlocks as unknown as HydrationBlock[] | null;
+    const trainingActive = await this.isTrainingActive(userId, log.date, log);
+    // La meta que premia tiene que ser la MISMA que muestra el ritmo: sin
+    // tramos propios y en día de entrenamiento, la del test de sudoración.
+    const blocks =
+      configured?.length
+        ? configured
+        : trainingActive
+          ? await this.trainingBlocks(userId)
+          : null;
     if (blocks?.length) {
-      const trainingActive = await this.isTrainingActive(userId, log.date, log);
       const totalMl = blocks
         .filter((b) => !b.requiresTraining || trainingActive)
         .reduce((a, b) => a + b.targetMl, 0);
@@ -205,12 +231,18 @@ export class HydrationService {
       where: { userId },
     });
     const configured = prefs?.hydrationBlocks as unknown as HydrationBlock[] | null;
-    const blocks = configured?.length ? configured : DEFAULT_HYDRATION_BLOCKS;
 
     const log = await this.prisma.hydrationLog.findUnique({
       where: { userId_date: { userId, date: day } },
     });
     const trainingActive = await this.isTrainingActive(userId, day, log);
+
+    // Tramos propios > recomendación del test de sudoración (solo si entrena)
+    // > default hardcodeado.
+    let blocks = configured?.length ? configured : DEFAULT_HYDRATION_BLOCKS;
+    if (!configured?.length && trainingActive) {
+      blocks = (await this.trainingBlocks(userId)) ?? DEFAULT_HYDRATION_BLOCKS;
+    }
     // Un dia pasado se evalua completo (24h) y uno futuro todavia no arranco:
     // la hora actual solo prorratea el dia de HOY.
     const today = getLocalDateString();

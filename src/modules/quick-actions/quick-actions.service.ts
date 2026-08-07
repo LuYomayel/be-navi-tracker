@@ -13,6 +13,7 @@ import {
   clockFromList,
   minutesBetween,
 } from '../sleep/sleep.service';
+import { DayScoreService } from '../day-score/day-score.service';
 import { PrismaService } from '../../config/prisma.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
@@ -85,6 +86,7 @@ export class QuickActionsService {
     private readonly nutrition: NutritionService,
     private readonly physical: PhysicalActivitiesService,
     private readonly sleep: SleepService,
+    private readonly dayScore: DayScoreService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -224,6 +226,62 @@ export class QuickActionsService {
     return {
       message: `🏋️ Entreno registrado${datos.tipo ? ` (${datos.tipo})` : ''}: ${partes.join(' · ')} +60 XP`,
     };
+  }
+
+  /**
+   * Cierre del día (automatización de las 22:00): qué falta para que el día
+   * sea ganado, en una línea que entre en una notificación. Primero lo que
+   * todavía se puede resolver esa misma noche.
+   */
+  async cierreDia(userId: string) {
+    const hoy = getLocalDateString();
+    const s: any = await this.dayScore.getOrCalculate(userId, hoy);
+    const pct = Math.round(s?.percentage ?? 0);
+
+    if (s?.status === 'won') {
+      return { message: `🌙 Día ganado al ${pct}%. A dormir tranquilo 😴` };
+    }
+
+    const faltan: string[] = [];
+    if (!s?.hydrationLogged) faltan.push(await this.vasosQueFaltan(userId));
+    if (!s?.reflectionLogged) faltan.push('la reflexión');
+    if (s?.sleepTracked && !s?.sleepLogged) faltan.push('dormir tus 7 horas');
+    if (!s?.nutritionLogged) faltan.push('registrar la comida');
+    if (!s?.exerciseLogged) faltan.push('moverte un rato');
+    const tareas = (s?.tasksTotal ?? 0) - (s?.tasksCompleted ?? 0);
+    if (tareas > 0) faltan.push(`${tareas} ${tareas === 1 ? 'tarea' : 'tareas'}`);
+    const habitos = (s?.habitsTotal ?? 0) - (s?.habitsCompleted ?? 0);
+    if (habitos > 0)
+      faltan.push(`${habitos} ${habitos === 1 ? 'hábito' : 'hábitos'}`);
+
+    if (!faltan.length) {
+      return { message: `🌙 Día ${pct}%. Ya no queda nada pendiente 👌` };
+    }
+
+    // Máximo 3: una notificación con una lista larga no se lee.
+    const top = faltan.slice(0, 3);
+    const lista =
+      top.length === 1
+        ? top[0]
+        : `${top.slice(0, -1).join(', ')} y ${top[top.length - 1]}`;
+    return { message: `🌙 Día ${pct}% — te falta ${lista} para día ganado.` };
+  }
+
+  /** "2 vasos de agua" si se puede contar; si no, "el agua". */
+  private async vasosQueFaltan(userId: string): Promise<string> {
+    try {
+      const [log, goal] = await Promise.all([
+        this.hydration.getByDate(userId, getLocalDateString()),
+        this.hydration.getGoal(userId),
+      ]);
+      const restan = (goal?.goalGlasses ?? 0) - (log?.glassesConsumed ?? 0);
+      if (restan > 0) {
+        return `${restan} ${restan === 1 ? 'vaso' : 'vasos'} de agua`;
+      }
+    } catch {
+      /* sin datos: se menciona genérico */
+    }
+    return 'el agua';
   }
 
   /**
