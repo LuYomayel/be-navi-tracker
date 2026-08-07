@@ -450,6 +450,18 @@ describe('QuickActionsService', () => {
       expect(r.message).toContain('7h 45m');
     });
 
+    it('should show the window it used, so a wrong range is obvious', async () => {
+      // Si el atajo agarra el fragmento equivocado, el numero solo no lo
+      // delata: con "23:15 -> 07:00" se ve de una.
+      const r = await service.sueno(userId, {
+        acoste: '5 Aug 2026 at 11:15 PM',
+        desperte: '6 Aug 2026 at 7:00 AM',
+      });
+
+      expect(r.message).toContain('23:15');
+      expect(r.message).toContain('07:00');
+    });
+
     it('should compute the duration from the times when the Wake automation sends no duration', async () => {
       // La automatización Wake de iOS no pasa input: el atajo manda los
       // horarios crudos de la muestra de Health y la cuenta la hacemos acá.

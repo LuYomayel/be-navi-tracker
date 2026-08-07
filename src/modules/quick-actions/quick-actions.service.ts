@@ -333,9 +333,14 @@ export class QuickActionsService {
       heartRateAvg: datos.pulsaciones,
       source: 'shortcut',
     });
+    // Mostrar la ventana usada: si el atajo agarró el fragmento equivocado,
+    // el número solo no lo delata, pero "23:15 → 07:00" sí.
+    const desde = clockFromList(datos.acoste, 'first', datos.desperte);
+    const hasta = clockFromList(datos.desperte, 'last', datos.acoste);
+    const ventana = desde && hasta ? ` (${desde} → ${hasta})` : '';
     const extra = datos.calidad ? ` · calidad ${datos.calidad}/5` : '';
     return {
-      message: `😴 Dormiste ${formatDuration(minutos)}${extra}. ¡Buen día!`,
+      message: `😴 Dormiste ${formatDuration(minutos)}${ventana}${extra}. ¡Buen día!`,
     };
   }
 
