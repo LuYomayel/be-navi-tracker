@@ -27,10 +27,12 @@ import {
 } from './printing.service';
 import { AddSettlementDto, SettlementService } from './settlement.service';
 import {
+  CreateOwnerOrderDto,
   CreatePaymentNoticeDto,
   CreatePublicOrderDto,
   OrderStatus,
   OrdersService,
+  UpdateOwnerOrderDto,
 } from './orders.service';
 import { CreatePrintJobDto, StockService } from './stock.service';
 import { PhotosService } from './photos.service';
@@ -264,6 +266,28 @@ export class PrintingController {
     return { success: true, data: await this.orders.getOrders(req.user.userId) };
   }
 
+  /** Alta manual de un pedido (ej: se lo pidieron por WhatsApp). */
+  @Post('orders')
+  @HttpCode(HttpStatus.CREATED)
+  async createOrder(@Body() dto: CreateOwnerOrderDto, @Req() req: any) {
+    return {
+      success: true,
+      data: await this.orders.createOrder(req.user.userId, dto),
+    };
+  }
+
+  @Put('orders/:id')
+  async updateOrder(
+    @Param('id') id: string,
+    @Body() dto: UpdateOwnerOrderDto,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.orders.updateOrder(req.user.userId, id, dto),
+    };
+  }
+
   @Patch('orders/:id/status')
   async updateOrderStatus(
     @Param('id') id: string,
@@ -280,6 +304,20 @@ export class PrintingController {
   async deleteOrder(@Param('id') id: string, @Req() req: any) {
     await this.orders.deleteOrder(req.user.userId, id);
     return { success: true };
+  }
+
+  /** Cobrar un pedido sin esperar aviso: vacio = todo, con monto = parcial. */
+  @Post('orders/:id/pay')
+  @HttpCode(HttpStatus.OK)
+  async payOrder(
+    @Param('id') id: string,
+    @Body() body: { amount?: number },
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.orders.payOrder(req.user.userId, id, body ?? {}),
+    };
   }
 
   @Get('payment-notices')
