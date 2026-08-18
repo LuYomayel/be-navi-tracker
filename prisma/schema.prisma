@@ -67,6 +67,7 @@ model User {
   filaments                Filament[]
   printSales               PrintSale[]
   printSettings            PrintSettings?
+  printOrders              PrintOrder[]
 
   @@map("users")
 }
@@ -897,16 +898,36 @@ model PrintProduct {
   licenseOk      Boolean  @default(false) // la licencia del autor permite vender
   markupOverride Float? // multiplicador propio (ej familia fuxx = 1.5) en vez del defaultMarkup
   publicPrice    Float? // precio sugerido de feria/venta al publico (dato manual)
+  colorBreakdown Json? // desglose de consumo por color: [{ color, colorHex?, grams }] — habilita el chequeo de stock por color
   active         Boolean  @default(true)
   notes          String?  @db.Text
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sales PrintSale[]
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sales      PrintSale[]
+  photos     PrintProductPhoto[]
+  orderItems PrintOrderItem[]
+  jobs       PrintJob[]
 
   @@index([userId])
   @@map("print_products")
+}
+
+// Foto de un producto (para el catalogo publico y para publicar).
+// El archivo vive en disco (UPLOADS_DIR), aca solo el path relativo.
+model PrintProductPhoto {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  path      String // relativo a UPLOADS_DIR, ej "printing/prod-abc-x1.jpg"
+  order     Int      @default(0) // 0 = portada
+  createdAt DateTime @default(now())
+
+  product PrintProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("print_product_photos")
 }
 
 // Compra de filamento (inventario para costear impresiones).
@@ -923,6 +944,8 @@ model Filament {
   discarded     Boolean  @default(false)
   discardReason String?
   gramsLeft     Float? // stock restante (null = no se trackea stock real)
+  colorHex      String? // hex del color (ej "#000000") para matchear con lo que reporta la impresora
+  finishedAt    String? // YYYY-MM-DD en que se termino el rollo (agotado, fuera del stock)
   expenseId     String? // Expense creado junto con la compra (snapshot, no FK obligatoria)
   notes         String?  @db.Text
   createdAt     DateTime @default(now())
@@ -938,16 +961,19 @@ model Filament {
 // token del catalogo publico (para Marcelito) y el recargo de financiacion
 // del filamento (aparte: no se reparte en el $/g de ningun rollo puntual).
 model PrintSettings {
-  id                 String   @id @default(cuid())
-  userId             String   @unique
-  costPerGram        Float    @default(20)
-  wastePct           Float    @default(0.15)
-  powerPerHour       Float    @default(12)
-  defaultMarkup      Float    @default(1.3)
-  publicToken        String   @unique
-  financingSurcharge Float    @default(0) // recargo de financiacion de compras de filamento (no prorrateado)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                 String    @id @default(cuid())
+  userId             String    @unique
+  costPerGram        Float     @default(20)
+  wastePct           Float     @default(0.15)
+  powerPerHour       Float     @default(12)
+  defaultMarkup      Float     @default(1.3)
+  publicToken        String    @unique
+  financingSurcharge Float     @default(0) // recargo de financiacion de compras de filamento (no prorrateado)
+  bambuToken         String?   @db.Text // access token de Bambu Cloud, encriptado AES-256-GCM
+  bambuRegion        String    @default("global") // global | china (define el host de la API)
+  bambuLastSyncAt    DateTime? // ultima corrida del sync de impresiones
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -965,17 +991,118 @@ model PrintSale {
   qty         Int      @default(1)
   chargedUnit Float    @default(0) // lo cobrado por unidad (0 en muestras)
   costUnit    Float // snapshot del costo por unidad al momento de la venta
-  status      String   @default("a_liquidar") // a_liquidar | liquidado
+  status      String   @default("a_liquidar") // a_liquidar | parcial | liquidado
   channel     String?
   notes       String?  @db.Text
-  incomeId    String? // Income creado al liquidar (snapshot, no FK obligatoria)
+  incomeId    String? // legacy: Income creado al liquidar todo junto (las liquidaciones nuevas van por PrintSaleSettlement)
+  orderId     String? // pedido publico que origino esta venta (al marcarlo entregado)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product PrintProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product     PrintProduct          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  order       PrintOrder?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  settlements PrintSaleSettlement[]
 
   @@index([userId])
   @@index([productId])
   @@map("print_sales")
+}
+
+// Pago (total o parcial) de una venta. Una venta puede tener varios: si
+// Marcelito pago 3 de 5, van quedando registrados hasta cubrir el total.
+// Cada pago crea su propio Income (source '3d') con costo prorrateado.
+model PrintSaleSettlement {
+  id        String   @id @default(cuid())
+  userId    String
+  saleId    String
+  date      String // YYYY-MM-DD
+  amount    Float // ARS cobrados en este pago
+  qty       Float? // unidades que cubre (informativo)
+  incomeId  String? // Income creado por este pago (snapshot, no FK obligatoria)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  sale PrintSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@index([userId])
+  @@map("print_sale_settlements")
+}
+
+// Pedido que arma Marcelito desde el catalogo publico. Al marcarlo
+// "entregado" se generan las PrintSale (una por item, a_liquidar).
+model PrintOrder {
+  id           String   @id @default(cuid())
+  userId       String // dueno del catalogo (Luciano), no quien pide
+  customerName String   @default("Marcelito")
+  status       String   @default("pedido") // pedido | confirmado | imprimiendo | listo | entregado | cancelado
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items PrintOrderItem[]
+  sales PrintSale[]
+
+  @@index([userId, status])
+  @@map("print_orders")
+}
+
+model PrintOrderItem {
+  id        String @id @default(cuid())
+  orderId   String
+  productId String
+  qty       Int
+  unitPrice Float // snapshot del precio a Marcelito al momento de pedir
+
+  order   PrintOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product PrintProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("print_order_items")
+}
+
+// Aviso de pago que manda Marcelito desde el link publico ("te pague 3 de
+// los 5"). NO mueve plata: queda pendiente hasta que Luciano lo confirme
+// registrando el pago (settlement) o lo descarte.
+model PrintPaymentNotice {
+  id        String   @id @default(cuid())
+  userId    String
+  orderId   String?
+  amount    Float?
+  message   String?  @db.Text
+  status    String   @default("pendiente") // pendiente | confirmado | descartado
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@map("print_payment_notices")
+}
+
+// Impresion registrada (a mano o sincronizada de Bambu Cloud). Al aplicarse
+// descuenta gramsLeft de los rollos que matchean por color.
+model PrintJob {
+  id            String   @id @default(cuid())
+  userId        String
+  productId     String?
+  title         String
+  date          String // YYYY-MM-DD (fin de la impresion)
+  grams         Float? // total consumido
+  hours         Float?
+  filamentsUsed Json? // [{ color?, colorHex?, grams, filamentId? }]
+  appliedPlan   Json? // descuentos aplicados al stock: [{ filamentId, grams }] (para revertir al borrar)
+  source        String   @default("manual") // manual | bambu
+  externalId    String? // "bambu:<taskId>" para dedup del sync
+  status        String   @default("ok") // ok | fallida
+  stockApplied  Boolean  @default(false) // ya desconto el stock
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  product PrintProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, externalId])
+  @@index([userId, date])
+  @@map("print_jobs")
 }

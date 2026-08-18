@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrintingService } from './printing.service';
 import { PrismaService } from '../../config/prisma.service';
 import { GoalService } from '../goal/goal.service';
+import { SettlementService } from './settlement.service';
 
 describe('PrintingService', () => {
   let service: PrintingService;
@@ -47,6 +48,7 @@ describe('PrintingService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PrintingService,
+        SettlementService,
         {
           provide: PrismaService,
           useValue: {
@@ -75,6 +77,9 @@ describe('PrintingService', () => {
               create: jest.fn(),
               update: jest.fn(),
               delete: jest.fn(),
+            },
+            printSaleSettlement: {
+              findMany: jest.fn().mockResolvedValue([]),
             },
             expense: {
               create: jest.fn(),
@@ -406,85 +411,6 @@ describe('PrintingService', () => {
           productId: 'nope',
         }),
       ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('liquidarVenta', () => {
-    const pendingSale = {
-      id: 'sale-1',
-      userId,
-      date: '2026-08-01',
-      productId: mockProduct.id,
-      product: mockProduct,
-      kind: 'venta',
-      qty: 2,
-      chargedUnit: 3900,
-      costUnit: 3000,
-      status: 'a_liquidar',
-      incomeId: null,
-    };
-
-    it('crea un Income y marca la venta liquidada, con goalId snapshot', async () => {
-      goal.getActive.mockResolvedValue({ id: 'goal-nz' });
-      prisma.printSale.findFirst.mockResolvedValue(pendingSale);
-      prisma.income.create.mockResolvedValue({
-        id: 'inc-1',
-        amount: 7800,
-        cost: 6000,
-      });
-      prisma.printSale.update.mockImplementation(({ data }) =>
-        Promise.resolve({ ...pendingSale, ...data }),
-      );
-
-      const result = await service.liquidarVenta(userId, 'sale-1');
-
-      expect(prisma.income.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            amount: 7800, // 2 * 3900
-            cost: 6000, // 2 * 3000
-            source: '3d',
-            status: 'received',
-            goalId: 'goal-nz',
-          }),
-        }),
-      );
-      expect(result.status).toBe('liquidado');
-      expect(result.incomeId).toBe('inc-1');
-    });
-
-    it('sin objetivo activo, el Income queda sin goalId (el negocio no depende del objetivo)', async () => {
-      goal.getActive.mockResolvedValue(null);
-      prisma.printSale.findFirst.mockResolvedValue(pendingSale);
-      prisma.income.create.mockResolvedValue({ id: 'inc-2' });
-      prisma.printSale.update.mockImplementation(({ data }) =>
-        Promise.resolve({ ...pendingSale, ...data }),
-      );
-
-      await service.liquidarVenta(userId, 'sale-1');
-
-      expect(prisma.income.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ goalId: null }),
-        }),
-      );
-    });
-
-    it('rechaza liquidar una venta ya liquidada', async () => {
-      prisma.printSale.findFirst.mockResolvedValue({
-        ...pendingSale,
-        status: 'liquidado',
-      });
-      await expect(service.liquidarVenta(userId, 'sale-1')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('404 si la venta no existe', async () => {
-      prisma.printSale.findFirst.mockResolvedValue(null);
-      await expect(service.liquidarVenta(userId, 'nope')).rejects.toThrow(
-        NotFoundException,
-      );
     });
   });
 

@@ -41,6 +41,10 @@ import {
   resolveColorHabito,
 } from './habito-utils';
 import { PrintingService } from '../printing/printing.service';
+import { SettlementService } from '../printing/settlement.service';
+import { StockService } from '../printing/stock.service';
+import { OrdersService } from '../printing/orders.service';
+import { BambuService } from '../printing/bambu.service';
 import { computePrintCost, computeSalePrice, computeProfit } from '../printing/pricing';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
@@ -95,6 +99,10 @@ export class McpServerFactory {
     private readonly sweatTests: SweatTestService,
     private readonly sleep: SleepService,
     private readonly printing: PrintingService,
+    private readonly settlements: SettlementService,
+    private readonly stock: StockService,
+    private readonly orders: OrdersService,
+    private readonly bambu: BambuService,
   ) {}
 
   /**
@@ -3085,19 +3093,29 @@ export class McpServerFactory {
     add(
       'liquidar_ventas_3d',
       {
-        title: 'Liquidar ventas del negocio 3D',
+        title: 'Liquidar ventas del negocio 3D (total o parcial)',
         description:
-          'Marca como liquidadas las ventas "a liquidar" (Marcelito ya pagó) y crea el ingreso correspondiente para cada una. Sin filtro, liquida todas las pendientes.',
+          'Registra pagos de ventas pendientes (Marcelito pagó) creando el ingreso correspondiente. Sin filtros liquida TODO lo pendiente. Con "monto" o "cantidad" registra un pago PARCIAL sobre una sola venta (ej: pagó 3 de los 5 tetris) — en ese caso tiene que matchear una única venta pendiente, usá el filtro de producto.',
         inputSchema: {
           producto: z
             .string()
             .optional()
             .describe('Filtrar por nombre parcial del producto. Sin esto, liquida todas.'),
+          monto: z
+            .number()
+            .optional()
+            .describe('Pago parcial en ARS sobre UNA venta (requiere que el filtro matchee una sola).'),
+          cantidad: z
+            .number()
+            .optional()
+            .describe('Pago parcial en unidades (ej: 3 de los 5). Alternativa a monto.'),
         },
       },
       async (a) => {
         const sales = (await this.printing.getSales(userId)) as any[];
-        let pending = sales.filter((s) => s.status === 'a_liquidar');
+        let pending = sales.filter(
+          (s) => s.kind === 'venta' && s.remaining > 0,
+        );
         if (a.producto) {
           const q = a.producto.toLowerCase();
           pending = pending.filter((s) =>
@@ -3107,13 +3125,41 @@ export class McpServerFactory {
         if (!pending.length) {
           return text('No hay ventas a liquidar' + (a.producto ? ` de "${a.producto}"` : '') + '.');
         }
+
+        // Pago parcial: una sola venta objetivo.
+        if (a.monto !== undefined || a.cantidad !== undefined) {
+          if (pending.length > 1) {
+            return text(
+              `Hay ${pending.length} ventas pendientes que matchean; para un pago parcial afiná el filtro:\n` +
+                pending
+                  .map(
+                    (s) =>
+                      `• ${s.date} ${s.qty}x ${s.product?.name ?? ''} — resta ${ars(s.remaining)} (id ${s.id})`,
+                  )
+                  .join('\n'),
+            );
+          }
+          const sale = pending[0];
+          const res = await this.settlements.add(userId, sale.id, {
+            amount: a.monto,
+            qty: a.cantidad,
+          });
+          const info = `${ars(res.settlement.amount)} de ${ars(sale.total)}`;
+          return text(
+            res.sale.status === 'liquidado'
+              ? `Pago registrado (${info}): la venta de ${sale.qty}x ${sale.product?.name ?? ''} quedó LIQUIDADA.`
+              : `Pago parcial registrado (${info}): restan ${ars(sale.remaining - res.settlement.amount)} de ${sale.qty}x ${sale.product?.name ?? ''}.`,
+          );
+        }
+
         let total = 0;
         const lines: string[] = [];
         for (const sale of pending) {
-          const liquidada = await this.printing.liquidarVenta(userId, sale.id);
-          const monto = liquidada.qty * liquidada.chargedUnit;
-          total += monto;
-          lines.push(`• ${sale.date} ${sale.qty}x ${sale.product?.name ?? ''} — ${ars(monto)}`);
+          const res = await this.settlements.add(userId, sale.id, {});
+          total += res.settlement.amount;
+          lines.push(
+            `• ${sale.date} ${sale.qty}x ${sale.product?.name ?? ''} — ${ars(res.settlement.amount)}`,
+          );
         }
         return text(
           `Liquidadas ${pending.length} ventas por ${ars(total)}:\n${lines.join('\n')}`,
@@ -3142,6 +3188,242 @@ export class McpServerFactory {
               ? `Para cubrir el filamento faltan ${ars(s.missingToCoverFilament)} de ganancia en ventas.`
               : '✅ Filamento cubierto.',
           ].join('\n'),
+        );
+      },
+    );
+
+    add(
+      'stock_filamento',
+      {
+        title: 'Stock de filamento por color',
+        description:
+          'Cuánto filamento queda de cada color (suma los rollos activos con stock trackeado). Avisa si hay rollos sin trackear.',
+        inputSchema: {},
+      },
+      async () => {
+        const stock = await this.stock.getStock(userId);
+        if (!stock.colors.length) {
+          return text(
+            'No hay stock trackeado todavía. Cargale los gramos restantes a los rollos activos desde /negocio → Filamentos.',
+          );
+        }
+        const lines = stock.colors.map(
+          (c: any) =>
+            `• ${c.color}: ${Math.round(c.totalGrams)}g en ${c.rolls.length} rollo${c.rolls.length > 1 ? 's' : ''}`,
+        );
+        if (stock.untrackedRolls) {
+          lines.push(
+            `⚠️ ${stock.untrackedRolls} rollo(s) activos sin stock trackeado (no suman acá).`,
+          );
+        }
+        return text(`🧵 Stock de filamento:\n${lines.join('\n')}`);
+      },
+    );
+
+    add(
+      'check_stock_3d',
+      {
+        title: '¿Alcanza el stock para imprimir un producto?',
+        description:
+          'Chequea si el stock actual de filamento alcanza para imprimir N unidades de un producto del catálogo (por color si el producto tiene el desglose cargado; sino por gramos totales).',
+        inputSchema: {
+          producto: z.string().describe('Nombre (o parte) del producto, o su id'),
+          cantidad: z.number().optional().describe('Unidades a imprimir. Default 1.'),
+        },
+      },
+      async (a) => {
+        const { producto, error } = await resolveProduct(a.producto);
+        if (error) return text(error);
+        const res = await this.stock.check(userId, [
+          { productId: producto.id, qty: a.cantidad ?? 1 },
+        ]);
+        const lines: string[] = [];
+        for (const c of res.perColor) {
+          lines.push(
+            c.missing > 0
+              ? `• ${c.color}: faltan ${Math.round(c.missing)}g (necesitás ${Math.round(c.needed)}g, hay ${Math.round(c.available)}g)`
+              : `• ${c.color}: ok (${Math.round(c.needed)}g de ${Math.round(c.available)}g)`,
+          );
+        }
+        if (res.fallback) {
+          lines.push(
+            `• total (sin desglose por color): ${res.fallback.ok ? 'ok' : 'NO alcanza'} — necesitás ${Math.round(res.fallback.needed)}g y hay ${Math.round(res.fallback.available)}g`,
+          );
+        }
+        if (res.untrackedRolls) {
+          lines.push(`⚠️ ${res.untrackedRolls} rollo(s) sin stock trackeado.`);
+        }
+        return text(
+          `${res.ok ? '✅ Te alcanza' : '❌ NO te alcanza'} para ${a.cantidad ?? 1}x ${producto.name}:\n${lines.join('\n')}`,
+        );
+      },
+    );
+
+    add(
+      'registrar_impresion',
+      {
+        title: 'Registrar una impresión (descuenta stock)',
+        description:
+          'Registra una impresión hecha y descuenta el filamento usado del stock, por color (FIFO entre rollos). Para carga por voz: "imprimí 2 tetris, 120g de negro y 80g de rojo".',
+        inputSchema: {
+          titulo: z.string().describe('Qué se imprimió (ej "TETRIS x2")'),
+          producto: z
+            .string()
+            .optional()
+            .describe('Producto del catálogo al que corresponde (nombre o id)'),
+          consumos: z
+            .array(
+              z.object({
+                color: z.string().describe('Color del filamento (ej "negro")'),
+                gramos: z.number().describe('Gramos consumidos de ese color'),
+              }),
+            )
+            .describe('Consumo por color'),
+          horas: z.number().optional().describe('Horas de impresión'),
+          fecha: z.string().optional().describe('Fecha YYYY-MM-DD. Default hoy.'),
+        },
+      },
+      async (a) => {
+        let productId: string | undefined;
+        if (a.producto) {
+          const { producto, error } = await resolveProduct(a.producto);
+          if (error) return text(error);
+          productId = producto.id;
+        }
+        const res = await this.stock.createJob(userId, {
+          title: a.titulo,
+          productId,
+          date: a.fecha,
+          hours: a.horas,
+          filamentsUsed: (a.consumos ?? []).map((c: any) => ({
+            color: c.color,
+            grams: c.gramos,
+          })),
+        });
+        const applied = res.applied
+          .map((st: any) => `${Math.round(st.grams)}g`)
+          .join(' + ');
+        return text(
+          `Impresión registrada: ${a.titulo}.` +
+            (res.applied.length ? ` Descontado del stock: ${applied}.` : '') +
+            (res.unmatchedGrams > 0
+              ? ` ⚠️ ${Math.round(res.unmatchedGrams)}g sin rollo que matchee (revisá los colores del stock).`
+              : ''),
+        );
+      },
+    );
+
+    add(
+      'terminar_filamento',
+      {
+        title: 'Marcar un rollo de filamento como terminado',
+        description:
+          'Da de baja un rollo del stock ("se me terminó el PLA negro"). Identificalo por color/marca/material; si matchean varios, se elige el más viejo con stock.',
+        inputSchema: {
+          filamento: z
+            .string()
+            .describe('Descripción del rollo (ej "negro", "PLA+ negro GST3D")'),
+        },
+      },
+      async (a) => {
+        const filaments = (await this.printing.getFilaments(userId)) as any[];
+        const q = a.filamento.toLowerCase();
+        const active = filaments.filter((f) => !f.discarded && !f.finishedAt);
+        const matches = active.filter((f) =>
+          `${f.brand} ${f.material} ${f.color}`.toLowerCase().includes(q.trim()),
+        );
+        if (!matches.length) {
+          return text(
+            `No encontré un rollo activo que matchee "${a.filamento}". Rollos activos:\n` +
+              active.map((f) => `• ${f.brand} ${f.material} ${f.color}`).join('\n'),
+          );
+        }
+        // El más viejo primero (FIFO, igual que el descuento de stock)
+        const target = matches.sort((x, y) =>
+          x.purchasedAt.localeCompare(y.purchasedAt),
+        )[0];
+        await this.stock.finishFilament(userId, target.id);
+        return text(
+          `Listo: ${target.brand} ${target.material} ${target.color} (comprado ${target.purchasedAt}) marcado como terminado y fuera del stock.`,
+        );
+      },
+    );
+
+    add(
+      'pedidos_3d',
+      {
+        title: 'Pedidos del catálogo (Marcelito)',
+        description:
+          'Lista los pedidos que llegaron desde el catálogo público y permite avanzarles el estado (pedido → confirmado → imprimiendo → listo → entregado; al entregar se crean las ventas a liquidar). También muestra avisos de pago pendientes.',
+        inputSchema: {
+          estado: z
+            .enum(['pedido', 'confirmado', 'imprimiendo', 'listo', 'entregado', 'cancelado'])
+            .optional()
+            .describe('Si se pasa junto con pedido_id, actualiza ese pedido a este estado.'),
+          pedido_id: z.string().optional().describe('Pedido a actualizar'),
+        },
+      },
+      async (a) => {
+        if (a.pedido_id && a.estado) {
+          const updated = await this.orders.updateStatus(
+            userId,
+            a.pedido_id,
+            a.estado,
+          );
+          return text(
+            `Pedido actualizado a "${updated.status}"` +
+              (a.estado === 'entregado'
+                ? ' — se crearon las ventas a liquidar.'
+                : '.'),
+          );
+        }
+        const [orders, notices] = await Promise.all([
+          this.orders.getOrders(userId),
+          this.orders.getNotices(userId),
+        ]);
+        if (!orders.length && !notices.length) {
+          return text('No hay pedidos ni avisos de pago.');
+        }
+        const lines = (orders as any[]).slice(0, 15).map((o) => {
+          const items = (o.items ?? [])
+            .map((i: any) => `${i.qty}x ${i.product?.name ?? '?'}`)
+            .join(', ');
+          const total = (o.items ?? []).reduce(
+            (acc: number, i: any) => acc + i.qty * i.unitPrice,
+            0,
+          );
+          return `• [${o.status}] ${items} — ${ars(total)} (${o.customerName}, id ${o.id})`;
+        });
+        for (const n of notices as any[]) {
+          lines.push(
+            `💬 Aviso de pago${n.amount ? ` ${ars(n.amount)}` : ''}: "${n.message ?? ''}" (confirmalo desde /negocio)`,
+          );
+        }
+        return text(`📦 Pedidos:\n${lines.join('\n')}`);
+      },
+    );
+
+    add(
+      'sync_bambu',
+      {
+        title: 'Sincronizar impresiones desde Bambu Cloud',
+        description:
+          'Trae las últimas impresiones de la P1S desde Bambu Cloud y descuenta el filamento usado del stock (también corre solo cada 30 min).',
+        inputSchema: {},
+      },
+      async () => {
+        const res = await this.bambu.sync(userId);
+        if (!res.created) {
+          return text('Sin impresiones nuevas desde el último sync.');
+        }
+        const lines = (res.results ?? []).map(
+          (r: any) => `• ${r.title} — ${Math.round(r.grams ?? 0)}g`,
+        );
+        return text(
+          `Sincronizadas ${res.created} impresiones:\n${lines.join('\n')}` +
+            (res.unmatchedGrams > 0
+              ? `\n⚠️ ${Math.round(res.unmatchedGrams)}g sin rollo que matchee — asignales color hex a los rollos en /negocio → Filamentos.`
+              : ''),
         );
       },
     );

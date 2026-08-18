@@ -35,6 +35,16 @@ async function bootstrap() {
   app.use(bodyParser.json({ limit: '50mb' }));
   app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
+  // Fotos subidas (catalogo 3D, etc.): archivos en disco servidos estaticos.
+  // UPLOADS_DIR debe apuntar FUERA del arbol del repo en prod para que un
+  // git pull/deploy no se las lleve puestas.
+  const { uploadsDir } = await import('./modules/printing/photos.service');
+  app.useStaticAssets(uploadsDir(), {
+    prefix: '/uploads/',
+    maxAge: '7d',
+    index: false,
+  });
+
   // Habilitar CORS para el frontend
   app.enableCors({
     origin: [

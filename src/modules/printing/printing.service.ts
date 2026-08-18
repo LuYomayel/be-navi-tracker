@@ -6,8 +6,10 @@ import {
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../config/prisma.service';
 import { GoalService } from '../goal/goal.service';
+import { SettlementService } from './settlement.service';
+import { photoUrl } from './photos.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
-import { computePrintCost, computeSalePrice, computeProfit } from './pricing';
+import { pricingForProduct } from './pricing';
 
 export interface UpdatePrintSettingsDto {
   costPerGram?: number;
@@ -28,6 +30,7 @@ export interface CreatePrintProductDto {
   licenseOk?: boolean;
   markupOverride?: number;
   publicPrice?: number;
+  colorBreakdown?: { color?: string; colorHex?: string; grams: number }[] | null;
   active?: boolean;
   notes?: string;
 }
@@ -44,6 +47,8 @@ export interface CreateFilamentDto {
   discarded?: boolean;
   discardReason?: string;
   gramsLeft?: number;
+  colorHex?: string;
+  finishedAt?: string | null;
   notes?: string;
 }
 
@@ -65,29 +70,6 @@ export type UpdatePrintSaleDto = Partial<
   Omit<CreatePrintSaleDto, 'productId'>
 >;
 
-/** Costo/precio/ganancia de un producto con las settings de costeo vigentes. */
-function pricingFor(
-  product: { grams: number; hours: number; markupOverride: number | null },
-  settings: {
-    costPerGram: number;
-    wastePct: number;
-    powerPerHour: number;
-    defaultMarkup: number;
-  },
-) {
-  const cost = computePrintCost({
-    grams: product.grams,
-    hours: product.hours,
-    costPerGram: settings.costPerGram,
-    wastePct: settings.wastePct,
-    powerPerHour: settings.powerPerHour,
-  });
-  const markup = product.markupOverride ?? settings.defaultMarkup;
-  const priceToMarcelito = computeSalePrice(cost, markup);
-  const profit = computeProfit(priceToMarcelito, cost);
-  return { cost, priceToMarcelito, profit };
-}
-
 /**
  * Negocio de impresion 3D: catalogo, filamentos, ventas y balance.
  *
@@ -102,6 +84,7 @@ export class PrintingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly goalService: GoalService,
+    private readonly settlements: SettlementService,
   ) {}
 
   // ── Settings (1 fila por usuario, con lazy init) ─────────────
@@ -157,20 +140,30 @@ export class PrintingService {
     const [products, settings] = await Promise.all([
       this.prisma.printProduct.findMany({
         where: { userId, ...(opts?.activeOnly ? { active: true } : {}) },
+        include: { photos: { orderBy: { order: 'asc' } } },
         orderBy: { createdAt: 'asc' },
       }),
       this.getSettings(userId),
     ]);
-    return products.map((p) => ({ ...p, ...pricingFor(p, settings) }));
+    return products.map((p: any) => ({
+      ...p,
+      ...pricingForProduct(p, settings),
+      photos: (p.photos ?? []).map((ph: any) => ({ ...ph, url: photoUrl(ph.path) })),
+    }));
   }
 
   async getProduct(userId: string, id: string) {
-    const product = await this.prisma.printProduct.findFirst({
+    const product: any = await this.prisma.printProduct.findFirst({
       where: { id, userId },
+      include: { photos: { orderBy: { order: 'asc' } } },
     });
     if (!product) throw new NotFoundException('Producto no encontrado');
     const settings = await this.getSettings(userId);
-    return { ...product, ...pricingFor(product, settings) };
+    return {
+      ...product,
+      ...pricingForProduct(product, settings),
+      photos: (product.photos ?? []).map((ph: any) => ({ ...ph, url: photoUrl(ph.path) })),
+    };
   }
 
   async createProduct(userId: string, dto: CreatePrintProductDto) {
@@ -199,6 +192,7 @@ export class PrintingService {
         licenseOk: dto.licenseOk ?? false,
         markupOverride: dto.markupOverride ?? null,
         publicPrice: dto.publicPrice ?? null,
+        colorBreakdown: (dto.colorBreakdown as any) ?? undefined,
         active: dto.active ?? true,
         notes: dto.notes || null,
       },
@@ -233,6 +227,8 @@ export class PrintingService {
         markupOverride:
           dto.markupOverride === undefined ? undefined : dto.markupOverride,
         publicPrice: dto.publicPrice === undefined ? undefined : dto.publicPrice,
+        colorBreakdown:
+          dto.colorBreakdown === undefined ? undefined : (dto.colorBreakdown as any),
         active: dto.active,
         notes: dto.notes === undefined ? undefined : dto.notes || null,
       },
@@ -299,7 +295,9 @@ export class PrintingService {
         purchasedAt: dto.purchasedAt,
         discarded: dto.discarded ?? false,
         discardReason: dto.discardReason || null,
-        gramsLeft: dto.gramsLeft ?? null,
+        // Un rollo recien comprado entra LLENO al stock (se puede pisar).
+        gramsLeft: dto.gramsLeft ?? grams,
+        colorHex: dto.colorHex || null,
         expenseId: expense.id,
         notes: dto.notes || null,
       },
@@ -345,6 +343,8 @@ export class PrintingService {
         discardReason:
           dto.discardReason === undefined ? undefined : dto.discardReason || null,
         gramsLeft: dto.gramsLeft,
+        colorHex: dto.colorHex === undefined ? undefined : dto.colorHex || null,
+        finishedAt: dto.finishedAt === undefined ? undefined : dto.finishedAt,
         notes: dto.notes === undefined ? undefined : dto.notes || null,
       },
     });
@@ -367,11 +367,16 @@ export class PrintingService {
   // ── Ventas / muestras ─────────────────────────────────────
 
   async getSales(userId: string) {
-    return this.prisma.printSale.findMany({
+    const sales = await this.prisma.printSale.findMany({
       where: { userId },
-      include: { product: true },
+      include: {
+        product: true,
+        settlements: { orderBy: { createdAt: 'asc' } },
+      },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     });
+    // total/cobrado/restante por venta (contempla las liquidadas legacy)
+    return sales.map((s: any) => ({ ...s, ...this.settlements.settledInfo(s) }));
   }
 
   async createSale(userId: string, dto: CreatePrintSaleDto) {
@@ -387,7 +392,7 @@ export class PrintingService {
     if (qty <= 0) throw new BadRequestException('La cantidad debe ser mayor a 0');
 
     const settings = await this.getSettings(userId);
-    const pricing = pricingFor(product, settings);
+    const pricing = pricingForProduct(product, settings);
     const costUnit = dto.costUnit ?? pricing.cost;
     // Muestra = se regala: cobro 0 siempre, sin importar lo que mande el body.
     const chargedUnit =
@@ -443,45 +448,20 @@ export class PrintingService {
         .delete({ where: { id: existing.incomeId } })
         .catch(() => null);
     }
+    // Los pagos parciales tambien respaldaban Incomes: se borran junto
+    // (las filas de settlement caen solas por el onDelete: Cascade).
+    const settlements = await this.prisma.printSaleSettlement.findMany({
+      where: { saleId: id },
+    });
+    for (const st of settlements) {
+      if (st.incomeId) {
+        await this.prisma.income
+          .delete({ where: { id: st.incomeId } })
+          .catch(() => null);
+      }
+    }
     await this.prisma.printSale.delete({ where: { id } });
     return true;
-  }
-
-  /**
-   * Liquidar = Marcelito ya pago. Crea el Income (source '3d') con el
-   * objetivo activo como snapshot si existe, y marca la venta liquidada.
-   */
-  async liquidarVenta(userId: string, id: string) {
-    const sale = await this.prisma.printSale.findFirst({
-      where: { id, userId },
-      include: { product: true },
-    });
-    if (!sale) throw new NotFoundException('Venta no encontrada');
-    if (sale.status === 'liquidado') {
-      throw new BadRequestException('La venta ya esta liquidada');
-    }
-
-    const amount = sale.qty * sale.chargedUnit;
-    const cost = sale.qty * sale.costUnit;
-    const activeGoal = await this.goalService.getActive(userId);
-
-    const income = await this.prisma.income.create({
-      data: {
-        userId,
-        date: getLocalDateString(),
-        description: `Venta 3D: ${sale.qty}x ${sale.product?.name ?? 'producto'}`,
-        amount,
-        cost,
-        source: '3d',
-        status: 'received',
-        goalId: activeGoal?.id ?? null,
-      },
-    });
-
-    return this.prisma.printSale.update({
-      where: { id },
-      data: { status: 'liquidado', incomeId: income.id },
-    });
   }
 
   // ── Balance del negocio ───────────────────────────────────
@@ -495,7 +475,10 @@ export class PrintingService {
   async getSummary(userId: string) {
     const [filaments, sales, settings] = await Promise.all([
       this.prisma.filament.findMany({ where: { userId } }),
-      this.prisma.printSale.findMany({ where: { userId } }),
+      this.prisma.printSale.findMany({
+        where: { userId },
+        include: { settlements: true },
+      }),
       this.getSettings(userId),
     ]);
 
@@ -511,13 +494,20 @@ export class PrintingService {
 
     const ventas = sales.filter((s: any) => s.kind === 'venta');
     const profitOf = (s: any) => s.qty * (s.chargedUnit - s.costUnit);
-    const profitSalesSettled = ventas
-      .filter((s: any) => s.status === 'liquidado')
-      .reduce((a: number, s: any) => a + profitOf(s), 0);
-    const profitSalesPending = ventas
-      .filter((s: any) => s.status !== 'liquidado')
-      .reduce((a: number, s: any) => a + profitOf(s), 0);
-    const profitSalesTotal = profitSalesSettled + profitSalesPending;
+    // Prorrateo por lo realmente cobrado: una venta pagada a medias aporta
+    // la mitad de su ganancia a "liquidada" y la otra mitad a "a liquidar".
+    let profitSalesSettled = 0;
+    let profitSalesPending = 0;
+    for (const s of ventas as any[]) {
+      const { total, settledAmount } = this.settlements.settledInfo(s);
+      const frac = total > 0 ? settledAmount / total : 0;
+      profitSalesSettled += profitOf(s) * frac;
+      profitSalesPending += profitOf(s) * (1 - frac);
+    }
+    profitSalesSettled = Math.round(profitSalesSettled * 100) / 100;
+    profitSalesPending = Math.round(profitSalesPending * 100) / 100;
+    const profitSalesTotal =
+      Math.round((profitSalesSettled + profitSalesPending) * 100) / 100;
 
     // Resultado neto: ganancia de ventas contra lo regalado en muestras.
     const result = profitSalesTotal - investedSamples;
@@ -564,17 +554,19 @@ export class PrintingService {
       // Marcelito ya usa con todos los productos. El flag licenseOk es un
       // aviso interno para Luciano, no esconde productos de la feria.
       where: { userId: settings.userId, active: true },
+      include: { photos: { orderBy: { order: 'asc' } } },
       orderBy: { name: 'asc' },
     });
 
     return products.map((p: any) => {
-      const { priceToMarcelito } = pricingFor(p, settings);
+      const { priceToMarcelito } = pricingForProduct(p, settings);
       return {
         id: p.id,
         name: p.name,
         colorsLabel: p.colorsLabel,
         sizeMm: p.sizeMm,
         makerworldUrl: p.makerworldUrl,
+        photos: (p.photos ?? []).map((ph: any) => photoUrl(ph.path)),
         priceToMarcelito,
         publicPrice: p.publicPrice,
         marcelitoProfit:

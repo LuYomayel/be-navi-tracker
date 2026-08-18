@@ -55,3 +55,6 @@ ecosystem.config.js
 *.bak
 *.tmp
 .gstack/
+
+# Fotos subidas (catalogo 3D): archivos de usuario, nunca al repo
+uploads/

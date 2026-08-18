@@ -44,3 +44,32 @@ export function computeSalePrice(cost: number, markup: number): number {
 export function computeProfit(price: number, cost: number): number {
   return price - cost;
 }
+
+export interface PricingSettings {
+  costPerGram: number;
+  wastePct: number;
+  powerPerHour: number;
+  defaultMarkup: number;
+}
+
+/**
+ * Costo/precio/ganancia de un producto con las settings de costeo vigentes.
+ * Centralizado aca (puro) para que lo usen el service, el catalogo publico
+ * y los pedidos sin duplicar la formula.
+ */
+export function pricingForProduct(
+  product: { grams: number; hours: number; markupOverride: number | null },
+  settings: PricingSettings,
+) {
+  const cost = computePrintCost({
+    grams: product.grams,
+    hours: product.hours,
+    costPerGram: settings.costPerGram,
+    wastePct: settings.wastePct,
+    powerPerHour: settings.powerPerHour,
+  });
+  const markup = product.markupOverride ?? settings.defaultMarkup;
+  const priceToMarcelito = computeSalePrice(cost, markup);
+  const profit = computeProfit(priceToMarcelito, cost);
+  return { cost, priceToMarcelito, profit };
+}
