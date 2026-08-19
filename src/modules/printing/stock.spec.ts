@@ -72,6 +72,84 @@ const filaments = [
   },
 ];
 
+describe('hexToColorName', () => {
+  const { hexToColorName } = require('./stock');
+
+  it('clasifica los colores reales que reporta el AMS de Bambu', () => {
+    expect(hexToColorName('999D9DFF')).toBe('gris'); // Ash Gray
+    expect(hexToColorName('4DAFDAFF')).toBe('cian'); // Cyan PLA Lite
+    expect(hexToColorName('000000FF')).toBe('negro');
+    expect(hexToColorName('FFFFFF')).toBe('blanco');
+    expect(hexToColorName('C12E1F')).toBe('rojo');
+    expect(hexToColorName('FF6A13')).toBe('naranja');
+    expect(hexToColorName('F4EE2A')).toBe('amarillo');
+    expect(hexToColorName('00AE42')).toBe('verde');
+  });
+
+  it('hex invalido devuelve null', () => {
+    expect(hexToColorName('zzz')).toBeNull();
+  });
+});
+
+describe('matcheo por nombre derivado del hex (rollos SIN hex cargado)', () => {
+  const rolls = [
+    {
+      id: 'g1',
+      color: 'Gris',
+      colorHex: null,
+      gramsLeft: 350,
+      grams: 1000,
+      purchasedAt: '2026-07-01',
+      discarded: false,
+      finishedAt: null,
+    },
+    {
+      id: 'g2',
+      color: 'Gris',
+      colorHex: null,
+      gramsLeft: 1000,
+      grams: 1000,
+      purchasedAt: '2026-08-10',
+      discarded: false,
+      finishedAt: null,
+    },
+    {
+      id: 'ag',
+      color: 'Amarillo Girasol',
+      colorHex: null,
+      gramsLeft: 110,
+      grams: 1000,
+      purchasedAt: '2026-07-05',
+      discarded: false,
+      finishedAt: null,
+    },
+  ];
+
+  it('un consumo de Bambu (solo hex) matchea el rollo por nombre derivado', () => {
+    const { plan, unmatchedGrams } = planDeduction(
+      { colorHex: '999D9DFF', grams: 106.9 },
+      rolls as any[],
+    );
+    expect(plan).toEqual([{ filamentId: 'g1', grams: 106.9 }]); // FIFO
+    expect(unmatchedGrams).toBe(0);
+  });
+
+  it('el nombre derivado matchea prefijos ("amarillo girasol" con hex amarillo)', () => {
+    const { plan } = planDeduction(
+      { colorHex: 'F4EE2AFF', grams: 50 },
+      rolls as any[],
+    );
+    expect(plan).toEqual([{ filamentId: 'ag', grams: 50 }]);
+  });
+
+  it('checkStock tambien matchea por nombre derivado', () => {
+    const res = checkStock([{ colorHex: '999D9D', grams: 200 }], rolls as any[]);
+    expect(res.ok).toBe(true);
+    expect(res.perColor[0].matched).toBe(true);
+    expect(res.perColor[0].available).toBe(1350);
+  });
+});
+
 describe('normColor / normHex', () => {
   it('normaliza nombre de color (trim + lower)', () => {
     expect(normColor('  Negro ')).toBe('negro');

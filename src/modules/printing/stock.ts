@@ -50,6 +50,46 @@ export function normHex(h?: string | null): string | null {
   return null;
 }
 
+/**
+ * Nombre de color (es) derivado de un hex, para matchear los consumos que
+ * reporta Bambu (solo hex) contra rollos cargados a mano sin hex. HSV
+ * simple: saturacion baja => escala de grises; sino por tono.
+ */
+export function hexToColorName(hex?: string | null): string | null {
+  const h6 = normHex(hex);
+  if (!h6) return null;
+  const r = parseInt(h6.slice(0, 2), 16);
+  const g = parseInt(h6.slice(2, 4), 16);
+  const b = parseInt(h6.slice(4, 6), 16);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const v = max / 255;
+  const sat = max === 0 ? 0 : delta / max;
+
+  if (sat < 0.15) {
+    if (v < 0.16) return 'negro';
+    if (v > 0.9) return 'blanco';
+    return 'gris';
+  }
+
+  let hue = 0;
+  if (delta > 0) {
+    if (max === r) hue = 60 * (((g - b) / delta + 6) % 6);
+    else if (max === g) hue = 60 * ((b - r) / delta + 2);
+    else hue = 60 * ((r - g) / delta + 4);
+  }
+  if (hue < 15) return 'rojo';
+  if (hue < 40) return 'naranja';
+  if (hue < 70) return 'amarillo';
+  if (hue < 160) return 'verde';
+  if (hue < 200) return 'cian';
+  if (hue < 250) return 'azul';
+  if (hue < 290) return 'violeta';
+  if (hue < 335) return 'rosa';
+  return 'rojo';
+}
+
 /** Rollo que cuenta para el stock: activo y con gramos trackeados. */
 function isActiveTracked(f: FilamentLike): boolean {
   return (
@@ -127,7 +167,18 @@ function matchingRolls(need: NeedItem, filaments: FilamentLike[]): FilamentLike[
     ? active.filter((f) => !normHex(f.colorHex) && names.has(normColor(f.color)))
     : [];
 
-  return [...new Set([...direct, ...byName])].sort((a, b) =>
+  // Ultimo recurso para consumos de Bambu (solo hex) contra rollos cargados
+  // a mano sin hex: derivar el nombre del color del hex ("999D9D" -> gris)
+  // y matchear por prefijo ("amarillo girasol" arranca con "amarillo").
+  let derived: FilamentLike[] = [];
+  if (hex && !direct.length && !name) {
+    const derivedName = hexToColorName(hex);
+    if (derivedName) {
+      derived = active.filter((f) => normColor(f.color).startsWith(derivedName));
+    }
+  }
+
+  return [...new Set([...direct, ...byName, ...derived])].sort((a, b) =>
     a.purchasedAt.localeCompare(b.purchasedAt),
   );
 }
