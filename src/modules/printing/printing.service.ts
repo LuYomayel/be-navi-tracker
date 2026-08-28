@@ -9,7 +9,7 @@ import { GoalService } from '../goal/goal.service';
 import { SettlementService } from './settlement.service';
 import { photoUrl } from './photos.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
-import { pricingForProduct } from './pricing';
+import { pricingForProduct, PricingSettings } from './pricing';
 
 export interface UpdatePrintSettingsDto {
   costPerGram?: number;
@@ -136,6 +136,23 @@ export class PrintingService {
 
   // ── Productos ─────────────────────────────────────────────
 
+  /**
+   * Producto de Prisma + los campos calculados que espera el front
+   * (cost/priceToMarcelito/profit) y las URLs de las fotos. TODO endpoint que
+   * devuelva un producto tiene que pasar por aca: el front usa la respuesta
+   * tal cual (usePrinting.ts) y sin estos campos la card muestra "$NaN".
+   */
+  private hydrateProduct(product: any, settings: PricingSettings) {
+    return {
+      ...product,
+      ...pricingForProduct(product, settings),
+      photos: (product.photos ?? []).map((ph: any) => ({
+        ...ph,
+        url: photoUrl(ph.path),
+      })),
+    };
+  }
+
   async getProducts(userId: string, opts?: { activeOnly?: boolean }) {
     const [products, settings] = await Promise.all([
       this.prisma.printProduct.findMany({
@@ -145,11 +162,7 @@ export class PrintingService {
       }),
       this.getSettings(userId),
     ]);
-    return products.map((p: any) => ({
-      ...p,
-      ...pricingForProduct(p, settings),
-      photos: (p.photos ?? []).map((ph: any) => ({ ...ph, url: photoUrl(ph.path) })),
-    }));
+    return products.map((p: any) => this.hydrateProduct(p, settings));
   }
 
   async getProduct(userId: string, id: string) {
@@ -159,11 +172,7 @@ export class PrintingService {
     });
     if (!product) throw new NotFoundException('Producto no encontrado');
     const settings = await this.getSettings(userId);
-    return {
-      ...product,
-      ...pricingForProduct(product, settings),
-      photos: (product.photos ?? []).map((ph: any) => ({ ...ph, url: photoUrl(ph.path) })),
-    };
+    return this.hydrateProduct(product, settings);
   }
 
   async createProduct(userId: string, dto: CreatePrintProductDto) {
@@ -179,7 +188,8 @@ export class PrintingService {
     if (!dto.colorsLabel?.trim()) {
       throw new BadRequestException('Falta la cantidad de colores');
     }
-    return this.prisma.printProduct.create({
+    const created = await this.prisma.printProduct.create({
+      include: { photos: { orderBy: { order: 'asc' } } },
       data: {
         userId,
         name: dto.name.trim(),
@@ -197,6 +207,7 @@ export class PrintingService {
         notes: dto.notes || null,
       },
     });
+    return this.hydrateProduct(created, await this.getSettings(userId));
   }
 
   async updateProduct(userId: string, id: string, dto: UpdatePrintProductDto) {
@@ -210,8 +221,9 @@ export class PrintingService {
     if (dto.hours !== undefined && dto.hours < 0) {
       throw new BadRequestException('Las horas no pueden ser negativas');
     }
-    return this.prisma.printProduct.update({
+    const updated = await this.prisma.printProduct.update({
       where: { id },
+      include: { photos: { orderBy: { order: 'asc' } } },
       data: {
         name: dto.name?.trim(),
         author: dto.author === undefined ? undefined : dto.author?.trim() || null,
@@ -233,6 +245,7 @@ export class PrintingService {
         notes: dto.notes === undefined ? undefined : dto.notes || null,
       },
     });
+    return this.hydrateProduct(updated, await this.getSettings(userId));
   }
 
   async deleteProduct(userId: string, id: string) {
