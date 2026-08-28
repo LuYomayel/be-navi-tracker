@@ -211,7 +211,11 @@ describe('PrintingService', () => {
 
   describe('createProduct', () => {
     it('crea un producto valido', async () => {
-      prisma.printProduct.create.mockResolvedValue(mockProduct);
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.create.mockResolvedValue({
+        ...mockProduct,
+        photos: [],
+      });
       const result = await service.createProduct(userId, {
         name: mockProduct.name,
         author: mockProduct.author,
@@ -219,7 +223,29 @@ describe('PrintingService', () => {
         hours: 4.5,
         colorsLabel: '1',
       });
-      expect(result).toEqual(mockProduct);
+      expect(result).toMatchObject(mockProduct);
+    });
+
+    // Regresion: el POST devolvia el objeto crudo de Prisma, sin cost/
+    // priceToMarcelito/profit. El front mete esa respuesta en el estado tal
+    // cual (usePrinting.ts createProduct) => la card mostraba "$NaN" hasta
+    // recargar. Ver getProducts: el GET si los calcula.
+    it('devuelve el producto con el pricing ya calculado', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.create.mockResolvedValue({
+        ...mockProduct,
+        photos: [],
+      });
+      const result = await service.createProduct(userId, {
+        name: mockProduct.name,
+        grams: 127,
+        hours: 4.5,
+        colorsLabel: '1',
+      });
+      expect(result.cost).toBe(3000);
+      expect(result.priceToMarcelito).toBe(3900);
+      expect(result.profit).toBe(900);
+      expect(result.photos).toEqual([]);
     });
 
     it('rechaza sin nombre', async () => {
@@ -257,15 +283,39 @@ describe('PrintingService', () => {
     });
 
     it('actualiza un producto propio', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
       prisma.printProduct.findFirst.mockResolvedValue(mockProduct);
       prisma.printProduct.update.mockResolvedValue({
         ...mockProduct,
         active: false,
+        photos: [],
       });
       const result = await service.updateProduct(userId, mockProduct.id, {
         active: false,
       });
       expect(result.active).toBe(false);
+    });
+
+    // Regresion: mismo caso que el POST (ver createProduct). Editar un
+    // producto dejaba la card en "$NaN" y sin la foto hasta recargar.
+    it('devuelve el producto actualizado con el pricing recalculado', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findFirst.mockResolvedValue(mockProduct);
+      prisma.printProduct.update.mockResolvedValue({
+        ...mockProduct,
+        grams: 494,
+        hours: 14.3,
+        markupOverride: 1.5,
+        photos: [],
+      });
+      const result = await service.updateProduct(userId, mockProduct.id, {
+        grams: 494,
+        hours: 14.3,
+        markupOverride: 1.5,
+      });
+      expect(result.cost).toBe(11500);
+      expect(result.priceToMarcelito).toBe(17300);
+      expect(result.profit).toBe(5800);
     });
   });
 
