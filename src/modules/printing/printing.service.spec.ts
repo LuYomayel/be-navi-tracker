@@ -207,6 +207,67 @@ describe('PrintingService', () => {
       expect(result.priceToMarcelito).toBe(17300);
       expect(result.profit).toBe(5800);
     });
+
+    it('null en el override lo borra y vuelve a la formula', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findFirst.mockResolvedValue({
+        ...mockProduct,
+        costOverride: 11700,
+        priceOverride: 15200,
+      });
+      prisma.printProduct.update.mockResolvedValue({
+        ...mockProduct,
+        costOverride: null,
+        priceOverride: null,
+        photos: [],
+      });
+      const result = await service.updateProduct(userId, mockProduct.id, {
+        costOverride: null,
+        priceOverride: null,
+      });
+      expect(prisma.printProduct.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            costOverride: null,
+            priceOverride: null,
+          }),
+        }),
+      );
+      expect(result.cost).toBe(3000);
+      expect(result.priceToMarcelito).toBe(3900);
+      expect(result.costIsManual).toBe(false);
+    });
+
+    // No mandar el campo NO puede borrar un manual ya cargado (el front
+    // manda updates parciales, ej solo `active`).
+    it('undefined deja el override como estaba', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findFirst.mockResolvedValue({
+        ...mockProduct,
+        costOverride: 11700,
+      });
+      prisma.printProduct.update.mockResolvedValue({
+        ...mockProduct,
+        costOverride: 11700,
+        photos: [],
+      });
+      const result = await service.updateProduct(userId, mockProduct.id, {
+        active: false,
+      });
+      expect(prisma.printProduct.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ costOverride: undefined }),
+        }),
+      );
+      expect(result.cost).toBe(11700);
+    });
+
+    it('rechaza un costo manual negativo', async () => {
+      prisma.printProduct.findFirst.mockResolvedValue(mockProduct);
+      await expect(
+        service.updateProduct(userId, mockProduct.id, { costOverride: -5 }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('createProduct', () => {
@@ -269,6 +330,59 @@ describe('PrintingService', () => {
         }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('guarda el costo y el precio manuales y los usa en vez de la formula', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.create.mockResolvedValue({
+        ...mockProduct,
+        grams: 374.85,
+        hours: 15.9,
+        costOverride: 11700,
+        priceOverride: 15200,
+        photos: [],
+      });
+      const result = await service.createProduct(userId, {
+        name: 'KATAMINO',
+        grams: 374.85,
+        hours: 15.9,
+        colorsLabel: '2',
+        costOverride: 11700,
+        priceOverride: 15200,
+      });
+      expect(prisma.printProduct.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            costOverride: 11700,
+            priceOverride: 15200,
+          }),
+        }),
+      );
+      expect(result.cost).toBe(11700);
+      expect(result.priceToMarcelito).toBe(15200);
+      expect(result.profit).toBe(3500);
+      expect(result.costIsManual).toBe(true);
+    });
+
+    it('rechaza un costo o precio manual negativo', async () => {
+      await expect(
+        service.createProduct(userId, {
+          name: 'x',
+          grams: 100,
+          hours: 1,
+          colorsLabel: '1',
+          costOverride: -1,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.createProduct(userId, {
+          name: 'x',
+          grams: 100,
+          hours: 1,
+          colorsLabel: '1',
+          priceOverride: -1,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('updateProduct / deleteProduct', () => {
@@ -316,6 +430,67 @@ describe('PrintingService', () => {
       expect(result.cost).toBe(11500);
       expect(result.priceToMarcelito).toBe(17300);
       expect(result.profit).toBe(5800);
+    });
+
+    it('null en el override lo borra y vuelve a la formula', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findFirst.mockResolvedValue({
+        ...mockProduct,
+        costOverride: 11700,
+        priceOverride: 15200,
+      });
+      prisma.printProduct.update.mockResolvedValue({
+        ...mockProduct,
+        costOverride: null,
+        priceOverride: null,
+        photos: [],
+      });
+      const result = await service.updateProduct(userId, mockProduct.id, {
+        costOverride: null,
+        priceOverride: null,
+      });
+      expect(prisma.printProduct.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            costOverride: null,
+            priceOverride: null,
+          }),
+        }),
+      );
+      expect(result.cost).toBe(3000);
+      expect(result.priceToMarcelito).toBe(3900);
+      expect(result.costIsManual).toBe(false);
+    });
+
+    // No mandar el campo NO puede borrar un manual ya cargado (el front
+    // manda updates parciales, ej solo `active`).
+    it('undefined deja el override como estaba', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findFirst.mockResolvedValue({
+        ...mockProduct,
+        costOverride: 11700,
+      });
+      prisma.printProduct.update.mockResolvedValue({
+        ...mockProduct,
+        costOverride: 11700,
+        photos: [],
+      });
+      const result = await service.updateProduct(userId, mockProduct.id, {
+        active: false,
+      });
+      expect(prisma.printProduct.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ costOverride: undefined }),
+        }),
+      );
+      expect(result.cost).toBe(11700);
+    });
+
+    it('rechaza un costo manual negativo', async () => {
+      prisma.printProduct.findFirst.mockResolvedValue(mockProduct);
+      await expect(
+        service.updateProduct(userId, mockProduct.id, { costOverride: -5 }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

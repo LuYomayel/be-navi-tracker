@@ -897,6 +897,8 @@ model PrintProduct {
   sizeMm         String? // medidas, ej "165x165x6"
   licenseOk      Boolean  @default(false) // la licencia del autor permite vender
   markupOverride Float? // multiplicador propio (ej familia fuxx = 1.5) en vez del defaultMarkup
+  costOverride   Float? // costo real cargado a mano; pisa la formula (que usa un unico costPerGram y no ve filamentos caros como el PLA Wood)
+  priceOverride  Float? // precio a Marcelito cargado a mano; pisa el markup
   publicPrice    Float? // precio sugerido de feria/venta al publico (dato manual)
   colorBreakdown Json? // desglose de consumo por color: [{ color, colorHex?, grams }] — habilita el chequeo de stock por color
   active         Boolean  @default(true)

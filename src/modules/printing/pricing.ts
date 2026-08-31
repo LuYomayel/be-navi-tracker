@@ -8,6 +8,12 @@
  *   precio = costo * (markupOverride ?? defaultMarkup)
  *   ganancia = precio - costo
  *
+ * La formula usa UN costPerGram global, asi que no sabe de filamentos caros
+ * (ej: el Katamino lleva PLA Wood a $32/g y color a $21/g -> la formula lo
+ * costeaba $8.800 cuando el real era $11.700, y se lo vendiamos a perdida).
+ * Por eso el producto puede traer costOverride/priceOverride: valores cargados
+ * a mano que pisan el calculo. En null, sigue mandando la formula.
+ *
  * Redondeo: al centenar mas cercano, igual que en la planilla de Luciano.
  * Math.round() (no el "banker's rounding" de otros lenguajes) es clave: en
  * los casos .5 exactos (ej 172.5 -> 173) la planilla redondea siempre hacia
@@ -58,18 +64,41 @@ export interface PricingSettings {
  * y los pedidos sin duplicar la formula.
  */
 export function pricingForProduct(
-  product: { grams: number; hours: number; markupOverride: number | null },
+  product: {
+    grams: number;
+    hours: number;
+    markupOverride: number | null;
+    /** Costo real cargado a mano (pisa la formula). null = calcular. */
+    costOverride?: number | null;
+    /** Precio a Marcelito cargado a mano (pisa el markup). null = calcular. */
+    priceOverride?: number | null;
+  },
   settings: PricingSettings,
 ) {
-  const cost = computePrintCost({
-    grams: product.grams,
-    hours: product.hours,
-    costPerGram: settings.costPerGram,
-    wastePct: settings.wastePct,
-    powerPerHour: settings.powerPerHour,
-  });
+  // Ojo: 0 es un valor manual valido (muestra regalada), por eso `?? `
+  // y no un truthy check.
+  const costIsManual =
+    product.costOverride !== null && product.costOverride !== undefined;
+  const priceIsManual =
+    product.priceOverride !== null && product.priceOverride !== undefined;
+
+  const cost = costIsManual
+    ? (product.costOverride as number)
+    : computePrintCost({
+        grams: product.grams,
+        hours: product.hours,
+        costPerGram: settings.costPerGram,
+        wastePct: settings.wastePct,
+        powerPerHour: settings.powerPerHour,
+      });
+
   const markup = product.markupOverride ?? settings.defaultMarkup;
-  const priceToMarcelito = computeSalePrice(cost, markup);
+  // Sin precio manual, el markup se aplica sobre el costo vigente (manual o
+  // calculado): asi cargar el costo real arrastra solo el precio a Marcelito.
+  const priceToMarcelito = priceIsManual
+    ? (product.priceOverride as number)
+    : computeSalePrice(cost, markup);
+
   const profit = computeProfit(priceToMarcelito, cost);
-  return { cost, priceToMarcelito, profit };
+  return { cost, priceToMarcelito, profit, costIsManual, priceIsManual };
 }

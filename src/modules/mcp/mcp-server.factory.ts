@@ -2969,7 +2969,7 @@ export class McpServerFactory {
         if (!list.length) return text('Todavía no cargaste productos en el catálogo.');
         const lines = list.map(
           (p) =>
-            `• ${p.name}${p.author ? ` (${p.author})` : ''} — costo ${ars(p.cost)} · a Marcelito ${ars(p.priceToMarcelito)} · ganancia ${ars(p.profit)}${p.licenseOk ? '' : ' ⚠️ sin licencia para vender'}`,
+            `• ${p.name}${p.author ? ` (${p.author})` : ''} — costo ${ars(p.cost)}${p.costIsManual ? ' (a mano)' : ''} · a Marcelito ${ars(p.priceToMarcelito)}${p.priceIsManual ? ' (a mano)' : ''} · ganancia ${ars(p.profit)}${p.profit <= 0 ? ' ⚠️ NO GANÁS NADA' : ''}${p.licenseOk ? '' : ' ⚠️ sin licencia para vender'}`,
         );
         return text(`Catálogo (${list.length} productos):\n${lines.join('\n')}`);
       },
@@ -3044,6 +3044,59 @@ export class McpServerFactory {
         });
         return text(
           `Filamento registrado: ${filament.brand} ${filament.material} ${filament.color} — ${ars(filament.pricePaid)} (${filament.grams}g, ${ars(filament.pricePerGram)}/g). id ${filament.id}.`,
+        );
+      },
+    );
+
+    add(
+      'ajustar_precio_3d',
+      {
+        title: 'Cargar a mano el costo o el precio de un producto 3D',
+        description:
+          'Pisa con un valor manual el costo real y/o el precio a Marcelito de un producto del catálogo. Sirve cuando la fórmula (que usa un único $/g) no representa el filamento real usado, ej un PLA Wood más caro. Con volverAutomatico revertís al cálculo. Si cargás solo el costo, el precio a Marcelito se recalcula con el markup sobre ese costo real.',
+        inputSchema: {
+          producto: z.string().describe('Nombre (o parte) del producto, o su id'),
+          costo: z
+            .number()
+            .optional()
+            .describe('Costo real en ARS (lo que te sale imprimirlo de verdad)'),
+          precio: z
+            .number()
+            .optional()
+            .describe('Precio a Marcelito en ARS. Sin esto, se calcula con el markup sobre el costo.'),
+          volverAutomatico: z
+            .enum(['costo', 'precio', 'ambos'])
+            .optional()
+            .describe('Borra el valor manual y vuelve a la fórmula.'),
+        },
+      },
+      async (a) => {
+        const { producto, error } = await resolveProduct(a.producto);
+        if (error) return text(error);
+        const dto: any = {};
+        if (a.costo !== undefined) dto.costOverride = a.costo;
+        if (a.precio !== undefined) dto.priceOverride = a.precio;
+        if (a.volverAutomatico === 'costo' || a.volverAutomatico === 'ambos') {
+          dto.costOverride = null;
+        }
+        if (a.volverAutomatico === 'precio' || a.volverAutomatico === 'ambos') {
+          dto.priceOverride = null;
+        }
+        if (!Object.keys(dto).length) {
+          return text(
+            'Decime qué querés cargar: un costo, un precio, o volverAutomatico para usar la fórmula.',
+          );
+        }
+        const up: any = await this.printing.updateProduct(
+          userId,
+          producto.id,
+          dto,
+        );
+        return text(
+          `${up.name}: costo ${ars(up.cost)}${up.costIsManual ? ' (a mano)' : ' (calculado)'} · a Marcelito ${ars(up.priceToMarcelito)}${up.priceIsManual ? ' (a mano)' : ' (calculado)'} · ganancia ${ars(up.profit)}` +
+            (up.profit <= 0
+              ? ' ⚠️ ojo: con ese precio no ganás nada.'
+              : ''),
         );
       },
     );

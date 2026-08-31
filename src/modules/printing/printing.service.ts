@@ -29,6 +29,10 @@ export interface CreatePrintProductDto {
   sizeMm?: string;
   licenseOk?: boolean;
   markupOverride?: number;
+  /** Costo real a mano (null = volver a la formula). 0 es valido. */
+  costOverride?: number | null;
+  /** Precio a Marcelito a mano (null = volver al markup). 0 es valido. */
+  priceOverride?: number | null;
   publicPrice?: number;
   colorBreakdown?: { color?: string; colorHex?: string; grams: number }[] | null;
   active?: boolean;
@@ -175,6 +179,27 @@ export class PrintingService {
     return this.hydrateProduct(product, settings);
   }
 
+  /** Los valores manuales pueden ser 0 (muestra) o null (volver a la formula), nunca negativos. */
+  private assertOverridesOk(dto: {
+    costOverride?: number | null;
+    priceOverride?: number | null;
+  }) {
+    if (
+      dto.costOverride !== undefined &&
+      dto.costOverride !== null &&
+      dto.costOverride < 0
+    ) {
+      throw new BadRequestException('El costo manual no puede ser negativo');
+    }
+    if (
+      dto.priceOverride !== undefined &&
+      dto.priceOverride !== null &&
+      dto.priceOverride < 0
+    ) {
+      throw new BadRequestException('El precio manual no puede ser negativo');
+    }
+  }
+
   async createProduct(userId: string, dto: CreatePrintProductDto) {
     if (!dto.name?.trim()) {
       throw new BadRequestException('Falta el nombre del producto');
@@ -188,6 +213,7 @@ export class PrintingService {
     if (!dto.colorsLabel?.trim()) {
       throw new BadRequestException('Falta la cantidad de colores');
     }
+    this.assertOverridesOk(dto);
     const created = await this.prisma.printProduct.create({
       include: { photos: { orderBy: { order: 'asc' } } },
       data: {
@@ -201,6 +227,8 @@ export class PrintingService {
         sizeMm: dto.sizeMm?.trim() || null,
         licenseOk: dto.licenseOk ?? false,
         markupOverride: dto.markupOverride ?? null,
+        costOverride: dto.costOverride ?? null,
+        priceOverride: dto.priceOverride ?? null,
         publicPrice: dto.publicPrice ?? null,
         colorBreakdown: (dto.colorBreakdown as any) ?? undefined,
         active: dto.active ?? true,
@@ -221,6 +249,7 @@ export class PrintingService {
     if (dto.hours !== undefined && dto.hours < 0) {
       throw new BadRequestException('Las horas no pueden ser negativas');
     }
+    this.assertOverridesOk(dto);
     const updated = await this.prisma.printProduct.update({
       where: { id },
       include: { photos: { orderBy: { order: 'asc' } } },
@@ -238,6 +267,11 @@ export class PrintingService {
         licenseOk: dto.licenseOk,
         markupOverride:
           dto.markupOverride === undefined ? undefined : dto.markupOverride,
+        // undefined = no lo toques; null = borrar el manual y volver a la formula
+        costOverride:
+          dto.costOverride === undefined ? undefined : dto.costOverride,
+        priceOverride:
+          dto.priceOverride === undefined ? undefined : dto.priceOverride,
         publicPrice: dto.publicPrice === undefined ? undefined : dto.publicPrice,
         colorBreakdown:
           dto.colorBreakdown === undefined ? undefined : (dto.colorBreakdown as any),
