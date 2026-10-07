@@ -287,6 +287,35 @@ describe('PrintingService', () => {
       expect(result).toMatchObject(mockProduct);
     });
 
+    it('por defecto el producto es visible en el catalogo publico', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.create.mockResolvedValue({ ...mockProduct, photos: [] });
+      await service.createProduct(userId, {
+        name: 'X',
+        grams: 10,
+        hours: 1,
+        colorsLabel: '1',
+      });
+      expect(
+        (prisma.printProduct.create as jest.Mock).mock.calls[0][0].data.publicVisible,
+      ).toBe(true);
+    });
+
+    it('se puede crear oculto para Marcelito', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.create.mockResolvedValue({ ...mockProduct, photos: [] });
+      await service.createProduct(userId, {
+        name: 'X',
+        grams: 10,
+        hours: 1,
+        colorsLabel: '1',
+        publicVisible: false,
+      });
+      const data = (prisma.printProduct.create as jest.Mock).mock.calls[0][0].data;
+      expect(data.publicVisible).toBe(false);
+      expect(data.active).toBe(true);
+    });
+
     // Regresion: el POST devolvia el objeto crudo de Prisma, sin cost/
     // priceToMarcelito/profit. El front mete esa respuesta en el estado tal
     // cual (usePrinting.ts createProduct) => la card mostraba "$NaN" hasta
@@ -769,6 +798,20 @@ describe('PrintingService', () => {
       expect(raw.filaments).toBeUndefined();
       expect(raw.markupOverride).toBeUndefined();
       expect(raw.userId).toBeUndefined();
+    });
+
+    // Productos que Luciano cotiza/vende por su cuenta pero que Marcelito no
+    // tiene que ver. Es aparte de `active`: un producto oculto sigue activo
+    // (se le pueden registrar ventas, pedidos e impresiones).
+    it('no muestra los productos ocultos al publico (publicVisible=false)', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findMany.mockResolvedValue([]);
+
+      await service.getPublicCatalog(mockSettings.publicToken);
+
+      expect(
+        (prisma.printProduct.findMany as jest.Mock).mock.calls[0][0].where,
+      ).toMatchObject({ active: true, publicVisible: true });
     });
 
     it('404 con un token invalido', async () => {

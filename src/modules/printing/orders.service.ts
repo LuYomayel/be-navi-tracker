@@ -98,6 +98,7 @@ export class OrdersService {
       where: {
         userId: settings.userId,
         active: true,
+        publicVisible: true,
         id: { in: items.map((i) => i.productId) },
       },
     });

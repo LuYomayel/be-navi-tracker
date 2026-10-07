@@ -2969,7 +2969,7 @@ export class McpServerFactory {
         if (!list.length) return text('Todavía no cargaste productos en el catálogo.');
         const lines = list.map(
           (p) =>
-            `• ${p.name}${p.author ? ` (${p.author})` : ''} — costo ${ars(p.cost)}${p.costIsManual ? ' (a mano)' : ''} · a Marcelito ${ars(p.priceToMarcelito)}${p.priceIsManual ? ' (a mano)' : ''} · ganancia ${ars(p.profit)}${p.profit <= 0 ? ' ⚠️ NO GANÁS NADA' : ''}${p.licenseOk ? '' : ' ⚠️ sin licencia para vender'}`,
+            `• ${p.name}${p.author ? ` (${p.author})` : ''} — costo ${ars(p.cost)}${p.costIsManual ? ' (a mano)' : ''} · a Marcelito ${ars(p.priceToMarcelito)}${p.priceIsManual ? ' (a mano)' : ''} · ganancia ${ars(p.profit)}${p.profit <= 0 ? ' ⚠️ NO GANÁS NADA' : ''}${p.licenseOk ? '' : ' ⚠️ sin licencia para vender'}${p.publicVisible === false ? ' 🙈 oculto para Marcelito' : ''}`,
         );
         return text(`Catálogo (${list.length} productos):\n${lines.join('\n')}`);
       },
@@ -3097,6 +3097,79 @@ export class McpServerFactory {
             (up.profit <= 0
               ? ' ⚠️ ojo: con ese precio no ganás nada.'
               : ''),
+        );
+      },
+    );
+
+    add(
+      'crear_producto_3d',
+      {
+        title: 'Agregar un producto al catálogo 3D',
+        description:
+          'Crea un producto en el catálogo del negocio 3D (gramos y horas salen del perfil de MakerWorld). Con visibleParaMarcelito=false queda oculto en el catálogo público de Marcelito pero sigue activo para ventas, pedidos e impresiones.',
+        inputSchema: {
+          nombre: z.string().describe('Nombre del producto'),
+          gramos: z.number().describe('Gramos de filamento por unidad'),
+          horas: z.number().describe('Horas de impresión por unidad'),
+          colores: z
+            .string()
+            .optional()
+            .describe('Cantidad de colores ("1", "3", "multi"). Por defecto "1".'),
+          autor: z.string().optional().describe('Autor del diseño en MakerWorld'),
+          makerworldUrl: z.string().optional().describe('Link al modelo/perfil'),
+          medidas: z.string().optional().describe('Medidas en mm, ej "60x60x60"'),
+          costo: z.number().optional().describe('Costo real a mano (pisa la fórmula)'),
+          precio: z.number().optional().describe('Precio a Marcelito a mano (pisa el markup)'),
+          precioPublico: z.number().optional().describe('Precio sugerido de venta al público'),
+          licenciaOk: z.boolean().optional().describe('La licencia del autor permite vender'),
+          visibleParaMarcelito: z
+            .boolean()
+            .optional()
+            .describe('false = oculto en el catálogo público de Marcelito. Por defecto true.'),
+          notas: z.string().optional(),
+        },
+      },
+      async (a) => {
+        const p: any = await this.printing.createProduct(userId, {
+          name: a.nombre,
+          grams: a.gramos,
+          hours: a.horas,
+          colorsLabel: a.colores || '1',
+          author: a.autor,
+          makerworldUrl: a.makerworldUrl,
+          sizeMm: a.medidas,
+          costOverride: a.costo,
+          priceOverride: a.precio,
+          publicPrice: a.precioPublico,
+          licenseOk: a.licenciaOk,
+          publicVisible: a.visibleParaMarcelito,
+          notes: a.notas,
+        });
+        return text(
+          `Producto creado: ${p.name} — costo ${ars(p.cost)}${p.costIsManual ? ' (a mano)' : ''} · a Marcelito ${ars(p.priceToMarcelito)}${p.priceIsManual ? ' (a mano)' : ''} · ganancia ${ars(p.profit)}${p.publicVisible === false ? ' · 🙈 oculto para Marcelito' : ' · visible para Marcelito'}. id ${p.id}.`,
+        );
+      },
+    );
+
+    add(
+      'visibilidad_producto_3d',
+      {
+        title: 'Mostrar u ocultar un producto en el catálogo de Marcelito',
+        description:
+          'Oculta o vuelve a mostrar un producto en el catálogo público de Marcelito. No lo desactiva: sigue disponible para registrar ventas, pedidos e impresiones.',
+        inputSchema: {
+          producto: z.string().describe('Nombre (o parte) del producto, o su id'),
+          visible: z.boolean().describe('true = Marcelito lo ve · false = oculto'),
+        },
+      },
+      async (a) => {
+        const { producto, error } = await resolveProduct(a.producto);
+        if (error) return text(error);
+        const up: any = await this.printing.updateProduct(userId, producto.id, {
+          publicVisible: a.visible,
+        });
+        return text(
+          `${up.name}: ${up.publicVisible === false ? '🙈 oculto para Marcelito' : 'visible para Marcelito'}.`,
         );
       },
     );

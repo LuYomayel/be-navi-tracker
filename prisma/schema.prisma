@@ -902,6 +902,7 @@ model PrintProduct {
   publicPrice    Float? // precio sugerido de feria/venta al publico (dato manual)
   colorBreakdown Json? // desglose de consumo por color: [{ color, colorHex?, grams }] — habilita el chequeo de stock por color
   active         Boolean  @default(true)
+  publicVisible  Boolean  @default(true) // false = no aparece en el catalogo publico de Marcelito (sigue activo para ventas/pedidos/impresiones)
   notes          String?  @db.Text
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

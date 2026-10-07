@@ -139,6 +139,16 @@ describe('OrdersService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('no deja pedir productos ocultos al publico', async () => {
+      prisma.printProduct.findMany.mockResolvedValue([]);
+      await expect(
+        service.createPublicOrder(token, { items: [{ productId: 'prod-1', qty: 1 }] }),
+      ).rejects.toThrow(BadRequestException);
+      expect(
+        (prisma.printProduct.findMany as jest.Mock).mock.calls[0][0].where,
+      ).toMatchObject({ active: true, publicVisible: true });
+    });
+
     it('crea el pedido con snapshot del precio a Marcelito', async () => {
       await service.createPublicOrder(token, {
         items: [{ productId: 'prod-1', qty: 5 }],

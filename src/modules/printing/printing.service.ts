@@ -36,6 +36,8 @@ export interface CreatePrintProductDto {
   publicPrice?: number;
   colorBreakdown?: { color?: string; colorHex?: string; grams: number }[] | null;
   active?: boolean;
+  /** false = oculto en el catalogo publico de Marcelito. Default true. */
+  publicVisible?: boolean;
   notes?: string;
 }
 
@@ -232,6 +234,7 @@ export class PrintingService {
         publicPrice: dto.publicPrice ?? null,
         colorBreakdown: (dto.colorBreakdown as any) ?? undefined,
         active: dto.active ?? true,
+        publicVisible: dto.publicVisible ?? true,
         notes: dto.notes || null,
       },
     });
@@ -276,6 +279,7 @@ export class PrintingService {
         colorBreakdown:
           dto.colorBreakdown === undefined ? undefined : (dto.colorBreakdown as any),
         active: dto.active,
+        publicVisible: dto.publicVisible,
         notes: dto.notes === undefined ? undefined : dto.notes || null,
       },
     });
@@ -600,7 +604,9 @@ export class PrintingService {
       // Sin filtro de licencia: este catalogo reemplaza al sheet que
       // Marcelito ya usa con todos los productos. El flag licenseOk es un
       // aviso interno para Luciano, no esconde productos de la feria.
-      where: { userId: settings.userId, active: true },
+      // publicVisible=false si los esconde (productos que Luciano vende
+      // por su cuenta).
+      where: { userId: settings.userId, active: true, publicVisible: true },
       include: { photos: { orderBy: { order: 'asc' } } },
       orderBy: { name: 'asc' },
     });
