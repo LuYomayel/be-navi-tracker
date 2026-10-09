@@ -661,10 +661,17 @@ export class McpServerFactory {
             .optional()
             .describe('Prioridad'),
           categoria: z.string().optional().describe('Categoria'),
+          proyecto: z
+            .string()
+            .optional()
+            .describe(
+              'Proyecto al que pertenece (ej: "EaseTrain", "Stampia", "Pulpou"). Si no se pasa, se toma del prefijo del titulo ("Stampia - ...").',
+            ),
         },
       },
       async (a) => {
         const task = await this.tasks.create(userId, {
+          project: a.proyecto,
           title: a.titulo,
           description: a.descripcion,
           dueDate: a.fecha,
@@ -673,7 +680,7 @@ export class McpServerFactory {
           category: a.categoria,
         } as any);
         return text(
-          `Tarea creada: "${task.title}"${task.dueDate ? ` (vence ${task.dueDate}${task.dueTime ? ' ' + task.dueTime : ''})` : ''}. id ${task.id}.`,
+          `Tarea creada: "${task.title}"${task.project ? ` [${task.project}]` : ''}${task.dueDate ? ` (vence ${task.dueDate}${task.dueTime ? ' ' + task.dueTime : ''})` : ''}. id ${task.id}.`,
         );
       },
     );
@@ -1592,6 +1599,10 @@ export class McpServerFactory {
             .boolean()
             .optional()
             .describe('Incluir las ya completadas (default false)'),
+          proyecto: z
+            .string()
+            .optional()
+            .describe('Solo las de este proyecto (ej: "Stampia")'),
         },
       },
       async (a) => {
@@ -1599,9 +1610,12 @@ export class McpServerFactory {
           userId,
           a.fecha ? { date: a.fecha } : {},
         )) as any[];
-        const list = a.incluir_completadas
-          ? tasks
-          : tasks.filter((t) => !t.completed);
+        const q = a.proyecto?.trim().toLowerCase();
+        const list = tasks.filter(
+          (t) =>
+            (a.incluir_completadas || !t.completed) &&
+            (!q || t.project?.toLowerCase() === q),
+        );
         if (!list.length) {
           return text(
             'No hay tareas' +
@@ -1611,7 +1625,7 @@ export class McpServerFactory {
         }
         const lines = list.map(
           (t) =>
-            `${t.completed ? '✓' : '○'} ${t.title}${t.dueDate ? ` (${t.dueDate}${t.dueTime ? ' ' + t.dueTime : ''})` : ''} [${t.priority}]`,
+            `${t.completed ? '✓' : '○'} ${t.title}${t.project ? ` {${t.project}}` : ''}${t.dueDate ? ` (${t.dueDate}${t.dueTime ? ' ' + t.dueTime : ''})` : ''} [${t.priority}]`,
         );
         return text(`Tareas (${list.length}):\n${lines.join('\n')}`);
       },
@@ -1652,7 +1666,7 @@ export class McpServerFactory {
       {
         title: 'Editar / mover una tarea',
         description:
-          'Edita una tarea existente identificada por su título (o parte): cambiar fecha/hora de vencimiento, título, descripción, prioridad o categoría. NO crea una tarea nueva — usala para mover tareas de fecha sin duplicarlas. Usá list_tareas si no sabés el nombre exacto.',
+          'Edita una tarea existente identificada por su título (o parte): cambiar fecha/hora de vencimiento, título, descripción, prioridad, categoría o proyecto. NO crea una tarea nueva — usala para mover tareas de fecha sin duplicarlas. Usá list_tareas si no sabés el nombre exacto.',
         inputSchema: {
           titulo: z
             .string()
@@ -1673,6 +1687,14 @@ export class McpServerFactory {
             .boolean()
             .optional()
             .describe('true para sacarle la fecha de vencimiento'),
+          proyecto: z
+            .string()
+            .optional()
+            .describe('Nuevo proyecto (ej: "EaseTrain")'),
+          quitar_proyecto: z
+            .boolean()
+            .optional()
+            .describe('true para dejarla sin proyecto'),
         },
       },
       async (a) => {

@@ -65,3 +65,17 @@ describe('buildTaskUpdateFromMcpArgs', () => {
     expect(buildTaskUpdateFromMcpArgs({})).toBeNull();
   });
 });
+
+describe('buildTaskUpdateFromMcpArgs — proyecto', () => {
+  it('mapea proyecto', () => {
+    expect(buildTaskUpdateFromMcpArgs({ proyecto: 'Stampia' })).toEqual({
+      project: 'Stampia',
+    });
+  });
+
+  it('quitar_proyecto lo deja vacio (sin proyecto a proposito)', () => {
+    expect(buildTaskUpdateFromMcpArgs({ quitar_proyecto: true })).toEqual({
+      project: '',
+    });
+  });
+});

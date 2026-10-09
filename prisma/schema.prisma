@@ -239,6 +239,9 @@ model UserPreferences {
   // Config de quick actions (NFC/Atajos): { aguaVasosPorTap, notaMoodDefault, gastoCategoriaDefault }
   quickActions Json?
 
+  // Proyectos de tareas en pausa (ej ["EaseTrain"]): sus tareas no aparecen en /tasks salvo que se pidan
+  pausedTaskProjects Json?
+
   // Metadatos
   lastBodyAnalysisId String? // ID del último body analysis usado para calcular
   bmr                Float? // Metabolismo basal calculado
@@ -526,6 +529,7 @@ model Task {
   completed      Boolean   @default(false)
   completedAt    DateTime?
   category       String? // "work" | "personal" | "health" | "finance" | "study" | "other"
+  project        String? // "EaseTrain", "Stampia"... null = tarea vieja, se infiere del prefijo del titulo; "" = sin proyecto a proposito
   tags           String?   @db.Text // JSON array de strings
   order          Int       @default(0)
   isRecurring    Boolean   @default(false)
@@ -537,6 +541,7 @@ model Task {
   @@index([userId])
   @@index([userId, dueDate])
   @@index([userId, status])
+  @@index([userId, project])
   @@map("tasks")
 }
 

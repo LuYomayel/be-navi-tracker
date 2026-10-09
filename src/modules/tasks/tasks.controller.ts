@@ -10,7 +10,9 @@ import {
   Req,
   UseGuards,
   HttpException,
-  HttpStatus, Logger } from '@nestjs/common';
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -45,6 +47,29 @@ export class TasksController {
       this.logger.error('Error fetching tasks:', error);
       return { success: false, error: 'Error fetching tasks' };
     }
+  }
+
+  // Rutas de 2 segmentos: no chocan con :id
+  @Get('projects/paused')
+  async getPausedProjects(@Req() req: any) {
+    const data = await this.tasksService.getPausedProjects(req.user.userId);
+    return { success: true, data };
+  }
+
+  @Put('projects/paused')
+  async setProjectPaused(
+    @Req() req: any,
+    @Body() body: { project?: string; paused?: boolean },
+  ) {
+    if (typeof body?.project !== 'string' || !body.project.trim()) {
+      throw new HttpException('project requerido', HttpStatus.BAD_REQUEST);
+    }
+    const data = await this.tasksService.setProjectPaused(
+      req.user.userId,
+      body.project.slice(0, 40),
+      body.paused !== false,
+    );
+    return { success: true, data };
   }
 
   @Get(':id')

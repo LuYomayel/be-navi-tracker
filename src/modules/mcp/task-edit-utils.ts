@@ -18,6 +18,8 @@ export interface EditarTareaArgs {
   prioridad?: 'low' | 'medium' | 'high' | 'urgent';
   categoria?: string;
   quitar_fecha?: boolean;
+  proyecto?: string;
+  quitar_proyecto?: boolean;
 }
 
 export function matchTaskByTitle<T extends TaskLike>(
@@ -48,5 +50,7 @@ export function buildTaskUpdateFromMcpArgs(
   }
   if (args.prioridad) update.priority = args.prioridad;
   if (args.categoria) update.category = args.categoria;
+  if (args.quitar_proyecto) update.project = '';
+  else if (args.proyecto) update.project = args.proyecto;
   return Object.keys(update).length ? update : null;
 }

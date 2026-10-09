@@ -23,6 +23,7 @@ describe('TasksService', () => {
     completed: false,
     completedAt: null,
     category: 'work',
+    project: null,
     tags: '["tag1","tag2"]',
     order: 0,
     isRecurring: false,
@@ -52,6 +53,10 @@ describe('TasksService', () => {
               update: jest.fn(),
               updateMany: jest.fn(),
               delete: jest.fn(),
+            },
+            userPreferences: {
+              findUnique: jest.fn(),
+              upsert: jest.fn(),
             },
             $transaction: jest.fn(),
           },
@@ -395,7 +400,11 @@ describe('TasksService', () => {
     it('should reorder tasks using transaction', async () => {
       (prisma.$transaction as jest.Mock).mockResolvedValue([]);
 
-      const result = await service.reorder(userId, ['task-1', 'task-2', 'task-3']);
+      const result = await service.reorder(userId, [
+        'task-1',
+        'task-2',
+        'task-3',
+      ]);
 
       expect(result).toEqual({ reordered: true });
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
@@ -413,6 +422,103 @@ describe('TasksService', () => {
         where: { id: 'task-3', userId },
         data: { order: 2 },
       });
+    });
+  });
+
+  describe('proyecto', () => {
+    it('findAll devuelve el proyecto guardado o lo infiere del titulo', async () => {
+      (prisma.task.findMany as jest.Mock).mockResolvedValue([
+        { ...mockTask, id: 'a', title: 'EaseTrain — bug', project: null },
+        { ...mockTask, id: 'b', title: 'EaseTrain — otro', project: 'Pulpou' },
+        { ...mockTask, id: 'c', title: 'Sin prefijo', project: null },
+      ]);
+
+      const result = await service.findAll(userId, {});
+
+      expect(result.map((t) => t.project)).toEqual([
+        'EaseTrain',
+        'Pulpou',
+        null,
+      ]);
+    });
+
+    it('create guarda el proyecto que viene en el dto (recortado)', async () => {
+      (prisma.task.create as jest.Mock).mockResolvedValue(mockTask);
+
+      await service.create(userId, { title: 'Algo', project: ' Stampia ' });
+
+      expect(prisma.task.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ project: 'Stampia' }),
+      });
+    });
+
+    it('create sin proyecto lo infiere del titulo y lo persiste', async () => {
+      (prisma.task.create as jest.Mock).mockResolvedValue(mockTask);
+
+      await service.create(userId, { title: 'EaseTrain — algo' });
+
+      expect(prisma.task.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ project: 'EaseTrain' }),
+      });
+    });
+
+    it('update con proyecto vacio lo guarda vacio (sin proyecto a proposito)', async () => {
+      (prisma.task.findFirst as jest.Mock).mockResolvedValue(mockTask);
+      (prisma.task.update as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        project: '',
+      });
+
+      const result = await service.update(userId, 'task-1', { project: '  ' });
+
+      expect(prisma.task.update).toHaveBeenCalledWith({
+        where: { id: 'task-1' },
+        data: expect.objectContaining({ project: '' }),
+      });
+      expect(result.project).toBeNull();
+    });
+  });
+
+  describe('proyectos pausados', () => {
+    it('getPausedProjects devuelve [] si no hay preferencias', async () => {
+      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue(null);
+
+      expect(await service.getPausedProjects(userId)).toEqual([]);
+    });
+
+    it('getPausedProjects devuelve la lista guardada', async () => {
+      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue({
+        pausedTaskProjects: ['EaseTrain'],
+      });
+
+      expect(await service.getPausedProjects(userId)).toEqual(['EaseTrain']);
+    });
+
+    it('pausar agrega el proyecto sin duplicar (ignora mayusculas)', async () => {
+      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue({
+        pausedTaskProjects: ['EaseTrain'],
+      });
+
+      const result = await service.setProjectPaused(userId, 'easetrain', true);
+      expect(result).toEqual(['EaseTrain']);
+
+      const result2 = await service.setProjectPaused(userId, 'Stampia', true);
+      expect(result2).toEqual(['EaseTrain', 'Stampia']);
+      expect(prisma.userPreferences.upsert).toHaveBeenLastCalledWith({
+        where: { userId },
+        create: { userId, pausedTaskProjects: ['EaseTrain', 'Stampia'] },
+        update: { pausedTaskProjects: ['EaseTrain', 'Stampia'] },
+      });
+    });
+
+    it('reanudar saca el proyecto (ignora mayusculas)', async () => {
+      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue({
+        pausedTaskProjects: ['EaseTrain', 'Stampia'],
+      });
+
+      const result = await service.setProjectPaused(userId, 'EASETRAIN', false);
+
+      expect(result).toEqual(['Stampia']);
     });
   });
 });

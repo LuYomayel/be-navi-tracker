@@ -7,6 +7,7 @@ import {
   IsArray,
   IsObject,
   Matches,
+  MaxLength,
 } from 'class-validator';
 
 export class UpdateTaskDto {
@@ -43,6 +44,11 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsString()
   category?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  project?: string;
 
   @IsOptional()
   @IsArray()
