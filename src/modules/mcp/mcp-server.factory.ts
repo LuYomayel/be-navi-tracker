@@ -24,6 +24,8 @@ import {
   matchTaskByTitle,
   buildTaskUpdateFromMcpArgs,
   formatProjectLine,
+  formatProjectDetail,
+  matchMilestone,
 } from './task-edit-utils';
 import {
   SleepService,
@@ -651,7 +653,7 @@ export class McpServerFactory {
       {
         title: 'Crear tarea',
         description:
-          'Crea una tarea / pendiente para el usuario, opcionalmente con fecha y hora de vencimiento y prioridad.',
+          'Crea una tarea / pendiente para el usuario, opcionalmente con fecha y hora, prioridad, proyecto e hito. Usá list_proyectos para ver proyectos e hitos existentes.',
         inputSchema: {
           titulo: z.string().describe('Titulo de la tarea'),
           descripcion: z.string().optional().describe('Detalle de la tarea'),
@@ -669,13 +671,26 @@ export class McpServerFactory {
             .string()
             .optional()
             .describe(
-              'Proyecto al que pertenece (ej: "EaseTrain", "Stampia", "Pulpou"). Si no se pasa, se toma del prefijo del titulo ("Stampia - ...").',
+              'Proyecto al que pertenece (ej: "EaseTrain", "Stampia", "Pulpou"). Si no existe se crea. Si no se pasa, se toma del prefijo del titulo ("Stampia - ...").',
             ),
+          hito: z
+            .string()
+            .optional()
+            .describe('Hito del proyecto donde va (ej: "Release v2"). Arrastra su proyecto.'),
+          en_curso: z.boolean().optional().describe('true si ya está en curso'),
         },
       },
       async (a) => {
+        let milestoneId: string | undefined;
+        if (a.hito) {
+          const r = await this.resolveMilestone(userId, a.hito, a.proyecto);
+          if ('error' in r) return text(r.error);
+          milestoneId = r.id;
+        }
         const task = await this.tasks.create(userId, {
-          project: a.proyecto,
+          project: milestoneId ? undefined : a.proyecto,
+          milestoneId,
+          status: a.en_curso ? 'in_progress' : undefined,
           title: a.titulo,
           description: a.descripcion,
           dueDate: a.fecha,
@@ -684,7 +699,7 @@ export class McpServerFactory {
           category: a.categoria,
         } as any);
         return text(
-          `Tarea creada: "${task.title}"${task.project ? ` [${task.project}]` : ''}${task.dueDate ? ` (vence ${task.dueDate}${task.dueTime ? ' ' + task.dueTime : ''})` : ''}. id ${task.id}.`,
+          `Tarea creada: "${task.title}"${task.project ? ` [${task.project}${task.milestone ? ' › ' + task.milestone.name : ''}]` : ''}${task.dueDate ? ` (vence ${task.dueDate}${task.dueTime ? ' ' + task.dueTime : ''})` : ''}. id ${task.id}.`,
         );
       },
     );
@@ -1593,7 +1608,7 @@ export class McpServerFactory {
       {
         title: 'Listar tareas',
         description:
-          'Lista las tareas/pendientes del usuario. Por defecto solo las pendientes; opcionalmente por fecha o incluyendo las completadas.',
+          'Lista las tareas/pendientes del usuario. Por defecto solo las pendientes y sin las de proyectos pausados/archivados. Filtros: fecha, proyecto, hito, solo en curso. Para ver un proyecto entero agrupado por hito usá ver_proyecto.',
         inputSchema: {
           fecha: z
             .string()
@@ -1607,6 +1622,12 @@ export class McpServerFactory {
             .string()
             .optional()
             .describe('Solo las de este proyecto (ej: "Stampia")'),
+          hito: z.string().optional().describe('Solo las de este hito'),
+          solo_en_curso: z.boolean().optional(),
+          incluir_pausados: z
+            .boolean()
+            .optional()
+            .describe('Incluir tareas de proyectos pausados/archivados (default false)'),
         },
       },
       async (a) => {
@@ -1615,10 +1636,18 @@ export class McpServerFactory {
           a.fecha ? { date: a.fecha } : {},
         )) as any[];
         const q = a.proyecto?.trim().toLowerCase();
+        const h = a.hito?.trim().toLowerCase();
         const list = tasks.filter(
           (t) =>
             (a.incluir_completadas || !t.completed) &&
-            (!q || t.project?.toLowerCase() === q),
+            // Pedir un proyecto por nombre lo muestra aunque este pausado.
+            (a.incluir_pausados ||
+              !!q ||
+              (t.projectStatus !== 'paused' &&
+                t.projectStatus !== 'archived')) &&
+            (!q || t.project?.toLowerCase() === q) &&
+            (!h || t.milestone?.name?.toLowerCase().includes(h)) &&
+            (!a.solo_en_curso || t.status === 'in_progress'),
         );
         if (!list.length) {
           return text(
@@ -1629,7 +1658,7 @@ export class McpServerFactory {
         }
         const lines = list.map(
           (t) =>
-            `${t.completed ? '✓' : '○'} ${t.title}${t.project ? ` {${t.project}}` : ''}${t.dueDate ? ` (${t.dueDate}${t.dueTime ? ' ' + t.dueTime : ''})` : ''} [${t.priority}]`,
+            `${t.completed ? '✓' : '○'} ${t.title}${t.project ? ` {${t.project}${t.milestone ? ' › ' + t.milestone.name : ''}}` : ''}${t.status === 'in_progress' && !t.completed ? ' [en curso]' : ''}${t.dueDate ? ` (${t.dueDate}${t.dueTime ? ' ' + t.dueTime : ''})` : ''} [${t.priority}]`,
         );
         return text(`Tareas (${list.length}):\n${lines.join('\n')}`);
       },
@@ -1670,7 +1699,7 @@ export class McpServerFactory {
       {
         title: 'Editar / mover una tarea',
         description:
-          'Edita una tarea existente identificada por su título (o parte): cambiar fecha/hora de vencimiento, título, descripción, prioridad, categoría o proyecto. NO crea una tarea nueva — usala para mover tareas de fecha sin duplicarlas. Usá list_tareas si no sabés el nombre exacto.',
+          'Edita una tarea existente identificada por su título (o parte): cambiar fecha/hora de vencimiento, título, descripción, prioridad, categoría, proyecto, hito o estado (en curso / pendiente). NO crea una tarea nueva — usala para mover tareas de fecha sin duplicarlas. Usá list_tareas si no sabés el nombre exacto.',
         inputSchema: {
           titulo: z
             .string()
@@ -1699,6 +1728,15 @@ export class McpServerFactory {
             .boolean()
             .optional()
             .describe('true para dejarla sin proyecto'),
+          hito: z
+            .string()
+            .optional()
+            .describe('Mover al hito (ej: "Release v2"). Usa `proyecto` para desambiguar.'),
+          quitar_hito: z.boolean().optional().describe('true para sacarla del hito'),
+          estado: z
+            .enum(['pendiente', 'en_curso'])
+            .optional()
+            .describe('Marcarla en curso o volverla a pendiente'),
         },
       },
       async (a) => {
@@ -1713,10 +1751,17 @@ export class McpServerFactory {
             `No encontré una tarea "${a.titulo}". Pendientes: ${names || '(ninguna)'}.`,
           );
         }
-        const update = buildTaskUpdateFromMcpArgs(a);
+        let update = buildTaskUpdateFromMcpArgs(a);
+        if (a.hito) {
+          const r = await this.resolveMilestone(userId, a.hito, a.proyecto);
+          if ('error' in r) return text(r.error);
+          // El hito arrastra su proyecto: no mandar el nombre tambien.
+          const { project: _p, ...rest } = update ?? {};
+          update = { ...rest, milestoneId: r.id };
+        }
         if (!update) {
           return text(
-            `No indicaste ningún cambio para "${target.title}". Podés cambiar fecha, hora, título, descripción, prioridad o categoría.`,
+            `No indicaste ningún cambio para "${target.title}". Podés cambiar fecha, hora, título, descripción, prioridad, categoría, proyecto, hito o estado.`,
           );
         }
         const updated = await this.tasks.update(
@@ -1729,8 +1774,31 @@ export class McpServerFactory {
             updated.dueDate
               ? ` (vence ${updated.dueDate}${updated.dueTime ? ' ' + updated.dueTime : ''})`
               : ' (sin fecha)'
-          } [${updated.priority}].`,
+          } [${updated.priority}]${
+            updated.project
+              ? ` {${updated.project}${updated.milestone ? ' › ' + updated.milestone.name : ''}}`
+              : ''
+          }${updated.status === 'in_progress' ? ' [en curso]' : ''}.`,
         );
+      },
+    );
+
+    add(
+      'borrar_tarea',
+      {
+        title: 'Borrar una tarea',
+        description:
+          'Elimina una tarea identificada por su título (o parte). Es definitivo: si solo está terminada, usá completar_tarea.',
+        inputSchema: {
+          titulo: z.string().describe('Título (o parte) de la tarea'),
+        },
+      },
+      async (a) => {
+        const tasks = (await this.tasks.findAll(userId, {})) as any[];
+        const target = matchTaskByTitle(tasks, a.titulo);
+        if (!target) return text(`No encontré una tarea "${a.titulo}".`);
+        await this.tasks.remove(userId, target.id);
+        return text(`Tarea eliminada: "${target.title}".`);
       },
     );
   }
@@ -2846,6 +2914,23 @@ export class McpServerFactory {
   }
 
   /** Sueño: registrar la noche y consultar cómo viene la semana. */
+  /** Hito por nombre (opcionalmente dentro de un proyecto) → id, o el error para Claude. */
+  private async resolveMilestone(
+    userId: string,
+    hito: string,
+    proyecto?: string,
+  ): Promise<{ id: string } | { error: string }> {
+    const all = await this.projects.list(userId, getLocalDateString(), true);
+    const m = matchMilestone(all, hito, proyecto);
+    if (m) return { id: m.id };
+    const names = all
+      .flatMap((p) => p.milestones.map((x) => `${x.name} (${p.name})`))
+      .join(', ');
+    return {
+      error: `No encontré un hito único "${hito}"${proyecto ? ` en ${proyecto}` : ''}. Hitos: ${names || '(ninguno)'}. Si hay dos con el mismo nombre, pasá también el proyecto.`,
+    };
+  }
+
   // ────────────────────────────────────────────────────────────
   //  Tools de proyectos e hitos
   // ────────────────────────────────────────────────────────────
@@ -2984,6 +3069,100 @@ export class McpServerFactory {
           `Hito "${m.name}" creado en ${p.name}.` +
             (moved.length ? ` Tareas asignadas: ${moved.join('; ')}.` : '') +
             (missing.length ? ` No encontré: ${missing.join('; ')}.` : ''),
+        );
+      },
+    );
+
+    add(
+      'ver_proyecto',
+      {
+        title: 'Ver un proyecto con sus tareas',
+        description:
+          'Muestra un proyecto entero: avance, descripción, cada hito con sus tareas (las "subtareas") y las tareas sin hito. Por defecto solo pendientes.',
+        inputSchema: {
+          nombre: z.string().describe('Nombre (o parte) del proyecto'),
+          incluir_completadas: z.boolean().optional(),
+        },
+      },
+      async (a) => {
+        const p = await findProject(a.nombre);
+        if (!p) return text(`No encontré el proyecto "${a.nombre}".`);
+        const tasks = ((await this.tasks.findAll(userId, {})) as any[]).filter(
+          (t) => t.projectId === p.id,
+        );
+        return text(formatProjectDetail(p, tasks, !!a.incluir_completadas));
+      },
+    );
+
+    add(
+      'editar_hito',
+      {
+        title: 'Editar un hito',
+        description:
+          'Renombra un hito, le cambia/saca la fecha objetivo o lo marca cumplido / lo reabre.',
+        inputSchema: {
+          hito: z.string().describe('Nombre (o parte) del hito'),
+          proyecto: z.string().optional().describe('Proyecto, si hay hitos con el mismo nombre'),
+          nuevo_nombre: z.string().optional(),
+          fecha: z.string().optional().describe('Nueva fecha objetivo YYYY-MM-DD'),
+          quitar_fecha: z.boolean().optional(),
+          cumplido: z.boolean().optional().describe('true = cumplido, false = reabrir'),
+        },
+      },
+      async (a) => {
+        const r = await this.resolveMilestone(userId, a.hito, a.proyecto);
+        if ('error' in r) return text(r.error);
+        const m = await this.projects.updateMilestone(userId, r.id, {
+          name: a.nuevo_nombre,
+          dueDate: a.quitar_fecha ? null : a.fecha,
+          done: a.cumplido,
+        });
+        return text(
+          `Hito actualizado: ${m.name}${m.dueDate ? ` (vence ${m.dueDate})` : ''}${m.done ? ' ✓ cumplido' : ''}.`,
+        );
+      },
+    );
+
+    add(
+      'borrar_hito',
+      {
+        title: 'Borrar un hito',
+        description:
+          'Elimina un hito. Sus tareas NO se borran: siguen en el proyecto, sin hito.',
+        inputSchema: {
+          hito: z.string().describe('Nombre (o parte) del hito'),
+          proyecto: z.string().optional(),
+        },
+      },
+      async (a) => {
+        const r = await this.resolveMilestone(userId, a.hito, a.proyecto);
+        if ('error' in r) return text(r.error);
+        await this.projects.removeMilestone(userId, r.id);
+        return text(`Hito "${a.hito}" eliminado; sus tareas quedaron sin hito.`);
+      },
+    );
+
+    add(
+      'borrar_proyecto',
+      {
+        title: 'Borrar un proyecto',
+        description:
+          'Elimina un proyecto y sus hitos. Sus tareas NO se borran: quedan sin proyecto. Si el proyecto solo terminó, mejor editar_proyecto con estado "archived".',
+        inputSchema: {
+          nombre: z.string().describe('Nombre exacto del proyecto'),
+        },
+      },
+      async (a) => {
+        const p = await findProject(a.nombre);
+        // Borrar pide el nombre exacto: un match parcial no alcanza.
+        if (!p || p.name.toLowerCase() !== a.nombre.trim().toLowerCase()) {
+          return text(
+            `Para borrar necesito el nombre exacto del proyecto${p ? ` (¿"${p.name}"?)` : ''}.`,
+          );
+        }
+        await this.projects.remove(userId, p.id);
+        return text(
+          `Proyecto "${p.name}" eliminado. ${p.stats.total} tareas quedaron sin proyecto.`,
         );
       },
     );

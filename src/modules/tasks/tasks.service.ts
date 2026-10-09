@@ -153,6 +153,7 @@ export class TasksService {
         dueDate: dto.dueDate,
         dueTime: dto.dueTime,
         priority: dto.priority || 'medium',
+        status: dto.status || 'pending',
         category: dto.category,
         tags: dto.tags ? JSON.stringify(dto.tags) : null,
         isRecurring: dto.isRecurring || false,

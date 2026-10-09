@@ -2,6 +2,8 @@ import {
   matchTaskByTitle,
   buildTaskUpdateFromMcpArgs,
   formatProjectLine,
+  matchMilestone,
+  formatProjectDetail,
 } from './task-edit-utils';
 
 describe('matchTaskByTitle', () => {
@@ -140,5 +142,85 @@ describe('formatProjectLine', () => {
         milestones: [],
       }),
     ).toBe('Piano — 0/1 hechas (0%)');
+  });
+});
+
+describe('buildTaskUpdateFromMcpArgs — estado e hito', () => {
+  it('estado en_curso / pendiente', () => {
+    expect(buildTaskUpdateFromMcpArgs({ estado: 'en_curso' })).toEqual({
+      status: 'in_progress',
+    });
+    expect(buildTaskUpdateFromMcpArgs({ estado: 'pendiente' })).toEqual({
+      status: 'pending',
+    });
+  });
+
+  it('quitar_hito deja milestoneId null', () => {
+    expect(buildTaskUpdateFromMcpArgs({ quitar_hito: true })).toEqual({
+      milestoneId: null,
+    });
+  });
+});
+
+describe('matchMilestone', () => {
+  const projects = [
+    { id: 'p1', name: 'EaseTrain', milestones: [{ id: 'm1', name: 'Release v2' }, { id: 'm2', name: 'Beta' }] },
+    { id: 'p2', name: 'Stampia', milestones: [{ id: 'm3', name: 'Release v2' }] },
+  ];
+
+  it('busca dentro del proyecto indicado', () => {
+    expect(matchMilestone(projects, 'release', 'stampia')?.id).toBe('m3');
+  });
+
+  it('sin proyecto, si el nombre es unico lo encuentra', () => {
+    expect(matchMilestone(projects, 'beta')?.id).toBe('m2');
+  });
+
+  it('sin proyecto y ambiguo devuelve null', () => {
+    expect(matchMilestone(projects, 'release v2')).toBeNull();
+  });
+
+  it('exacto gana sobre parcial', () => {
+    const ps = [{ id: 'p', name: 'X', milestones: [{ id: 'a', name: 'v2 final' }, { id: 'b', name: 'v2' }] }];
+    expect(matchMilestone(ps, 'v2')?.id).toBe('b');
+  });
+});
+
+describe('formatProjectDetail', () => {
+  it('lista tareas pendientes agrupadas por hito y las hechas resumidas', () => {
+    const out = formatProjectDetail(
+      {
+        name: 'EaseTrain',
+        emoji: null,
+        status: 'active',
+        description: 'App de coaching',
+        stats: { total: 4, done: 1, pending: 3, overdue: 0, nextDue: null, progress: 25 },
+        milestones: [
+          { id: 'm1', name: 'v2', done: false, dueDate: '2026-11-01', stats: { total: 2, done: 1, pending: 1, overdue: 0, nextDue: null, progress: 50 } },
+        ],
+      },
+      [
+        { title: 'Bug login', milestoneId: 'm1', completed: false, status: 'in_progress', priority: 'high', dueDate: '2026-10-10' },
+        { title: 'Deploy', milestoneId: 'm1', completed: true, status: 'completed', priority: 'medium' },
+        { title: 'Docs', milestoneId: null, completed: false, status: 'pending', priority: 'low' },
+        { title: 'Logo', milestoneId: null, completed: false, status: 'pending', priority: 'medium' },
+      ],
+    );
+
+    expect(out).toBe(
+      [
+        'EaseTrain — 1/4 hechas (25%)',
+        'App de coaching',
+        '',
+        '🏁 v2 (vence 2026-11-01) — 1/2',
+        '  ○ Bug login [en curso] (2026-10-10) [high]',
+        '',
+        'Sin hito:',
+        '  ○ Docs [low]',
+        '  ○ Logo [medium]',
+        '',
+        '✓ 1 hecha (incluir_completadas=true para verlas)',
+      ].join('\n'),
+    );
   });
 });

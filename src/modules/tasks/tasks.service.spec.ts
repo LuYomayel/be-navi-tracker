@@ -229,6 +229,18 @@ describe('TasksService', () => {
     });
   });
 
+  describe('create — estado', () => {
+    it('acepta crear una tarea ya en curso', async () => {
+      (prisma.task.create as jest.Mock).mockResolvedValue(mockTask);
+      await service.create(userId, { title: 'Algo', status: 'in_progress' });
+      expect(prisma.task.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'in_progress' }),
+        }),
+      );
+    });
+  });
+
   describe('update', () => {
     it('should update a task', async () => {
       (prisma.task.findFirst as jest.Mock).mockResolvedValue(mockTask);

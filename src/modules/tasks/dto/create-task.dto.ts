@@ -34,6 +34,10 @@ export class CreateTaskDto {
   priority?: string;
 
   @IsOptional()
+  @IsIn(['pending', 'in_progress'])
+  status?: string;
+
+  @IsOptional()
   @IsString()
   category?: string;
 
