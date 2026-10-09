@@ -1,4 +1,8 @@
-import { matchTaskByTitle, buildTaskUpdateFromMcpArgs } from './task-edit-utils';
+import {
+  matchTaskByTitle,
+  buildTaskUpdateFromMcpArgs,
+  formatProjectLine,
+} from './task-edit-utils';
 
 describe('matchTaskByTitle', () => {
   const tasks = [
@@ -77,5 +81,64 @@ describe('buildTaskUpdateFromMcpArgs — proyecto', () => {
     expect(buildTaskUpdateFromMcpArgs({ quitar_proyecto: true })).toEqual({
       project: '',
     });
+  });
+});
+
+describe('formatProjectLine', () => {
+  const stats = {
+    total: 10,
+    done: 4,
+    pending: 6,
+    overdue: 2,
+    nextDue: '2026-10-12',
+    progress: 40,
+  };
+
+  it('resume avance, vencidas, proxima fecha e hitos', () => {
+    const line = formatProjectLine({
+      name: 'EaseTrain',
+      emoji: '🏋️',
+      status: 'paused',
+      stats,
+      milestones: [
+        {
+          name: 'v2',
+          done: false,
+          dueDate: '2026-11-01',
+          stats: { ...stats, total: 3, done: 1 },
+        },
+        {
+          name: 'Beta',
+          done: true,
+          dueDate: null,
+          stats: { ...stats, total: 2, done: 2 },
+        },
+      ],
+    });
+
+    expect(line).toBe(
+      '🏋️ EaseTrain (pausado) — 4/10 hechas (40%), 2 vencidas, próxima 2026-10-12\n' +
+        '   · v2: 1/3 (vence 2026-11-01)\n' +
+        '   · ✓ Beta: 2/2',
+    );
+  });
+
+  it('proyecto activo sin hitos ni fechas', () => {
+    expect(
+      formatProjectLine({
+        name: 'Piano',
+        emoji: null,
+        status: 'active',
+        stats: {
+          total: 1,
+          done: 0,
+          pending: 1,
+          overdue: 0,
+          nextDue: null,
+          progress: 0,
+        },
+        milestones: [],
+      }),
+    ).toBe('Piano — 0/1 hechas (0%)');
   });
 });

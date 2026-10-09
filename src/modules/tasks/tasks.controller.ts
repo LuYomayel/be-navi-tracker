@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TasksService } from './tasks.service';
+import { ProjectsService } from './projects.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 
@@ -23,7 +24,10 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 export class TasksController {
   private readonly logger = new Logger(TasksController.name);
 
-  constructor(private readonly tasksService: TasksService) {}
+  constructor(
+    private readonly tasksService: TasksService,
+    private readonly projectsService: ProjectsService,
+  ) {}
 
   @Get()
   async findAll(
@@ -49,10 +53,11 @@ export class TasksController {
     }
   }
 
+  // Compat de la app movil empaquetada antes de /projects (pausa por nombre).
   // Rutas de 2 segmentos: no chocan con :id
   @Get('projects/paused')
   async getPausedProjects(@Req() req: any) {
-    const data = await this.tasksService.getPausedProjects(req.user.userId);
+    const data = await this.projectsService.pausedNames(req.user.userId);
     return { success: true, data };
   }
 
@@ -64,7 +69,7 @@ export class TasksController {
     if (typeof body?.project !== 'string' || !body.project.trim()) {
       throw new HttpException('project requerido', HttpStatus.BAD_REQUEST);
     }
-    const data = await this.tasksService.setProjectPaused(
+    const data = await this.projectsService.setPausedByName(
       req.user.userId,
       body.project.slice(0, 40),
       body.paused !== false,

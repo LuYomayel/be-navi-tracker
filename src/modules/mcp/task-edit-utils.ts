@@ -54,3 +54,41 @@ export function buildTaskUpdateFromMcpArgs(
   else if (args.proyecto) update.project = args.proyecto;
   return Object.keys(update).length ? update : null;
 }
+
+interface StatsLike {
+  pending?: number;
+  total: number;
+  done: number;
+  overdue: number;
+  nextDue: string | null;
+  progress: number;
+}
+
+const STATUS_TAG: Record<string, string> = {
+  paused: ' (pausado)',
+  archived: ' (archivado)',
+};
+
+/** Una linea por proyecto (+ una por hito) para las tools de proyectos. */
+export function formatProjectLine(p: {
+  name: string;
+  emoji?: string | null;
+  status: string;
+  stats: StatsLike;
+  milestones: {
+    name: string;
+    done: boolean;
+    dueDate?: string | null;
+    stats: StatsLike;
+  }[];
+}): string {
+  const s = p.stats;
+  let line = `${p.emoji ? p.emoji + ' ' : ''}${p.name}${STATUS_TAG[p.status] ?? ''} — ${s.done}/${s.total} hechas (${s.progress}%)`;
+  if (s.overdue) line += `, ${s.overdue} vencidas`;
+  if (s.nextDue) line += `, próxima ${s.nextDue}`;
+  for (const m of p.milestones) {
+    line += `\n   · ${m.done ? '✓ ' : ''}${m.name}: ${m.stats.done}/${m.stats.total}`;
+    if (m.dueDate && !m.done) line += ` (vence ${m.dueDate})`;
+  }
+  return line;
+}

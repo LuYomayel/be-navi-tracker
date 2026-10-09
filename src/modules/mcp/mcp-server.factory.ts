@@ -9,6 +9,7 @@ import { CompletionsService } from '../completions/completions.service';
 import { ActivitiesService } from '../activities/activities.service';
 import { DayScoreService } from '../day-score/day-score.service';
 import { TasksService } from '../tasks/tasks.service';
+import { ProjectsService } from '../tasks/projects.service';
 import { SavedMealsService } from '../saved-meals/saved-meals.service';
 import { GoalService } from '../goal/goal.service';
 import { BriefingService } from '../briefing/briefing.service';
@@ -22,6 +23,7 @@ import { getLocalDateString } from '../../common/utils/date.utils';
 import {
   matchTaskByTitle,
   buildTaskUpdateFromMcpArgs,
+  formatProjectLine,
 } from './task-edit-utils';
 import {
   SleepService,
@@ -103,6 +105,7 @@ export class McpServerFactory {
     private readonly stock: StockService,
     private readonly orders: OrdersService,
     private readonly bambu: BambuService,
+    private readonly projects: ProjectsService,
   ) {}
 
   /**
@@ -137,6 +140,7 @@ export class McpServerFactory {
     this.registerWriteTools(server, userId, add);
     this.registerReadTools(server, userId, add);
     this.registerNotesAndTasksTools(server, userId, add);
+    this.registerProjectTools(server, userId, add);
     this.registerPhysicalActivityTools(server, userId, add);
     this.registerExpenseTools(server, userId, add);
     this.registerSleepTools(server, userId, add);
@@ -2842,6 +2846,149 @@ export class McpServerFactory {
   }
 
   /** Sueño: registrar la noche y consultar cómo viene la semana. */
+  // ────────────────────────────────────────────────────────────
+  //  Tools de proyectos e hitos
+  // ────────────────────────────────────────────────────────────
+  private registerProjectTools(
+    _server: McpServer,
+    userId: string,
+    add: (n: string, c: ToolConfig, h: (a: any) => Promise<any>) => void,
+  ) {
+    const findProject = async (nombre: string) => {
+      const all = await this.projects.list(userId, getLocalDateString(), true);
+      const q = nombre.trim().toLowerCase();
+      return (
+        all.find((p) => p.name.toLowerCase() === q) ||
+        all.find((p) => p.name.toLowerCase().includes(q)) ||
+        null
+      );
+    };
+
+    add(
+      'list_proyectos',
+      {
+        title: 'Listar proyectos',
+        description:
+          'Lista los proyectos de tareas (EaseTrain, Stampia, Pulpou...) con su avance: tareas hechas/total, vencidas, próxima fecha y sus hitos. Los pausados se marcan; los archivados solo si se piden.',
+        inputSchema: {
+          incluir_archivados: z.boolean().optional(),
+        },
+      },
+      async (a) => {
+        const list = await this.projects.list(
+          userId,
+          getLocalDateString(),
+          !!a.incluir_archivados,
+        );
+        if (!list.length) return text('No hay proyectos todavía.');
+        return text(
+          `Proyectos (${list.length}):\n${list.map(formatProjectLine).join('\n')}`,
+        );
+      },
+    );
+
+    add(
+      'crear_proyecto',
+      {
+        title: 'Crear proyecto',
+        description: 'Crea un proyecto de tareas nuevo.',
+        inputSchema: {
+          nombre: z.string().describe('Nombre (ej: "EMA Bonos")'),
+          emoji: z.string().optional(),
+          descripcion: z.string().optional(),
+        },
+      },
+      async (a) => {
+        try {
+          const p = await this.projects.create(userId, {
+            name: a.nombre,
+            emoji: a.emoji,
+            description: a.descripcion,
+          });
+          return text(
+            `Proyecto creado: ${p.emoji ? p.emoji + ' ' : ''}${p.name}. id ${p.id}.`,
+          );
+        } catch (e: any) {
+          return text(e?.message || 'No se pudo crear el proyecto.');
+        }
+      },
+    );
+
+    add(
+      'editar_proyecto',
+      {
+        title: 'Editar / pausar / archivar un proyecto',
+        description:
+          'Cambia un proyecto identificado por su nombre (o parte): renombrar, emoji, o estado. "paused" esconde sus tareas de la lista sin borrarlas; "archived" lo da por terminado; "active" lo reanuda.',
+        inputSchema: {
+          nombre: z.string().describe('Nombre (o parte) del proyecto'),
+          nuevo_nombre: z.string().optional(),
+          emoji: z.string().optional(),
+          estado: z.enum(['active', 'paused', 'archived']).optional(),
+        },
+      },
+      async (a) => {
+        const p = await findProject(a.nombre);
+        if (!p) return text(`No encontré el proyecto "${a.nombre}".`);
+        try {
+          const u = await this.projects.update(userId, p.id, {
+            name: a.nuevo_nombre,
+            emoji: a.emoji,
+            status: a.estado,
+          });
+          return text(`Proyecto actualizado: ${u.name} (${u.status}).`);
+        } catch (e: any) {
+          return text(e?.message || 'No se pudo editar el proyecto.');
+        }
+      },
+    );
+
+    add(
+      'crear_hito',
+      {
+        title: 'Crear hito en un proyecto',
+        description:
+          'Crea un hito (ej: "Release v2") dentro de un proyecto, para agrupar tareas. Opcionalmente asigna tareas existentes por título.',
+        inputSchema: {
+          proyecto: z.string().describe('Nombre (o parte) del proyecto'),
+          nombre: z.string().describe('Nombre del hito'),
+          fecha: z.string().optional().describe('Fecha objetivo YYYY-MM-DD'),
+          tareas: z
+            .array(z.string())
+            .optional()
+            .describe('Títulos (o partes) de tareas a mover a este hito'),
+        },
+      },
+      async (a) => {
+        const p = await findProject(a.proyecto);
+        if (!p) return text(`No encontré el proyecto "${a.proyecto}".`);
+        const m = await this.projects.createMilestone(userId, p.id, {
+          name: a.nombre,
+          dueDate: a.fecha,
+        });
+        const moved: string[] = [];
+        const missing: string[] = [];
+        if (a.tareas?.length) {
+          const tasks = (await this.tasks.findAll(userId, {})) as any[];
+          for (const q of a.tareas as string[]) {
+            const t = matchTaskByTitle(tasks, q);
+            if (!t) {
+              missing.push(q);
+              continue;
+            }
+            await this.tasks.update(userId, t.id, { milestoneId: m.id } as any);
+            moved.push(t.title);
+          }
+        }
+        return text(
+          `Hito "${m.name}" creado en ${p.name}.` +
+            (moved.length ? ` Tareas asignadas: ${moved.join('; ')}.` : '') +
+            (missing.length ? ` No encontré: ${missing.join('; ')}.` : ''),
+        );
+      },
+    );
+  }
+
   private registerSleepTools(
     _server: McpServer,
     userId: string,

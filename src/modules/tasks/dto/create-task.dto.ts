@@ -42,6 +42,16 @@ export class CreateTaskDto {
   @MaxLength(40)
   project?: string;
 
+  // null = sacarle el proyecto
+  @IsOptional()
+  @IsString()
+  projectId?: string | null;
+
+  // null = sacarle el hito
+  @IsOptional()
+  @IsString()
+  milestoneId?: string | null;
+
   @IsOptional()
   @IsArray()
   @IsString({ each: true })

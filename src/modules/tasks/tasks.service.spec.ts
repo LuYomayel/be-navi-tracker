@@ -3,11 +3,13 @@ import { NotFoundException } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { PrismaService } from '../../config/prisma.service';
 import { XpService } from '../xp/xp.service';
+import { ProjectsService } from './projects.service';
 
 describe('TasksService', () => {
   let service: TasksService;
   let prisma: PrismaService;
   let xpService: XpService;
+  let projects: any;
 
   const userId = 'user-1';
 
@@ -62,6 +64,14 @@ describe('TasksService', () => {
           },
         },
         {
+          provide: ProjectsService,
+          useValue: {
+            findOrCreateByName: jest.fn(),
+            ownProject: jest.fn(),
+            ownMilestone: jest.fn(),
+          },
+        },
+        {
           provide: XpService,
           useValue: {
             addXp: jest.fn().mockResolvedValue({
@@ -81,6 +91,7 @@ describe('TasksService', () => {
     service = module.get<TasksService>(TasksService);
     prisma = module.get<PrismaService>(PrismaService);
     xpService = module.get<XpService>(XpService);
+    projects = module.get(ProjectsService);
   });
 
   describe('findAll', () => {
@@ -107,10 +118,16 @@ describe('TasksService', () => {
 
       await service.findAll(userId, { date: '2026-03-16' });
 
-      expect(prisma.task.findMany).toHaveBeenCalledWith({
-        where: { userId, dueDate: '2026-03-16' },
-        orderBy: [{ order: 'asc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
-      });
+      expect(prisma.task.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId, dueDate: '2026-03-16' },
+          orderBy: [
+            { order: 'asc' },
+            { dueDate: 'asc' },
+            { createdAt: 'desc' },
+          ],
+        }),
+      );
     });
 
     it('should filter by date range', async () => {
@@ -118,10 +135,16 @@ describe('TasksService', () => {
 
       await service.findAll(userId, { from: '2026-03-01', to: '2026-03-31' });
 
-      expect(prisma.task.findMany).toHaveBeenCalledWith({
-        where: { userId, dueDate: { gte: '2026-03-01', lte: '2026-03-31' } },
-        orderBy: [{ order: 'asc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
-      });
+      expect(prisma.task.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId, dueDate: { gte: '2026-03-01', lte: '2026-03-31' } },
+          orderBy: [
+            { order: 'asc' },
+            { dueDate: 'asc' },
+            { createdAt: 'desc' },
+          ],
+        }),
+      );
     });
 
     it('should filter by status and category', async () => {
@@ -129,10 +152,16 @@ describe('TasksService', () => {
 
       await service.findAll(userId, { status: 'pending', category: 'work' });
 
-      expect(prisma.task.findMany).toHaveBeenCalledWith({
-        where: { userId, status: 'pending', category: 'work' },
-        orderBy: [{ order: 'asc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
-      });
+      expect(prisma.task.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId, status: 'pending', category: 'work' },
+          orderBy: [
+            { order: 'asc' },
+            { dueDate: 'asc' },
+            { createdAt: 'desc' },
+          ],
+        }),
+      );
     });
   });
 
@@ -162,14 +191,16 @@ describe('TasksService', () => {
       const result = await service.create(userId, { title: 'Test task' });
 
       expect(result.title).toBe('Test task');
-      expect(prisma.task.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          userId,
-          title: 'Test task',
-          priority: 'medium',
-          isRecurring: false,
+      expect(prisma.task.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId,
+            title: 'Test task',
+            priority: 'medium',
+            isRecurring: false,
+          }),
         }),
-      });
+      );
     });
 
     it('should stringify tags and recurrenceRule', async () => {
@@ -186,13 +217,15 @@ describe('TasksService', () => {
         recurrenceRule: { frequency: 'daily' } as any,
       });
 
-      expect(prisma.task.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          tags: '["a","b"]',
-          recurrenceRule: '{"frequency":"daily"}',
-          isRecurring: true,
+      expect(prisma.task.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tags: '["a","b"]',
+            recurrenceRule: '{"frequency":"daily"}',
+            isRecurring: true,
+          }),
         }),
-      });
+      );
     });
   });
 
@@ -247,14 +280,16 @@ describe('TasksService', () => {
 
       await service.update(userId, 'task-1', { completed: true });
 
-      expect(prisma.task.update).toHaveBeenCalledWith({
-        where: { id: 'task-1' },
-        data: expect.objectContaining({
-          completed: true,
-          completedAt: expect.any(Date),
-          status: 'completed',
+      expect(prisma.task.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'task-1' },
+          data: expect.objectContaining({
+            completed: true,
+            completedAt: expect.any(Date),
+            status: 'completed',
+          }),
         }),
-      });
+      );
     });
 
     it('should clear completedAt when uncompleting', async () => {
@@ -267,14 +302,16 @@ describe('TasksService', () => {
 
       await service.update(userId, 'task-1', { completed: false });
 
-      expect(prisma.task.update).toHaveBeenCalledWith({
-        where: { id: 'task-1' },
-        data: expect.objectContaining({
-          completed: false,
-          completedAt: null,
-          status: 'pending',
+      expect(prisma.task.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'task-1' },
+          data: expect.objectContaining({
+            completed: false,
+            completedAt: null,
+            status: 'pending',
+          }),
         }),
-      });
+      );
     });
   });
 
@@ -426,99 +463,171 @@ describe('TasksService', () => {
   });
 
   describe('proyecto', () => {
-    it('findAll devuelve el proyecto guardado o lo infiere del titulo', async () => {
+    it('findAll pide la relacion y devuelve el nombre del proyecto', async () => {
       (prisma.task.findMany as jest.Mock).mockResolvedValue([
-        { ...mockTask, id: 'a', title: 'EaseTrain — bug', project: null },
-        { ...mockTask, id: 'b', title: 'EaseTrain — otro', project: 'Pulpou' },
-        { ...mockTask, id: 'c', title: 'Sin prefijo', project: null },
+        {
+          ...mockTask,
+          id: 'a',
+          project: '',
+          projectId: 'p1',
+          projectRef: { id: 'p1', name: 'EaseTrain', status: 'paused' },
+          milestone: { id: 'm1', name: 'v2' },
+        },
+        {
+          ...mockTask,
+          id: 'b',
+          project: '',
+          projectId: null,
+          projectRef: null,
+        },
       ]);
 
       const result = await service.findAll(userId, {});
 
-      expect(result.map((t) => t.project)).toEqual([
-        'EaseTrain',
-        'Pulpou',
-        null,
-      ]);
+      expect(prisma.task.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ include: expect.any(Object) }),
+      );
+      expect(result[0]).toMatchObject({
+        project: 'EaseTrain',
+        projectId: 'p1',
+        projectStatus: 'paused',
+        milestone: { id: 'm1', name: 'v2' },
+      });
+      expect(result[1].project).toBeNull();
+      expect(result[0]).not.toHaveProperty('projectRef');
     });
 
-    it('create guarda el proyecto que viene en el dto (recortado)', async () => {
+    it('findAll: tarea aun sin migrar infiere del titulo', async () => {
+      (prisma.task.findMany as jest.Mock).mockResolvedValue([
+        {
+          ...mockTask,
+          title: 'Stampia - algo',
+          project: null,
+          projectRef: null,
+        },
+      ]);
+      const [t] = await service.findAll(userId, {});
+      expect(t.project).toBe('Stampia');
+    });
+
+    it('create con nombre de proyecto lo busca o crea y vincula', async () => {
+      projects.findOrCreateByName.mockResolvedValue({
+        id: 'p9',
+        name: 'Stampia',
+      });
       (prisma.task.create as jest.Mock).mockResolvedValue(mockTask);
 
       await service.create(userId, { title: 'Algo', project: ' Stampia ' });
 
-      expect(prisma.task.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ project: 'Stampia' }),
-      });
+      expect(projects.findOrCreateByName).toHaveBeenCalledWith(
+        userId,
+        'Stampia',
+      );
+      expect(prisma.task.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ projectId: 'p9', project: '' }),
+        }),
+      );
     });
 
-    it('create sin proyecto lo infiere del titulo y lo persiste', async () => {
+    it('create sin proyecto lo infiere del titulo', async () => {
+      projects.findOrCreateByName.mockResolvedValue({
+        id: 'p1',
+        name: 'EaseTrain',
+      });
       (prisma.task.create as jest.Mock).mockResolvedValue(mockTask);
 
       await service.create(userId, { title: 'EaseTrain — algo' });
 
-      expect(prisma.task.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ project: 'EaseTrain' }),
-      });
+      expect(projects.findOrCreateByName).toHaveBeenCalledWith(
+        userId,
+        'EaseTrain',
+      );
     });
 
-    it('update con proyecto vacio lo guarda vacio (sin proyecto a proposito)', async () => {
+    it('create con projectId valida que sea del usuario', async () => {
+      projects.ownProject.mockResolvedValue({ id: 'p1' });
+      (prisma.task.create as jest.Mock).mockResolvedValue(mockTask);
+
+      await service.create(userId, { title: 'Algo', projectId: 'p1' });
+
+      expect(projects.ownProject).toHaveBeenCalledWith(userId, 'p1');
+      expect(projects.findOrCreateByName).not.toHaveBeenCalled();
+    });
+
+    it('create con hito toma el proyecto del hito', async () => {
+      projects.ownMilestone.mockResolvedValue({ id: 'm1', projectId: 'p1' });
+      (prisma.task.create as jest.Mock).mockResolvedValue(mockTask);
+
+      await service.create(userId, { title: 'Algo', milestoneId: 'm1' });
+
+      expect(prisma.task.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ projectId: 'p1', milestoneId: 'm1' }),
+        }),
+      );
+    });
+
+    it('update projectId null saca proyecto e hito', async () => {
       (prisma.task.findFirst as jest.Mock).mockResolvedValue(mockTask);
-      (prisma.task.update as jest.Mock).mockResolvedValue({
+      (prisma.task.update as jest.Mock).mockResolvedValue(mockTask);
+
+      await service.update(userId, 'task-1', { projectId: null });
+
+      expect(prisma.task.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ projectId: null, milestoneId: null }),
+        }),
+      );
+    });
+
+    it('update project "" (app vieja) tambien lo saca', async () => {
+      (prisma.task.findFirst as jest.Mock).mockResolvedValue(mockTask);
+      (prisma.task.update as jest.Mock).mockResolvedValue(mockTask);
+
+      await service.update(userId, 'task-1', { project: '  ' });
+
+      expect(prisma.task.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            projectId: null,
+            milestoneId: null,
+            project: '',
+          }),
+        }),
+      );
+    });
+
+    it('cambiar de proyecto saca el hito si era de otro proyecto', async () => {
+      (prisma.task.findFirst as jest.Mock).mockResolvedValue({
         ...mockTask,
-        project: '',
+        projectId: 'p1',
+        milestoneId: 'm1',
       });
+      (prisma.task.update as jest.Mock).mockResolvedValue(mockTask);
+      projects.ownProject.mockResolvedValue({ id: 'p2' });
 
-      const result = await service.update(userId, 'task-1', { project: '  ' });
+      await service.update(userId, 'task-1', { projectId: 'p2' });
 
-      expect(prisma.task.update).toHaveBeenCalledWith({
-        where: { id: 'task-1' },
-        data: expect.objectContaining({ project: '' }),
-      });
-      expect(result.project).toBeNull();
-    });
-  });
-
-  describe('proyectos pausados', () => {
-    it('getPausedProjects devuelve [] si no hay preferencias', async () => {
-      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue(null);
-
-      expect(await service.getPausedProjects(userId)).toEqual([]);
+      expect(prisma.task.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ projectId: 'p2', milestoneId: null }),
+        }),
+      );
     });
 
-    it('getPausedProjects devuelve la lista guardada', async () => {
-      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue({
-        pausedTaskProjects: ['EaseTrain'],
-      });
+    it('update con hito mueve la tarea al proyecto del hito', async () => {
+      (prisma.task.findFirst as jest.Mock).mockResolvedValue(mockTask);
+      (prisma.task.update as jest.Mock).mockResolvedValue(mockTask);
+      projects.ownMilestone.mockResolvedValue({ id: 'm2', projectId: 'p3' });
 
-      expect(await service.getPausedProjects(userId)).toEqual(['EaseTrain']);
-    });
+      await service.update(userId, 'task-1', { milestoneId: 'm2' });
 
-    it('pausar agrega el proyecto sin duplicar (ignora mayusculas)', async () => {
-      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue({
-        pausedTaskProjects: ['EaseTrain'],
-      });
-
-      const result = await service.setProjectPaused(userId, 'easetrain', true);
-      expect(result).toEqual(['EaseTrain']);
-
-      const result2 = await service.setProjectPaused(userId, 'Stampia', true);
-      expect(result2).toEqual(['EaseTrain', 'Stampia']);
-      expect(prisma.userPreferences.upsert).toHaveBeenLastCalledWith({
-        where: { userId },
-        create: { userId, pausedTaskProjects: ['EaseTrain', 'Stampia'] },
-        update: { pausedTaskProjects: ['EaseTrain', 'Stampia'] },
-      });
-    });
-
-    it('reanudar saca el proyecto (ignora mayusculas)', async () => {
-      (prisma.userPreferences.findUnique as jest.Mock).mockResolvedValue({
-        pausedTaskProjects: ['EaseTrain', 'Stampia'],
-      });
-
-      const result = await service.setProjectPaused(userId, 'EASETRAIN', false);
-
-      expect(result).toEqual(['Stampia']);
+      expect(prisma.task.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ projectId: 'p3', milestoneId: 'm2' }),
+        }),
+      );
     });
   });
 });
