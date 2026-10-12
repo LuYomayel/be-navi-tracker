@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { SettlementService } from './settlement.service';
+import { ResellersService } from './resellers.service';
 import { pricingForProduct } from './pricing';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
@@ -37,6 +38,7 @@ export interface OwnerOrderItemDto {
 }
 
 export interface CreateOwnerOrderDto {
+  resellerId?: string | null; // revendedor al que se le carga (sin esto: pedido suelto)
   customerName?: string;
   items: OwnerOrderItemDto[];
   notes?: string;
@@ -44,6 +46,7 @@ export interface CreateOwnerOrderDto {
 }
 
 export interface UpdateOwnerOrderDto {
+  resellerId?: string | null; // null = desvincularlo del revendedor
   customerName?: string;
   notes?: string;
   items?: OwnerOrderItemDto[]; // solo editables mientras no haya ventas
@@ -55,8 +58,8 @@ function saleHasPayments(s: any): boolean {
 }
 
 /**
- * Pedidos que Marcelito arma desde el catalogo publico (identificado por el
- * token del catalogo, sin auth) y su seguimiento del lado de Luciano.
+ * Pedidos que cada revendedor arma desde el catalogo publico (identificado
+ * por el token de su link, sin auth) y su seguimiento del lado de Luciano.
  *
  * Flujo: pedido -> confirmado -> imprimiendo -> listo -> entregado.
  * Al marcar "entregado" se crea una PrintSale a_liquidar por item (con el
@@ -68,20 +71,13 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settlements: SettlementService,
+    private readonly resellers: ResellersService,
   ) {}
 
-  private async settingsByToken(token: string) {
-    const settings = await this.prisma.printSettings.findUnique({
-      where: { publicToken: token },
-    });
-    if (!settings) throw new NotFoundException('Catalogo no encontrado');
-    return settings;
-  }
-
-  // ── Lado publico (Marcelito) ─────────────────────────────
+  // ── Lado publico (revendedor) ────────────────────────────
 
   async createPublicOrder(token: string, dto: CreatePublicOrderDto) {
-    const settings = await this.settingsByToken(token);
+    const { settings, reseller } = await this.resellers.resolveToken(token);
 
     const items = dto.items ?? [];
     if (!items.length) {
@@ -112,7 +108,9 @@ export class OrdersService {
     const order = await this.prisma.printOrder.create({
       data: {
         userId: settings.userId,
-        customerName: dto.customerName?.trim() || 'Marcelito',
+        // El link ya dice quien pide: no se confia en el nombre que mande.
+        resellerId: reseller.id,
+        customerName: reseller.name,
         status: 'pedido',
         notes: dto.notes?.trim() || null,
         items: {
@@ -134,10 +132,10 @@ export class OrdersService {
 
   /** Vista de pedidos para el link publico: estado + totales + deuda. */
   async getPublicOrders(token: string) {
-    const settings = await this.settingsByToken(token);
+    const { settings, reseller } = await this.resellers.resolveToken(token);
     const [orders, sales, pendingNotices] = await Promise.all([
       this.prisma.printOrder.findMany({
-        where: { userId: settings.userId },
+        where: { userId: settings.userId, resellerId: reseller.id },
         include: {
           items: { include: { product: true } },
           sales: { include: { settlements: true } },
@@ -145,13 +143,21 @@ export class OrdersService {
         orderBy: { createdAt: 'desc' },
         take: 50,
       }),
-      // Deuda: solo las ventas nacidas de pedidos del link (no la feria).
+      // Deuda: solo las ventas nacidas de pedidos de este revendedor.
       this.prisma.printSale.findMany({
-        where: { userId: settings.userId, orderId: { not: null }, kind: 'venta' },
+        where: {
+          userId: settings.userId,
+          kind: 'venta',
+          order: { resellerId: reseller.id },
+        },
         include: { settlements: true },
       }),
       this.prisma.printPaymentNotice.findMany({
-        where: { userId: settings.userId, status: 'pendiente' },
+        where: {
+          userId: settings.userId,
+          resellerId: reseller.id,
+          status: 'pendiente',
+        },
       }),
     ]);
     const debt = sales.reduce(
@@ -162,12 +168,13 @@ export class OrdersService {
       pendingNotices.map((n: any) => n.orderId).filter(Boolean),
     );
     return {
+      resellerName: reseller.name,
       orders: orders.map((o: any) => this.toPublicOrder(o, noticeOrderIds)),
       debt: Math.round(debt * 100) / 100,
     };
   }
 
-  /** Solo lo que Marcelito tiene que ver de su pedido (nunca costos). */
+  /** Solo lo que el revendedor tiene que ver de su pedido (nunca costos). */
   private toPublicOrder(order: any, pendingNoticeOrderIds?: Set<string>) {
     const items = (order.items ?? []).map((i: any) => ({
       productId: i.productId,
@@ -217,7 +224,7 @@ export class OrdersService {
   }
 
   async createPaymentNotice(token: string, dto: CreatePaymentNoticeDto) {
-    const settings = await this.settingsByToken(token);
+    const { settings, reseller } = await this.resellers.resolveToken(token);
     if (dto.amount !== undefined && (!Number.isFinite(dto.amount) || dto.amount <= 0)) {
       throw new BadRequestException('Monto invalido');
     }
@@ -226,9 +233,21 @@ export class OrdersService {
     if (!dto.orderId && !dto.amount && !dto.message?.trim()) {
       throw new BadRequestException('Falta el pedido, el monto o un mensaje');
     }
+    // El aviso solo puede apuntar a un pedido propio.
+    if (dto.orderId) {
+      const order = await this.prisma.printOrder.findFirst({
+        where: {
+          id: dto.orderId,
+          userId: settings.userId,
+          resellerId: reseller.id,
+        },
+      });
+      if (!order) throw new NotFoundException('Pedido no encontrado');
+    }
     return this.prisma.printPaymentNotice.create({
       data: {
         userId: settings.userId,
+        resellerId: reseller.id,
         orderId: dto.orderId || null,
         amount: dto.amount ?? null,
         message: dto.message?.trim().slice(0, 500) || null,
@@ -238,7 +257,23 @@ export class OrdersService {
 
   // ── Lado dueno (Luciano) ─────────────────────────────────
 
-  /** Valida items y resuelve el unitPrice (manual o precio a Marcelito). */
+  /**
+   * A quien se le carga un pedido manual: con resellerId, ese revendedor (y
+   * el pedido lleva su nombre); sin el, un pedido suelto con nombre libre.
+   */
+  private async resolveOwnerCustomer(
+    userId: string,
+    resellerId: string | null | undefined,
+    customerName: string | undefined,
+  ) {
+    if (resellerId) {
+      const reseller = await this.resellers.getOwned(userId, resellerId);
+      return { resellerId: reseller.id, customerName: reseller.name };
+    }
+    return { resellerId: null, customerName: customerName?.trim() || 'Marcelito' };
+  }
+
+  /** Valida items y resuelve el unitPrice (manual o precio de reventa). */
   private async resolveOwnerItems(userId: string, items: OwnerOrderItemDto[]) {
     if (!items?.length) {
       throw new BadRequestException('El pedido no tiene productos');
@@ -310,10 +345,15 @@ export class OrdersService {
     const status: OrderStatus =
       dto.status && ORDER_STATUSES.includes(dto.status) ? dto.status : 'pedido';
     const items = await this.resolveOwnerItems(userId, dto.items);
+    const customer = await this.resolveOwnerCustomer(
+      userId,
+      dto.resellerId,
+      dto.customerName,
+    );
     const order = await this.prisma.printOrder.create({
       data: {
         userId,
-        customerName: dto.customerName?.trim() || 'Marcelito',
+        ...customer,
         status,
         notes: dto.notes?.trim() || null,
         items: { create: items },
@@ -351,11 +391,25 @@ export class OrdersService {
       });
     }
 
+    // resellerId presente (aunque sea null) manda sobre el nombre libre.
+    const customer =
+      dto.resellerId !== undefined
+        ? await this.resolveOwnerCustomer(
+            userId,
+            dto.resellerId,
+            dto.customerName ?? order.customerName,
+          )
+        : {
+            customerName:
+              dto.customerName === undefined
+                ? undefined
+                : dto.customerName.trim() || 'Marcelito',
+          };
+
     return this.prisma.printOrder.update({
       where: { id },
       data: {
-        customerName:
-          dto.customerName === undefined ? undefined : dto.customerName.trim() || 'Marcelito',
+        ...customer,
         notes: dto.notes === undefined ? undefined : dto.notes?.trim() || null,
       },
       include: { items: { include: { product: true } }, sales: true },

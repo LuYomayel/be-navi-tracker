@@ -34,6 +34,11 @@ import {
   OrdersService,
   UpdateOwnerOrderDto,
 } from './orders.service';
+import {
+  CreateResellerDto,
+  ResellersService,
+  UpdateResellerDto,
+} from './resellers.service';
 import { CreatePrintJobDto, StockService } from './stock.service';
 import { PhotosService } from './photos.service';
 import { BambuService } from './bambu.service';
@@ -46,21 +51,22 @@ export class PrintingController {
     private readonly printing: PrintingService,
     private readonly settlements: SettlementService,
     private readonly orders: OrdersService,
+    private readonly resellers: ResellersService,
     private readonly stock: StockService,
     private readonly photos: PhotosService,
     private readonly bambu: BambuService,
   ) {}
 
-  // ── Catalogo publico (Marcelito, sin auth) ───────────────
+  // ── Catalogo publico (revendedores, sin auth) ────────────
   // @Public() salta el JwtAuthGuard de la clase (mismo patron que
-  // auth.controller.ts). El token identifica al usuario, no hace falta JWT.
+  // auth.controller.ts). El token identifica al revendedor, no hace falta JWT.
   @Public()
   @Get('catalog/:token')
   async publicCatalog(@Param('token') token: string) {
     return { success: true, data: await this.printing.getPublicCatalog(token) };
   }
 
-  /** Marcelito arma su pedido desde el catalogo (sin auth, rate-limiteado). */
+  /** El revendedor arma su pedido desde el catalogo (sin auth, rate-limiteado). */
   @Public()
   @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post('catalog/:token/orders')
@@ -75,7 +81,7 @@ export class PrintingController {
     };
   }
 
-  /** Marcelito sigue sus pedidos y ve cuanto debe. */
+  /** El revendedor sigue sus pedidos y ve cuanto debe. */
   @Public()
   @Get('catalog/:token/orders')
   async publicListOrders(@Param('token') token: string) {
@@ -258,6 +264,43 @@ export class PrintingController {
   async deleteSettlement(@Param('id') id: string, @Req() req: any) {
     await this.settlements.remove(req.user.userId, id);
     return { success: true };
+  }
+
+  // ── Revendedores (cada uno con su link al catalogo) ───────
+  @Get('resellers')
+  async listResellers(@Req() req: any) {
+    return { success: true, data: await this.resellers.list(req.user.userId) };
+  }
+
+  @Post('resellers')
+  @HttpCode(HttpStatus.CREATED)
+  async createReseller(@Body() dto: CreateResellerDto, @Req() req: any) {
+    return {
+      success: true,
+      data: await this.resellers.create(req.user.userId, dto),
+    };
+  }
+
+  @Put('resellers/:id')
+  async updateReseller(
+    @Param('id') id: string,
+    @Body() dto: UpdateResellerDto,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.resellers.update(req.user.userId, id, dto),
+    };
+  }
+
+  /** Rota el link de un revendedor (el anterior deja de funcionar). */
+  @Post('resellers/:id/regenerate-token')
+  @HttpCode(HttpStatus.OK)
+  async regenerateResellerToken(@Param('id') id: string, @Req() req: any) {
+    return {
+      success: true,
+      data: await this.resellers.regenerateToken(req.user.userId, id),
+    };
   }
 
   // ── Pedidos (lado Luciano) ────────────────────────────────

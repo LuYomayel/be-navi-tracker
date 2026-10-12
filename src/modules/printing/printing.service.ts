@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../config/prisma.service';
 import { GoalService } from '../goal/goal.service';
 import { SettlementService } from './settlement.service';
+import { ResellersService } from './resellers.service';
 import { photoUrl } from './photos.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import { pricingForProduct, PricingSettings } from './pricing';
@@ -91,6 +92,7 @@ export class PrintingService {
     private readonly prisma: PrismaService,
     private readonly goalService: GoalService,
     private readonly settlements: SettlementService,
+    private readonly resellers: ResellersService,
   ) {}
 
   // ── Settings (1 fila por usuario, con lazy init) ─────────────
@@ -595,10 +597,7 @@ export class PrintingService {
    * (los que todavia no tienen permiso del autor no se muestran).
    */
   async getPublicCatalog(token: string) {
-    const settings = await this.prisma.printSettings.findUnique({
-      where: { publicToken: token },
-    });
-    if (!settings) throw new NotFoundException('Catalogo no encontrado');
+    const { settings } = await this.resellers.resolveToken(token);
 
     const products = await this.prisma.printProduct.findMany({
       // Sin filtro de licencia: este catalogo reemplaza al sheet que

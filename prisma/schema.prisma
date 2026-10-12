@@ -69,6 +69,7 @@ model User {
   printSales               PrintSale[]
   printSettings            PrintSettings?
   printOrders              PrintOrder[]
+  printResellers           PrintReseller[]
 
   @@map("users")
 }
@@ -522,12 +523,12 @@ model Task {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   title          String
-  description    String?   @db.Text
+  description    String?    @db.Text
   dueDate        String? // YYYY-MM-DD (nullable = sin fecha limite)
   dueTime        String? // HH:mm (opcional, para tareas con hora especifica)
-  priority       String    @default("medium") // "low" | "medium" | "high" | "urgent"
-  status         String    @default("pending") // "pending" | "in_progress" | "completed"
-  completed      Boolean   @default(false)
+  priority       String     @default("medium") // "low" | "medium" | "high" | "urgent"
+  status         String     @default("pending") // "pending" | "in_progress" | "completed"
+  completed      Boolean    @default(false)
   completedAt    DateTime?
   category       String? // "work" | "personal" | "health" | "finance" | "study" | "other"
   // LEGACY: nombre del proyecto antes de que existiera la tabla Project.
@@ -537,10 +538,10 @@ model Task {
   projectRef     Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
   milestoneId    String?
   milestone      Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
-  tags           String?   @db.Text // JSON array de strings
-  order          Int       @default(0)
-  isRecurring    Boolean   @default(false)
-  recurrenceRule String?   @db.Text // JSON: { frequency, days?, endDate? }
+  tags           String?    @db.Text // JSON array de strings
+  order          Int        @default(0)
+  isRecurring    Boolean    @default(false)
+  recurrenceRule String?    @db.Text // JSON: { frequency, days?, endDate? }
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -564,9 +565,9 @@ model Project {
   name        String
   emoji       String?
   color       String? // token de color del front: "blue" | "green" | ...
-  description String?  @db.Text
-  status      String   @default("active") // "active" | "paused" | "archived"
-  order       Int      @default(0)
+  description String? @db.Text
+  status      String  @default("active") // "active" | "paused" | "archived"
+  order       Int     @default(0)
 
   tasks      Task[]
   milestones Milestone[]
@@ -1093,22 +1094,44 @@ model PrintSaleSettlement {
   @@map("print_sale_settlements")
 }
 
-// Pedido que arma Marcelito desde el catalogo publico. Al marcarlo
+// Revendedor (Marcelito, Miguelito...). Cada uno tiene su propio link al
+// catalogo publico (token) y ve SOLO sus pedidos y su deuda. Todos pagan el
+// mismo precio de reventa: no hay lista de precios por revendedor.
+model PrintReseller {
+  id        String   @id @default(cuid())
+  userId    String // dueno del catalogo (Luciano)
+  name      String
+  token     String   @unique // va en el link /catalogo?t=<token>
+  active    Boolean  @default(true) // false = su link deja de funcionar (los pedidos viejos quedan)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders PrintOrder[]
+
+  @@index([userId])
+  @@map("print_resellers")
+}
+
+// Pedido que arma un revendedor desde el catalogo publico. Al marcarlo
 // "entregado" se generan las PrintSale (una por item, a_liquidar).
 model PrintOrder {
   id           String   @id @default(cuid())
   userId       String // dueno del catalogo (Luciano), no quien pide
+  resellerId   String? // revendedor que lo pidio (null = pedido suelto cargado a mano, ej venta directa)
   customerName String   @default("Marcelito")
   status       String   @default("pedido") // pedido | confirmado | imprimiendo | listo | entregado | cancelado
   notes        String?  @db.Text
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items PrintOrderItem[]
-  sales PrintSale[]
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reseller PrintReseller?   @relation(fields: [resellerId], references: [id], onDelete: SetNull)
+  items    PrintOrderItem[]
+  sales    PrintSale[]
 
   @@index([userId, status])
+  @@index([resellerId])
   @@map("print_orders")
 }
 
@@ -1130,14 +1153,15 @@ model PrintOrderItem {
 // los 5"). NO mueve plata: queda pendiente hasta que Luciano lo confirme
 // registrando el pago (settlement) o lo descarte.
 model PrintPaymentNotice {
-  id        String   @id @default(cuid())
-  userId    String
-  orderId   String?
-  amount    Float?
-  message   String?  @db.Text
-  status    String   @default("pendiente") // pendiente | confirmado | descartado
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  userId     String
+  resellerId String? // quien mando el aviso (null = avisos previos a los revendedores)
+  orderId    String?
+  amount     Float?
+  message    String?  @db.Text
+  status     String   @default("pendiente") // pendiente | confirmado | descartado
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([userId, status])
   @@map("print_payment_notices")

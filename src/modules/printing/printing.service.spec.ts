@@ -4,6 +4,7 @@ import { PrintingService } from './printing.service';
 import { PrismaService } from '../../config/prisma.service';
 import { GoalService } from '../goal/goal.service';
 import { SettlementService } from './settlement.service';
+import { ResellersService } from './resellers.service';
 
 describe('PrintingService', () => {
   let service: PrintingService;
@@ -49,9 +50,27 @@ describe('PrintingService', () => {
       providers: [
         PrintingService,
         SettlementService,
+        ResellersService,
         {
           provide: PrismaService,
           useValue: {
+            printReseller: {
+              // El link del catalogo es el token de un revendedor.
+              findUnique: jest.fn().mockImplementation(({ where }) =>
+                Promise.resolve(
+                  where.token === mockSettings.publicToken
+                    ? {
+                        id: 'res-1',
+                        userId,
+                        name: 'Marcelito',
+                        token: where.token,
+                        active: true,
+                      }
+                    : null,
+                ),
+              ),
+              count: jest.fn().mockResolvedValue(1),
+            },
             printSettings: {
               findUnique: jest.fn(),
               create: jest.fn(),

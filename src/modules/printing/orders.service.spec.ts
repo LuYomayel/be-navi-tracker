@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { SettlementService } from './settlement.service';
+import { ResellersService } from './resellers.service';
 import { PrismaService } from '../../config/prisma.service';
 import { GoalService } from '../goal/goal.service';
 
@@ -36,9 +37,25 @@ describe('OrdersService', () => {
     publicPrice: 11000,
   };
 
+  const reseller = {
+    id: 'res-1',
+    userId,
+    name: 'Marcelito',
+    token,
+    active: true,
+  };
+  const miguelito = {
+    id: 'res-2',
+    userId,
+    name: 'Miguelito',
+    token: 'token-miguel',
+    active: true,
+  };
+
   const order = {
     id: 'order-1',
     userId,
+    resellerId: 'res-1',
     customerName: 'Marcelito',
     status: 'pedido',
     notes: null,
@@ -55,10 +72,29 @@ describe('OrdersService', () => {
       providers: [
         OrdersService,
         SettlementService,
+        ResellersService,
         {
           provide: PrismaService,
           useValue: {
             printSettings: { findUnique: jest.fn().mockResolvedValue(settings) },
+            printReseller: {
+              // Cada revendedor entra con su token; cualquier otro no existe.
+              findUnique: jest.fn().mockImplementation(({ where }) =>
+                Promise.resolve(
+                  [reseller, miguelito].find((r) => r.token === where.token) ??
+                    null,
+                ),
+              ),
+              findFirst: jest.fn().mockImplementation(({ where }) =>
+                Promise.resolve(
+                  [reseller, miguelito].find(
+                    (r) => r.id === where.id && r.userId === where.userId,
+                  ) ?? null,
+                ),
+              ),
+              findMany: jest.fn().mockResolvedValue([reseller, miguelito]),
+              count: jest.fn().mockResolvedValue(2),
+            },
             printProduct: { findMany: jest.fn().mockResolvedValue([product]) },
             printOrder: {
               findMany: jest.fn().mockResolvedValue([order]),
@@ -120,7 +156,6 @@ describe('OrdersService', () => {
 
   describe('createPublicOrder', () => {
     it('token invalido tira NotFound', async () => {
-      prisma.printSettings.findUnique.mockResolvedValue(null);
       await expect(
         service.createPublicOrder('nope', { items: [{ productId: 'prod-1', qty: 1 }] }),
       ).rejects.toThrow(NotFoundException);
@@ -237,6 +272,7 @@ describe('OrdersService', () => {
 
   describe('payment notices', () => {
     it('crea el aviso desde el link publico', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({ ...order });
       await service.createPaymentNotice(token, {
         orderId: 'order-1',
         amount: 11700,
@@ -440,6 +476,7 @@ describe('OrdersService', () => {
 
   describe('createPaymentNotice sin campos', () => {
     it('con solo el orderId vale como "pague todo el pedido"', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({ ...order });
       await service.createPaymentNotice(token, { orderId: 'order-1' });
       expect(prisma.printPaymentNotice.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -682,6 +719,120 @@ describe('OrdersService', () => {
       const res = await service.getPublicOrders(token);
 
       expect(res.orders[0].noticePending).toBe(true);
+    });
+  });
+
+  // ── Revendedores: cada link ve y pide solo lo suyo ─────────
+
+  describe('revendedores', () => {
+    it('el pedido publico queda a nombre del revendedor del link', async () => {
+      await service.createPublicOrder('token-miguel', {
+        customerName: 'otro nombre',
+        items: [{ productId: 'prod-1', qty: 1 }],
+      });
+      expect(prisma.printOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            resellerId: 'res-2',
+            customerName: 'Miguelito',
+            items: { create: [expect.objectContaining({ unitPrice: 3900 })] },
+          }),
+        }),
+      );
+    });
+
+    it('getPublicOrders trae solo los pedidos, la deuda y los avisos de ese revendedor', async () => {
+      prisma.printOrder.findMany.mockResolvedValue([]);
+      const res = await service.getPublicOrders('token-miguel');
+
+      expect(prisma.printOrder.findMany.mock.calls[0][0].where).toEqual({
+        userId,
+        resellerId: 'res-2',
+      });
+      expect(prisma.printSale.findMany.mock.calls[0][0].where).toMatchObject({
+        userId,
+        kind: 'venta',
+        order: { resellerId: 'res-2' },
+      });
+      expect(prisma.printPaymentNotice.findMany.mock.calls[0][0].where).toEqual({
+        userId,
+        resellerId: 'res-2',
+        status: 'pendiente',
+      });
+      expect(res.resellerName).toBe('Miguelito');
+      expect(res.orders).toEqual([]);
+    });
+
+    it('un aviso de pago queda a nombre del revendedor', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({ ...order });
+      await service.createPaymentNotice(token, { orderId: 'order-1', amount: 100 });
+      expect(prisma.printPaymentNotice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ resellerId: 'res-1', orderId: 'order-1' }),
+        }),
+      );
+    });
+
+    it('no deja avisar un pago sobre el pedido de otro revendedor', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue(null);
+      await expect(
+        service.createPaymentNotice('token-miguel', { orderId: 'order-1' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.printOrder.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'order-1',
+        userId,
+        resellerId: 'res-2',
+      });
+      expect(prisma.printPaymentNotice.create).not.toHaveBeenCalled();
+    });
+
+    it('el dueno carga un pedido a mano para un revendedor', async () => {
+      await service.createOrder(userId, {
+        resellerId: 'res-2',
+        items: [{ productId: 'prod-1', qty: 2 }],
+      });
+      expect(prisma.printOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            resellerId: 'res-2',
+            customerName: 'Miguelito',
+          }),
+        }),
+      );
+    });
+
+    it('un pedido a mano sin revendedor queda suelto con el nombre que se le ponga', async () => {
+      await service.createOrder(userId, {
+        customerName: 'Bruno',
+        items: [{ productId: 'prod-1', qty: 1 }],
+      });
+      expect(prisma.printOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ resellerId: null, customerName: 'Bruno' }),
+        }),
+      );
+    });
+
+    it('un revendedor de otro usuario tira NotFound', async () => {
+      await expect(
+        service.createOrder(userId, {
+          resellerId: 'res-ajeno',
+          items: [{ productId: 'prod-1', qty: 1 }],
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('editar un pedido permite reasignarlo a otro revendedor', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({ ...order, sales: [] });
+      await service.updateOrder(userId, 'order-1', { resellerId: 'res-2' });
+      expect(prisma.printOrder.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            resellerId: 'res-2',
+            customerName: 'Miguelito',
+          }),
+        }),
+      );
     });
   });
 });
