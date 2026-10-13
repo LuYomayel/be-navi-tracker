@@ -15,6 +15,16 @@ export interface UpdateResellerDto {
   active?: boolean;
 }
 
+/** ¿Este producto esta oculto para ese revendedor puntual? (hiddenFor = ids) */
+export function isHiddenForReseller(
+  product: { hiddenFor?: unknown },
+  resellerId: string,
+): boolean {
+  return (
+    Array.isArray(product.hiddenFor) && product.hiddenFor.includes(resellerId)
+  );
+}
+
 // El catalogo publico nacio con un unico link (PrintSettings.publicToken) que
 // era el de Marcelito: al migrar, ese link pasa a ser su revendedor.
 const LEGACY_RESELLER_NAME = 'Marcelito';

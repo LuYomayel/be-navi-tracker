@@ -320,6 +320,18 @@ describe('PrintingService', () => {
       ).toBe(true);
     });
 
+    it('editar guarda a que revendedores se les oculta (sin repetidos)', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findFirst.mockResolvedValue(mockProduct);
+      prisma.printProduct.update.mockResolvedValue({ ...mockProduct, photos: [] });
+      await service.updateProduct(userId, mockProduct.id, {
+        hiddenFor: ['res-2', 'res-2', ''],
+      });
+      expect(
+        (prisma.printProduct.update as jest.Mock).mock.calls[0][0].data.hiddenFor,
+      ).toEqual(['res-2']);
+    });
+
     it('se puede crear oculto para Marcelito', async () => {
       prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
       prisma.printProduct.create.mockResolvedValue({ ...mockProduct, photos: [] });
@@ -831,6 +843,22 @@ describe('PrintingService', () => {
       expect(
         (prisma.printProduct.findMany as jest.Mock).mock.calls[0][0].where,
       ).toMatchObject({ active: true, publicVisible: true });
+    });
+
+    // Un producto se puede esconder a UN revendedor y seguir a la vista del
+    // resto (ej: Miguelito no revende los juegos de numeros, Marcelito si).
+    it('no muestra los productos ocultos para ESE revendedor', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findMany.mockResolvedValue([
+        { ...licensedProduct, id: 'prod-a', name: 'Oculto para res-1', hiddenFor: ['res-1'] },
+        { ...licensedProduct, id: 'prod-b', name: 'Oculto para otro', hiddenFor: ['res-2'] },
+        { ...licensedProduct, id: 'prod-c', name: 'Visible para todos', hiddenFor: null },
+      ]);
+
+      const result = await service.getPublicCatalog(mockSettings.publicToken);
+
+      expect(result.map((p) => p.id)).toEqual(['prod-b', 'prod-c']);
+      expect((result[0] as any).hiddenFor).toBeUndefined();
     });
 
     it('404 con un token invalido', async () => {

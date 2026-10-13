@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { SettlementService } from './settlement.service';
-import { ResellersService } from './resellers.service';
+import { isHiddenForReseller, ResellersService } from './resellers.service';
 import { pricingForProduct } from './pricing';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
@@ -98,7 +98,12 @@ export class OrdersService {
         id: { in: items.map((i) => i.productId) },
       },
     });
-    const byId = new Map(products.map((p: any) => [p.id, p]));
+    // Solo lo que ESTE revendedor tiene a la vista en su catalogo.
+    const byId = new Map(
+      products
+        .filter((p: any) => !isHiddenForReseller(p, reseller.id))
+        .map((p: any) => [p.id, p]),
+    );
     for (const item of items) {
       if (!byId.has(item.productId)) {
         throw new BadRequestException('Hay un producto que ya no esta disponible');

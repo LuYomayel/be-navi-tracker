@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../config/prisma.service';
 import { GoalService } from '../goal/goal.service';
 import { SettlementService } from './settlement.service';
-import { ResellersService } from './resellers.service';
+import { isHiddenForReseller, ResellersService } from './resellers.service';
 import { photoUrl } from './photos.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import { pricingForProduct, PricingSettings } from './pricing';
@@ -35,10 +35,14 @@ export interface CreatePrintProductDto {
   /** Precio a Marcelito a mano (null = volver al markup). 0 es valido. */
   priceOverride?: number | null;
   publicPrice?: number;
-  colorBreakdown?: { color?: string; colorHex?: string; grams: number }[] | null;
+  colorBreakdown?:
+    | { color?: string; colorHex?: string; grams: number }[]
+    | null;
   active?: boolean;
-  /** false = oculto en el catalogo publico de Marcelito. Default true. */
+  /** false = oculto en el catalogo publico de todos los revendedores. Default true. */
   publicVisible?: boolean;
+  /** Ids de revendedores que NO lo ven (el resto si). [] o null = lo ven todos. */
+  hiddenFor?: string[] | null;
   notes?: string;
 }
 
@@ -73,9 +77,7 @@ export interface CreatePrintSaleDto {
   notes?: string;
 }
 
-export type UpdatePrintSaleDto = Partial<
-  Omit<CreatePrintSaleDto, 'productId'>
->;
+export type UpdatePrintSaleDto = Partial<Omit<CreatePrintSaleDto, 'productId'>>;
 
 /**
  * Negocio de impresion 3D: catalogo, filamentos, ventas y balance.
@@ -204,6 +206,12 @@ export class PrintingService {
     }
   }
 
+  /** Lista limpia de ids (sin vacios ni repetidos); undefined si no vino nada. */
+  private cleanHiddenFor(ids: string[] | null | undefined) {
+    if (!Array.isArray(ids)) return undefined;
+    return [...new Set(ids.filter((id) => typeof id === 'string' && id))];
+  }
+
   async createProduct(userId: string, dto: CreatePrintProductDto) {
     if (!dto.name?.trim()) {
       throw new BadRequestException('Falta el nombre del producto');
@@ -237,6 +245,7 @@ export class PrintingService {
         colorBreakdown: (dto.colorBreakdown as any) ?? undefined,
         active: dto.active ?? true,
         publicVisible: dto.publicVisible ?? true,
+        hiddenFor: this.cleanHiddenFor(dto.hiddenFor) ?? undefined,
         notes: dto.notes || null,
       },
     });
@@ -260,7 +269,8 @@ export class PrintingService {
       include: { photos: { orderBy: { order: 'asc' } } },
       data: {
         name: dto.name?.trim(),
-        author: dto.author === undefined ? undefined : dto.author?.trim() || null,
+        author:
+          dto.author === undefined ? undefined : dto.author?.trim() || null,
         makerworldUrl:
           dto.makerworldUrl === undefined
             ? undefined
@@ -268,7 +278,8 @@ export class PrintingService {
         grams: dto.grams,
         hours: dto.hours,
         colorsLabel: dto.colorsLabel?.trim(),
-        sizeMm: dto.sizeMm === undefined ? undefined : dto.sizeMm?.trim() || null,
+        sizeMm:
+          dto.sizeMm === undefined ? undefined : dto.sizeMm?.trim() || null,
         licenseOk: dto.licenseOk,
         markupOverride:
           dto.markupOverride === undefined ? undefined : dto.markupOverride,
@@ -277,11 +288,18 @@ export class PrintingService {
           dto.costOverride === undefined ? undefined : dto.costOverride,
         priceOverride:
           dto.priceOverride === undefined ? undefined : dto.priceOverride,
-        publicPrice: dto.publicPrice === undefined ? undefined : dto.publicPrice,
+        publicPrice:
+          dto.publicPrice === undefined ? undefined : dto.publicPrice,
         colorBreakdown:
-          dto.colorBreakdown === undefined ? undefined : (dto.colorBreakdown as any),
+          dto.colorBreakdown === undefined
+            ? undefined
+            : (dto.colorBreakdown as any),
         active: dto.active,
         publicVisible: dto.publicVisible,
+        hiddenFor:
+          dto.hiddenFor === undefined
+            ? undefined
+            : (this.cleanHiddenFor(dto.hiddenFor) ?? []),
         notes: dto.notes === undefined ? undefined : dto.notes || null,
       },
     });
@@ -394,7 +412,9 @@ export class PrintingService {
         purchasedAt: dto.purchasedAt,
         discarded: dto.discarded,
         discardReason:
-          dto.discardReason === undefined ? undefined : dto.discardReason || null,
+          dto.discardReason === undefined
+            ? undefined
+            : dto.discardReason || null,
         gramsLeft: dto.gramsLeft,
         colorHex: dto.colorHex === undefined ? undefined : dto.colorHex || null,
         finishedAt: dto.finishedAt === undefined ? undefined : dto.finishedAt,
@@ -429,7 +449,10 @@ export class PrintingService {
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     });
     // total/cobrado/restante por venta (contempla las liquidadas legacy)
-    return sales.map((s: any) => ({ ...s, ...this.settlements.settledInfo(s) }));
+    return sales.map((s: any) => ({
+      ...s,
+      ...this.settlements.settledInfo(s),
+    }));
   }
 
   async createSale(userId: string, dto: CreatePrintSaleDto) {
@@ -442,14 +465,15 @@ export class PrintingService {
     }
     const kind = dto.kind === 'muestra' ? 'muestra' : 'venta';
     const qty = dto.qty ?? 1;
-    if (qty <= 0) throw new BadRequestException('La cantidad debe ser mayor a 0');
+    if (qty <= 0)
+      throw new BadRequestException('La cantidad debe ser mayor a 0');
 
     const settings = await this.getSettings(userId);
     const pricing = pricingForProduct(product, settings);
     const costUnit = dto.costUnit ?? pricing.cost;
     // Muestra = se regala: cobro 0 siempre, sin importar lo que mande el body.
     const chargedUnit =
-      kind === 'muestra' ? 0 : dto.chargedUnit ?? pricing.priceToMarcelito;
+      kind === 'muestra' ? 0 : (dto.chargedUnit ?? pricing.priceToMarcelito);
 
     return this.prisma.printSale.create({
       data: {
@@ -597,7 +621,7 @@ export class PrintingService {
    * (los que todavia no tienen permiso del autor no se muestran).
    */
   async getPublicCatalog(token: string) {
-    const { settings } = await this.resellers.resolveToken(token);
+    const { settings, reseller } = await this.resellers.resolveToken(token);
 
     const products = await this.prisma.printProduct.findMany({
       // Sin filtro de licencia: este catalogo reemplaza al sheet que
@@ -610,20 +634,22 @@ export class PrintingService {
       orderBy: { name: 'asc' },
     });
 
-    return products.map((p: any) => {
-      const { priceToMarcelito } = pricingForProduct(p, settings);
-      return {
-        id: p.id,
-        name: p.name,
-        colorsLabel: p.colorsLabel,
-        sizeMm: p.sizeMm,
-        makerworldUrl: p.makerworldUrl,
-        photos: (p.photos ?? []).map((ph: any) => photoUrl(ph.path)),
-        priceToMarcelito,
-        publicPrice: p.publicPrice,
-        marcelitoProfit:
-          p.publicPrice != null ? p.publicPrice - priceToMarcelito : null,
-      };
-    });
+    return products
+      .filter((p: any) => !isHiddenForReseller(p, reseller.id))
+      .map((p: any) => {
+        const { priceToMarcelito } = pricingForProduct(p, settings);
+        return {
+          id: p.id,
+          name: p.name,
+          colorsLabel: p.colorsLabel,
+          sizeMm: p.sizeMm,
+          makerworldUrl: p.makerworldUrl,
+          photos: (p.photos ?? []).map((ph: any) => photoUrl(ph.path)),
+          priceToMarcelito,
+          publicPrice: p.publicPrice,
+          marcelitoProfit:
+            p.publicPrice != null ? p.publicPrice - priceToMarcelito : null,
+        };
+      });
   }
 }

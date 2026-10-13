@@ -725,6 +725,22 @@ describe('OrdersService', () => {
   // ── Revendedores: cada link ve y pide solo lo suyo ─────────
 
   describe('revendedores', () => {
+    it('no deja pedir un producto oculto para ese revendedor', async () => {
+      prisma.printProduct.findMany.mockResolvedValue([
+        { ...product, hiddenFor: ['res-2'] },
+      ]);
+      await expect(
+        service.createPublicOrder('token-miguel', {
+          items: [{ productId: 'prod-1', qty: 1 }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      // ...pero el otro revendedor lo pide sin problema
+      await service.createPublicOrder(token, {
+        items: [{ productId: 'prod-1', qty: 1 }],
+      });
+      expect(prisma.printOrder.create).toHaveBeenCalledTimes(1);
+    });
+
     it('el pedido publico queda a nombre del revendedor del link', async () => {
       await service.createPublicOrder('token-miguel', {
         customerName: 'otro nombre',
