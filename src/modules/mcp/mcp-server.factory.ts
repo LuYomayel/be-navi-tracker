@@ -757,7 +757,7 @@ export class McpServerFactory {
           nombre: z
             .string()
             .describe(
-              'Nombre del objetivo (ej: "Nueva Zelanda + Imprimime 3D")',
+              'Nombre del objetivo (ej: "Nueva Zelanda + LY Juegos")',
             ),
           meta_usd: z.number().describe('Meta del fondo en USD (ej: 8000)'),
           fecha_objetivo: z
@@ -1941,7 +1941,7 @@ export class McpServerFactory {
         const s = await this.expenses.getBusinessSummary(userId);
         return text(
           [
-            `🖨️ Negocio 3D:`,
+            `🖨️ LY Juegos:`,
             `Invertido: ${ars(s.invested)} (${s.investmentsCount} gastos)`,
             `Ingresos: ${ars(s.incomeTotal)} (${s.incomesCount} ventas) — costo recuperado ${ars(s.costRecovered)}`,
             `Ganancia limpia: ${ars(s.profit)}`,
@@ -3302,7 +3302,7 @@ export class McpServerFactory {
       {
         title: 'Catálogo de productos del negocio 3D',
         description:
-          'Lista los productos del catálogo del negocio de impresión 3D con costo real, precio a Marcelito y ganancia (datos internos, no el catálogo público). Incluye si tienen licencia para vender.',
+          'Lista los productos del catálogo del negocio de impresión 3D con costo real, precio a revendedores y ganancia (datos internos, no el catálogo público). Incluye si tienen licencia para vender.',
         inputSchema: {
           soloActivos: z
             .boolean()
@@ -3317,7 +3317,7 @@ export class McpServerFactory {
         if (!list.length) return text('Todavía no cargaste productos en el catálogo.');
         const lines = list.map(
           (p) =>
-            `• ${p.name}${p.author ? ` (${p.author})` : ''} — costo ${ars(p.cost)}${p.costIsManual ? ' (a mano)' : ''} · a Marcelito ${ars(p.priceToMarcelito)}${p.priceIsManual ? ' (a mano)' : ''} · ganancia ${ars(p.profit)}${p.profit <= 0 ? ' ⚠️ NO GANÁS NADA' : ''}${p.licenseOk ? '' : ' ⚠️ sin licencia para vender'}${p.publicVisible === false ? ' 🙈 oculto para Marcelito' : ''}`,
+            `• ${p.name}${p.author ? ` (${p.author})` : ''} — costo ${ars(p.cost)}${p.costIsManual ? ' (a mano)' : ''} · a revendedores ${ars(p.priceToMarcelito)}${p.priceIsManual ? ' (a mano)' : ''} · ganancia ${ars(p.profit)}${p.profit <= 0 ? ' ⚠️ NO GANÁS NADA' : ''}${p.licenseOk ? '' : ' ⚠️ sin licencia para vender'}${p.publicVisible === false ? ' 🙈 oculto para los revendedores' : ''}`,
         );
         return text(`Catálogo (${list.length} productos):\n${lines.join('\n')}`);
       },
@@ -3328,7 +3328,7 @@ export class McpServerFactory {
       {
         title: 'Cotizar una impresión sin guardarla',
         description:
-          'Calcula costo, precio a Marcelito y ganancia para unos gramos/horas dados, usando los parámetros de costeo actuales. No guarda nada, es solo para cotizar.',
+          'Calcula costo, precio a revendedores y ganancia para unos gramos/horas dados, usando los parámetros de costeo actuales. No guarda nada, es solo para cotizar.',
         inputSchema: {
           gramos: z.number().describe('Gramos de filamento que consume'),
           horas: z.number().describe('Horas de impresión'),
@@ -3353,7 +3353,7 @@ export class McpServerFactory {
         );
         const profit = computeProfit(priceToMarcelito, cost);
         return text(
-          `Costo ${ars(cost)} · precio a Marcelito ${ars(priceToMarcelito)} · ganancia ${ars(profit)} (${a.gramos}g, ${a.horas}h).`,
+          `Costo ${ars(cost)} · precio a revendedores ${ars(priceToMarcelito)} · ganancia ${ars(profit)} (${a.gramos}g, ${a.horas}h).`,
         );
       },
     );
@@ -3401,7 +3401,7 @@ export class McpServerFactory {
       {
         title: 'Cargar a mano el costo o el precio de un producto 3D',
         description:
-          'Pisa con un valor manual el costo real y/o el precio a Marcelito de un producto del catálogo. Sirve cuando la fórmula (que usa un único $/g) no representa el filamento real usado, ej un PLA Wood más caro. Con volverAutomatico revertís al cálculo. Si cargás solo el costo, el precio a Marcelito se recalcula con el markup sobre ese costo real.',
+          'Pisa con un valor manual el costo real y/o el precio a revendedores de un producto del catálogo. Sirve cuando la fórmula (que usa un único $/g) no representa el filamento real usado, ej un PLA Wood más caro. Con volverAutomatico revertís al cálculo. Si cargás solo el costo, el precio a revendedores se recalcula con el markup sobre ese costo real.',
         inputSchema: {
           producto: z.string().describe('Nombre (o parte) del producto, o su id'),
           costo: z
@@ -3411,7 +3411,7 @@ export class McpServerFactory {
           precio: z
             .number()
             .optional()
-            .describe('Precio a Marcelito en ARS. Sin esto, se calcula con el markup sobre el costo.'),
+            .describe('Precio a revendedores en ARS. Sin esto, se calcula con el markup sobre el costo.'),
           volverAutomatico: z
             .enum(['costo', 'precio', 'ambos'])
             .optional()
@@ -3441,7 +3441,7 @@ export class McpServerFactory {
           dto,
         );
         return text(
-          `${up.name}: costo ${ars(up.cost)}${up.costIsManual ? ' (a mano)' : ' (calculado)'} · a Marcelito ${ars(up.priceToMarcelito)}${up.priceIsManual ? ' (a mano)' : ' (calculado)'} · ganancia ${ars(up.profit)}` +
+          `${up.name}: costo ${ars(up.cost)}${up.costIsManual ? ' (a mano)' : ' (calculado)'} · a revendedores ${ars(up.priceToMarcelito)}${up.priceIsManual ? ' (a mano)' : ' (calculado)'} · ganancia ${ars(up.profit)}` +
             (up.profit <= 0
               ? ' ⚠️ ojo: con ese precio no ganás nada.'
               : ''),
@@ -3454,7 +3454,7 @@ export class McpServerFactory {
       {
         title: 'Agregar un producto al catálogo 3D',
         description:
-          'Crea un producto en el catálogo del negocio 3D (gramos y horas salen del perfil de MakerWorld). Con visibleParaMarcelito=false queda oculto en el catálogo público de Marcelito pero sigue activo para ventas, pedidos e impresiones.',
+          'Crea un producto en el catálogo del negocio 3D (gramos y horas salen del perfil de MakerWorld). Con visibleParaMarcelito=false queda oculto en el catálogo público de los revendedores pero sigue activo para ventas, pedidos e impresiones.',
         inputSchema: {
           nombre: z.string().describe('Nombre del producto'),
           gramos: z.number().describe('Gramos de filamento por unidad'),
@@ -3467,13 +3467,13 @@ export class McpServerFactory {
           makerworldUrl: z.string().optional().describe('Link al modelo/perfil'),
           medidas: z.string().optional().describe('Medidas en mm, ej "60x60x60"'),
           costo: z.number().optional().describe('Costo real a mano (pisa la fórmula)'),
-          precio: z.number().optional().describe('Precio a Marcelito a mano (pisa el markup)'),
+          precio: z.number().optional().describe('Precio a revendedores a mano (pisa el markup)'),
           precioPublico: z.number().optional().describe('Precio sugerido de venta al público'),
           licenciaOk: z.boolean().optional().describe('La licencia del autor permite vender'),
           visibleParaMarcelito: z
             .boolean()
             .optional()
-            .describe('false = oculto en el catálogo público de Marcelito. Por defecto true.'),
+            .describe('false = oculto en el catálogo público de los revendedores. Por defecto true.'),
           notas: z.string().optional(),
         },
       },
@@ -3494,7 +3494,7 @@ export class McpServerFactory {
           notes: a.notas,
         });
         return text(
-          `Producto creado: ${p.name} — costo ${ars(p.cost)}${p.costIsManual ? ' (a mano)' : ''} · a Marcelito ${ars(p.priceToMarcelito)}${p.priceIsManual ? ' (a mano)' : ''} · ganancia ${ars(p.profit)}${p.publicVisible === false ? ' · 🙈 oculto para Marcelito' : ' · visible para Marcelito'}. id ${p.id}.`,
+          `Producto creado: ${p.name} — costo ${ars(p.cost)}${p.costIsManual ? ' (a mano)' : ''} · a revendedores ${ars(p.priceToMarcelito)}${p.priceIsManual ? ' (a mano)' : ''} · ganancia ${ars(p.profit)}${p.publicVisible === false ? ' · 🙈 oculto para los revendedores' : ' · visible para los revendedores'}. id ${p.id}.`,
         );
       },
     );
@@ -3502,12 +3502,12 @@ export class McpServerFactory {
     add(
       'visibilidad_producto_3d',
       {
-        title: 'Mostrar u ocultar un producto en el catálogo de Marcelito',
+        title: 'Mostrar u ocultar un producto en el catálogo de los revendedores',
         description:
-          'Oculta o vuelve a mostrar un producto en el catálogo público de Marcelito. No lo desactiva: sigue disponible para registrar ventas, pedidos e impresiones.',
+          'Oculta o vuelve a mostrar un producto en el catálogo público de los revendedores. No lo desactiva: sigue disponible para registrar ventas, pedidos e impresiones.',
         inputSchema: {
           producto: z.string().describe('Nombre (o parte) del producto, o su id'),
-          visible: z.boolean().describe('true = Marcelito lo ve · false = oculto'),
+          visible: z.boolean().describe('true = los revendedores lo ven · false = oculto para todos'),
         },
       },
       async (a) => {
@@ -3517,7 +3517,7 @@ export class McpServerFactory {
           publicVisible: a.visible,
         });
         return text(
-          `${up.name}: ${up.publicVisible === false ? '🙈 oculto para Marcelito' : 'visible para Marcelito'}.`,
+          `${up.name}: ${up.publicVisible === false ? '🙈 oculto para los revendedores' : 'visible para los revendedores'}.`,
         );
       },
     );
@@ -3542,7 +3542,7 @@ export class McpServerFactory {
           precioUnitario: z
             .number()
             .optional()
-            .describe('Precio cobrado por unidad. Por defecto el precio a Marcelito calculado.'),
+            .describe('Precio cobrado por unidad. Por defecto el precio a revendedores calculado.'),
           canal: z.string().optional().describe('Canal de venta (ej "feria", "Marcelito")'),
         },
       },
@@ -3569,7 +3569,7 @@ export class McpServerFactory {
       {
         title: 'Liquidar ventas del negocio 3D (total o parcial)',
         description:
-          'Registra pagos de ventas pendientes (Marcelito pagó) creando el ingreso correspondiente. Sin filtros liquida TODO lo pendiente. Con "monto" o "cantidad" registra un pago PARCIAL sobre una sola venta (ej: pagó 3 de los 5 tetris) — en ese caso tiene que matchear una única venta pendiente, usá el filtro de producto.',
+          'Registra pagos de ventas pendientes (un revendedor pagó) creando el ingreso correspondiente. Sin filtros liquida TODO lo pendiente. Con "monto" o "cantidad" registra un pago PARCIAL sobre una sola venta (ej: pagó 3 de los 5 tetris) — en ese caso tiene que matchear una única venta pendiente, usá el filtro de producto.',
         inputSchema: {
           producto: z
             .string()
@@ -3644,7 +3644,7 @@ export class McpServerFactory {
     add(
       'balance_3d',
       {
-        title: 'Balance del negocio de impresión 3D',
+        title: 'Balance de LY Juegos',
         description:
           'Balance completo del negocio 3D (módulo propio, no depende del objetivo NZ): invertido en filamento, invertido en muestras regaladas, ganancia de ventas (liquidadas y a liquidar), resultado neto y cuánto falta ganar para cubrir el filamento.',
         inputSchema: {},
@@ -3653,7 +3653,7 @@ export class McpServerFactory {
         const s = await this.printing.getSummary(userId);
         return text(
           [
-            '🖨️ Negocio 3D:',
+            '🖨️ LY Juegos:',
             `Invertido en filamento: ${ars(s.investedFilament)} (${s.filamentsCount} compras)`,
             `Invertido en muestras: ${ars(s.investedSamples)} (${s.samplesCount} regaladas)`,
             `Ganancia de ventas: ${ars(s.profitSalesTotal)} — liquidada ${ars(s.profitSalesSettled)} · a liquidar ${ars(s.profitSalesPending)}`,
@@ -3826,7 +3826,7 @@ export class McpServerFactory {
     add(
       'pedidos_3d',
       {
-        title: 'Pedidos del catálogo (Marcelito)',
+        title: 'Pedidos de los revendedores',
         description:
           'Lista los pedidos que llegaron desde el catálogo público y permite avanzarles el estado (pedido → confirmado → imprimiendo → listo → entregado; al entregar se crean las ventas a liquidar). También muestra avisos de pago pendientes.',
         inputSchema: {
