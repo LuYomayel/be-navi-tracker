@@ -183,11 +183,16 @@ function planUnit(
     let assigned = 0;
     for (const s of order) if (tryAssign(s, new Set())) assigned++;
     if (assigned < slotIds.length) {
-      const usable = allColors.filter((c) =>
-        slotIds.some((s) => cand.get(s)!.includes(c)),
-      ).length;
+      // Si todos los colores llevan las mismas piezas (Carrot) se nombran;
+      // si cada color tiene su set propio (Tetr_s) seria una lista eterna.
+      const desc = (s: string) =>
+        slots
+          .get(s)!
+          .map((l) => `${name(l.partId)} ×${l.qty}`)
+          .join(' + ');
+      const same = slotIds.every((s) => desc(s) === desc(slotIds[0]));
       missing.push(
-        `${group}: hacen falta ${slotIds.length} colores distintos con ${[...new Set(gl.map((l) => name(l.partId)))].join(' + ')} del mismo color; hay ${usable} de ${slotIds.length}`,
+        `${group}: hacen falta ${slotIds.length} colores distintos, cada uno con ${same ? desc(slotIds[0]) : 'su set completo'}; hay ${assigned} de ${slotIds.length}`,
       );
       continue;
     }

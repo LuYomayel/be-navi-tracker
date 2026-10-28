@@ -96,6 +96,57 @@ describe('countBuildable', () => {
     expect(res.missing[0]).toMatch(/4 de 6/);
   });
 
+  it('el faltante de colores distintos es corto y dice cuantos colores completos hay', () => {
+    const tetris: RecipeLine[] = [1, 2, 3, 4, 5, 6].flatMap((k) => [
+      {
+        partId: `ladrillo-${k}`,
+        qty: 4,
+        colorMode: 'distintos' as const,
+        group: 'colores',
+        slot: `s${k}`,
+      },
+      {
+        partId: `base-${k}`,
+        qty: 2,
+        colorMode: 'distintos' as const,
+        group: 'colores',
+        slot: `s${k}`,
+      },
+      {
+        partId: `cara-${k}`,
+        qty: 2,
+        colorMode: 'distintos' as const,
+        group: 'colores',
+        slot: `s${k}`,
+      },
+    ]);
+    const res = countBuildable(
+      tetris,
+      stock([
+        ['ladrillo-1', 'rojo', 4],
+        ['base-1', 'rojo', 2],
+        ['cara-1', 'rojo', 2],
+      ]),
+    );
+    expect(res.missing[0]).toBe(
+      'colores: hacen falta 6 colores distintos, cada uno con su set completo; hay 1 de 6',
+    );
+  });
+
+  it('si todos los colores llevan las mismas piezas, el faltante las nombra', () => {
+    const s = stock([
+      ['punta', 'rojo', 1],
+      ['cara', 'rojo', 1],
+    ]);
+    const res = countBuildable(
+      carrot.filter((l) => l.colorMode === 'distintos'),
+      s,
+    );
+    expect(res.missing[0]).toBe(
+      'colores: hacen falta 3 colores distintos, cada uno con punta ×1 + cara ×1; hay 1 de 3',
+    );
+  });
+
   it('juego: toda la estructura del mismo color (no mezcla balanza negra con base blanca)', () => {
     const tetris: RecipeLine[] = [
       { partId: 'balanza', qty: 1, colorMode: 'juego', group: 'estructura' },
@@ -191,7 +242,10 @@ describe('planConsumption', () => {
     const tetris: RecipeLine[] = [
       { partId: 'balanza', qty: 1, colorMode: 'juego', group: 'estructura' },
     ];
-    const s = stock([['balanza', 'negro', 3], ['balanza', 'blanco', 1]]);
+    const s = stock([
+      ['balanza', 'negro', 3],
+      ['balanza', 'blanco', 1],
+    ]);
     const res = planConsumption(tetris, s, 1, { anyGroupColor: 'blanco' });
     expect(res.moves).toEqual([{ partId: 'balanza', color: 'blanco', qty: 1 }]);
   });
