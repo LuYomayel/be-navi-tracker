@@ -11,6 +11,7 @@ import { isHiddenForReseller, ResellersService } from './resellers.service';
 import { photoUrl } from './photos.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import { pricingForProduct, PricingSettings } from './pricing';
+import { assertPaletteColor } from './colors';
 
 export interface UpdatePrintSettingsDto {
   costPerGram?: number;
@@ -207,6 +208,16 @@ export class PrintingService {
   }
 
   /** Lista limpia de ids (sin vacios ni repetidos); undefined si no vino nada. */
+  /** Desglose con nombres de la paleta (las entradas solo-hex quedan igual). */
+  private cleanBreakdown(
+    breakdown: CreatePrintProductDto['colorBreakdown'],
+  ): CreatePrintProductDto['colorBreakdown'] {
+    if (!breakdown) return breakdown;
+    return breakdown.map((b) =>
+      b.color?.trim() ? { ...b, color: assertPaletteColor(b.color) } : b,
+    );
+  }
+
   private cleanHiddenFor(ids: string[] | null | undefined) {
     if (!Array.isArray(ids)) return undefined;
     return [...new Set(ids.filter((id) => typeof id === 'string' && id))];
@@ -242,7 +253,7 @@ export class PrintingService {
         costOverride: dto.costOverride ?? null,
         priceOverride: dto.priceOverride ?? null,
         publicPrice: dto.publicPrice ?? null,
-        colorBreakdown: (dto.colorBreakdown as any) ?? undefined,
+        colorBreakdown: (this.cleanBreakdown(dto.colorBreakdown) as any) ?? undefined,
         active: dto.active ?? true,
         publicVisible: dto.publicVisible ?? true,
         hiddenFor: this.cleanHiddenFor(dto.hiddenFor) ?? undefined,
@@ -293,7 +304,7 @@ export class PrintingService {
         colorBreakdown:
           dto.colorBreakdown === undefined
             ? undefined
-            : (dto.colorBreakdown as any),
+            : (this.cleanBreakdown(dto.colorBreakdown) as any),
         active: dto.active,
         publicVisible: dto.publicVisible,
         hiddenFor:
@@ -339,6 +350,7 @@ export class PrintingService {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dto.purchasedAt || '')) {
       throw new BadRequestException('Fecha de compra invalida (YYYY-MM-DD)');
     }
+    const color = assertPaletteColor(dto.color);
     const grams = dto.grams ?? 1000;
     const pricePerGram = dto.pricePaid / grams;
 
@@ -348,7 +360,7 @@ export class PrintingService {
         userId,
         date: dto.purchasedAt,
         amount: dto.pricePaid,
-        description: `Filamento ${dto.brand.trim()} ${dto.material.trim()} ${dto.color.trim()}`,
+        description: `Filamento ${dto.brand.trim()} ${dto.material.trim()} ${color}`,
         source: 'printing',
         goalId: activeGoal?.id ?? null,
       },
@@ -359,7 +371,7 @@ export class PrintingService {
         userId,
         brand: dto.brand.trim(),
         material: dto.material.trim(),
-        color: dto.color.trim(),
+        color,
         pricePaid: dto.pricePaid,
         grams,
         pricePerGram,
@@ -383,6 +395,12 @@ export class PrintingService {
     if (dto.pricePaid !== undefined && dto.pricePaid <= 0) {
       throw new BadRequestException('El precio pagado debe ser mayor a 0');
     }
+    // Solo se valida contra la paleta si el color cambia: los rollos viejos
+    // fuera de la paleta (ej el "Interés" de financiacion) se siguen editando.
+    const color =
+      dto.color === undefined || dto.color.trim() === existing.color
+        ? dto.color?.trim()
+        : assertPaletteColor(dto.color);
     const grams = dto.grams ?? existing.grams;
     const pricePaid = dto.pricePaid ?? existing.pricePaid;
     const pricePerGram = pricePaid / grams;
@@ -402,7 +420,7 @@ export class PrintingService {
       data: {
         brand: dto.brand?.trim(),
         material: dto.material?.trim(),
-        color: dto.color?.trim(),
+        color,
         pricePaid: dto.pricePaid,
         grams: dto.grams,
         pricePerGram:
@@ -494,10 +512,24 @@ export class PrintingService {
   async updateSale(userId: string, id: string, dto: UpdatePrintSaleDto) {
     const existing = await this.prisma.printSale.findFirst({
       where: { id, userId },
+      include: { settlements: true },
     });
     if (!existing) throw new NotFoundException('Venta no encontrada');
     if (dto.qty !== undefined && dto.qty <= 0) {
       throw new BadRequestException('La cantidad debe ser mayor a 0');
+    }
+    // Si cambia el total (cantidad o precio), el estado se recalcula contra
+    // lo ya cobrado: 19 -> 17 soportes con $60.000 pagos sigue "parcial".
+    // Las ventas legacy (incomeId, sin pagos) quedan como estaban.
+    let status: string | undefined;
+    const settlements = (existing as any).settlements ?? [];
+    const isLegacy = !!existing.incomeId && !settlements.length;
+    if ((dto.qty !== undefined || dto.chargedUnit !== undefined) && !isLegacy) {
+      const total =
+        (dto.qty ?? existing.qty) * (dto.chargedUnit ?? existing.chargedUnit);
+      const paid = settlements.reduce((a: number, st: any) => a + st.amount, 0);
+      status =
+        paid <= 0 ? 'a_liquidar' : paid >= total - 0.01 ? 'liquidado' : 'parcial';
     }
     return this.prisma.printSale.update({
       where: { id },
@@ -507,6 +539,7 @@ export class PrintingService {
         qty: dto.qty,
         chargedUnit: dto.chargedUnit,
         costUnit: dto.costUnit,
+        status,
         channel: dto.channel === undefined ? undefined : dto.channel || null,
         notes: dto.notes === undefined ? undefined : dto.notes || null,
       },

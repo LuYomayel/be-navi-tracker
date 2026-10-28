@@ -50,6 +50,13 @@ import { StockService } from '../printing/stock.service';
 import { OrdersService } from '../printing/orders.service';
 import { BambuService } from '../printing/bambu.service';
 import { computePrintCost, computeSalePrice, computeProfit } from '../printing/pricing';
+import { FILAMENT_COLORS } from '../printing/colors';
+import {
+  selectPendingSales,
+  buildSaleUpdateFromMcpArgs,
+  buildFilamentUpdateFromMcpArgs,
+  formatRoll,
+} from './printing-mcp-utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
 function text(message: string) {
@@ -1575,6 +1582,49 @@ export class McpServerFactory {
     );
 
     add(
+      'editar_nota',
+      {
+        title: 'Editar una nota',
+        description:
+          'Reescribe el texto (o la fecha) de una nota guardada. El id sale de get_notas.',
+        inputSchema: {
+          nota_id: z.string().describe('id de la nota (sale de get_notas)'),
+          contenido: z.string().optional().describe('Texto nuevo de la nota'),
+          fecha: z.string().optional().describe('Fecha nueva YYYY-MM-DD'),
+        },
+      },
+      async (a) => {
+        const data: any = {};
+        if (a.contenido !== undefined) data.content = a.contenido;
+        if (a.fecha !== undefined) data.date = a.fecha;
+        if (!Object.keys(data).length) {
+          return text('Decime qué cambiar: contenido o fecha.');
+        }
+        const note = await this.notes.update(a.nota_id, data, userId);
+        if (!note) return text(`No encontré la nota ${a.nota_id}.`);
+        return text(`Nota actualizada (${note.date}): "${note.content}".`);
+      },
+    );
+
+    add(
+      'borrar_nota',
+      {
+        title: 'Borrar una nota',
+        description: 'Borra una nota guardada. El id sale de get_notas.',
+        inputSchema: {
+          nota_id: z.string().describe('id de la nota (sale de get_notas)'),
+        },
+      },
+      async (a) => {
+        const all = (await this.notes.getAll(userId)) as any[];
+        const note = all.find((n) => n.id === a.nota_id);
+        if (!note) return text(`No encontré la nota ${a.nota_id}.`);
+        await this.notes.delete(a.nota_id, userId);
+        return text(`Nota borrada: "${note.content}".`);
+      },
+    );
+
+    add(
       'get_notas',
       {
         title: 'Listar notas',
@@ -1595,7 +1645,7 @@ export class McpServerFactory {
         }
         const lines = recent.map(
           (n) =>
-            `• [${n.date}] ${n.content}${n.customComment ? ` — ${n.customComment}` : ''}`,
+            `• [${n.date}] ${n.content}${n.customComment ? ` — ${n.customComment}` : ''} (id ${n.id})`,
         );
         return text(
           `Notas${a.fecha ? ` (${a.fecha})` : ' (últimas)'}:\n${lines.join('\n')}`,
@@ -3367,7 +3417,13 @@ export class McpServerFactory {
         inputSchema: {
           marca: z.string().describe('Marca (ej "Bambu Lab")'),
           material: z.string().describe('Material (ej "PLA Lite")'),
-          color: z.string().describe('Color'),
+          color: z
+            .string()
+            .describe(`Color de la paleta: ${FILAMENT_COLORS.join(', ')}`),
+          colorHex: z
+            .string()
+            .optional()
+            .describe('Hex del color (ej "#FF6910") para matchear lo que reporta la impresora'),
           precioPagado: z.number().describe('Lo pagado en ARS'),
           gramos: z
             .number()
@@ -3385,6 +3441,7 @@ export class McpServerFactory {
           brand: a.marca,
           material: a.material,
           color: a.color,
+          colorHex: a.colorHex,
           pricePaid: a.precioPagado,
           grams: a.gramos,
           purchasedAt: a.fecha || getLocalDateString(),
@@ -3569,8 +3626,12 @@ export class McpServerFactory {
       {
         title: 'Liquidar ventas del negocio 3D (total o parcial)',
         description:
-          'Registra pagos de ventas pendientes (un revendedor pagó) creando el ingreso correspondiente. Sin filtros liquida TODO lo pendiente. Con "monto" o "cantidad" registra un pago PARCIAL sobre una sola venta (ej: pagó 3 de los 5 tetris) — en ese caso tiene que matchear una única venta pendiente, usá el filtro de producto.',
+          'Registra pagos de ventas pendientes (un revendedor pagó) creando el ingreso correspondiente. Sin filtros liquida TODO lo pendiente. Con "monto" o "cantidad" registra un pago PARCIAL sobre una sola venta (ej: pagó 3 de los 5 tetris) — en ese caso tiene que matchear una única venta pendiente: usá venta_id (sale de ventas_3d) o el filtro de producto.',
         inputSchema: {
+          venta_id: z
+            .string()
+            .optional()
+            .describe('id de la venta (sale de ventas_3d). Desempata dos ventas del mismo producto.'),
           producto: z
             .string()
             .optional()
@@ -3587,17 +3648,17 @@ export class McpServerFactory {
       },
       async (a) => {
         const sales = (await this.printing.getSales(userId)) as any[];
-        let pending = sales.filter(
-          (s) => s.kind === 'venta' && s.remaining > 0,
-        );
-        if (a.producto) {
-          const q = a.producto.toLowerCase();
-          pending = pending.filter((s) =>
-            s.product?.name?.toLowerCase().includes(q),
-          );
-        }
+        const pending = selectPendingSales(sales, {
+          ventaId: a.venta_id,
+          producto: a.producto,
+        });
         if (!pending.length) {
-          return text('No hay ventas a liquidar' + (a.producto ? ` de "${a.producto}"` : '') + '.');
+          return text(
+            'No hay ventas a liquidar' +
+              (a.venta_id ? ` con id ${a.venta_id}` : '') +
+              (a.producto ? ` de "${a.producto}"` : '') +
+              '.',
+          );
         }
 
         // Pago parcial: una sola venta objetivo.
@@ -3642,6 +3703,146 @@ export class McpServerFactory {
     );
 
     add(
+      'ventas_3d',
+      {
+        title: 'Listar ventas del negocio 3D (con ids y pagos)',
+        description:
+          'Lista las ventas/muestras con su id, total, cobrado, saldo y los pagos registrados (con id). Sirve para corregir cargas con editar_venta_3d, borrar_venta_3d o borrar_pago_3d.',
+        inputSchema: {
+          producto: z.string().optional().describe('Filtrar por nombre parcial del producto'),
+          soloPendientes: z
+            .boolean()
+            .optional()
+            .describe('true = solo las que tienen saldo por cobrar'),
+        },
+      },
+      async (a) => {
+        let sales = (await this.printing.getSales(userId)) as any[];
+        if (a.producto) {
+          const q = a.producto.toLowerCase();
+          sales = sales.filter((s) => s.product?.name?.toLowerCase().includes(q));
+        }
+        if (a.soloPendientes) sales = selectPendingSales(sales, {});
+        if (!sales.length) return text('No hay ventas que matcheen.');
+        const lines = sales.slice(0, 30).map((s) => {
+          const pagos = (s.settlements ?? [])
+            .map((st: any) => `\n    💵 ${st.date} ${ars(st.amount)} (pago id ${st.id})`)
+            .join('');
+          return (
+            `• ${s.date} ${s.qty}x ${s.product?.name ?? '?'}${s.kind === 'muestra' ? ' (muestra)' : ''} — total ${ars(s.total)} · cobrado ${ars(s.settledAmount)} · saldo ${ars(s.remaining)} [${s.status}]` +
+            (s.channel ? ` · ${s.channel}` : '') +
+            ` (venta id ${s.id})` +
+            pagos
+          );
+        });
+        return text(`🧾 Ventas (${sales.length}):\n${lines.join('\n')}`);
+      },
+    );
+
+    add(
+      'editar_venta_3d',
+      {
+        title: 'Corregir una venta del negocio 3D',
+        description:
+          'Corrige cantidad, precio por unidad, fecha, canal o notas de una venta (ej: se cargaron 19 soportes y se entregaron 17). El estado se recalcula contra lo ya cobrado. El id sale de ventas_3d.',
+        inputSchema: {
+          venta_id: z.string().describe('id de la venta (sale de ventas_3d)'),
+          cantidad: z.number().optional().describe('Cantidad real'),
+          precioUnitario: z.number().optional().describe('Precio cobrado por unidad'),
+          fecha: z.string().optional().describe('Fecha YYYY-MM-DD'),
+          canal: z.string().optional(),
+          notas: z.string().optional(),
+        },
+      },
+      async (a) => {
+        const dto = buildSaleUpdateFromMcpArgs(a);
+        if (!Object.keys(dto).length) {
+          return text('Decime qué corregir: cantidad, precioUnitario, fecha, canal o notas.');
+        }
+        await this.printing.updateSale(userId, a.venta_id, dto as any);
+        const s = ((await this.printing.getSales(userId)) as any[]).find(
+          (x) => x.id === a.venta_id,
+        );
+        return text(
+          `Venta corregida: ${s.qty}x ${s.product?.name ?? ''} — total ${ars(s.total)} · cobrado ${ars(s.settledAmount)} · saldo ${ars(s.remaining)} [${s.status}].`,
+        );
+      },
+    );
+
+    add(
+      'borrar_venta_3d',
+      {
+        title: 'Borrar una venta del negocio 3D',
+        description:
+          'Borra una venta mal cargada junto con sus pagos y los ingresos que generaron (el balance deja de contarla). El id sale de ventas_3d.',
+        inputSchema: {
+          venta_id: z.string().describe('id de la venta (sale de ventas_3d)'),
+        },
+      },
+      async (a) => {
+        const s = ((await this.printing.getSales(userId)) as any[]).find(
+          (x) => x.id === a.venta_id,
+        );
+        if (!s) return text(`No encontré la venta ${a.venta_id}.`);
+        await this.printing.deleteSale(userId, a.venta_id);
+        return text(
+          `Venta borrada: ${s.date} ${s.qty}x ${s.product?.name ?? ''} (${ars(s.total)})` +
+            ((s.settlements ?? []).length
+              ? `, con ${s.settlements.length} pago(s) por ${ars(s.settledAmount)} y sus ingresos.`
+              : '.'),
+        );
+      },
+    );
+
+    add(
+      'borrar_pago_3d',
+      {
+        title: 'Borrar un pago de una venta 3D',
+        description:
+          'Borra un pago (liquidación) cargado por error, con su ingreso, y la venta vuelve a quedar con saldo. El id del pago sale de ventas_3d.',
+        inputSchema: {
+          pago_id: z.string().describe('id del pago (sale de ventas_3d)'),
+        },
+      },
+      async (a) => {
+        await this.settlements.remove(userId, a.pago_id);
+        return text(`Pago ${a.pago_id} borrado (y su ingreso). La venta vuelve a tener ese saldo.`);
+      },
+    );
+
+    add(
+      'desglose_producto_3d',
+      {
+        title: 'Cargar el consumo por color de un producto 3D',
+        description:
+          'Guarda cuántos gramos de cada color usa una unidad del producto (habilita check_stock_3d por color). Reemplaza el desglose anterior. Colores de la paleta.',
+        inputSchema: {
+          producto: z.string().describe('Nombre (o parte) del producto, o su id'),
+          consumos: z
+            .array(
+              z.object({
+                color: z.string().describe(`Color de la paleta: ${FILAMENT_COLORS.join(', ')}`),
+                gramos: z.number().describe('Gramos de ese color por unidad'),
+              }),
+            )
+            .describe('Consumo por color de UNA unidad'),
+        },
+      },
+      async (a) => {
+        const { producto, error } = await resolveProduct(a.producto);
+        if (error) return text(error);
+        const up: any = await this.printing.updateProduct(userId, producto.id, {
+          colorBreakdown: a.consumos.map((c: any) => ({ color: c.color, grams: c.gramos })),
+        });
+        const total = (up.colorBreakdown ?? []).reduce((acc: number, b: any) => acc + b.grams, 0);
+        return text(
+          `${up.name}: desglose guardado (${Math.round(total)}g por unidad)\n` +
+            (up.colorBreakdown ?? []).map((b: any) => `• ${b.color}: ${b.grams}g`).join('\n'),
+        );
+      },
+    );
+
+    add(
       'balance_3d',
       {
         title: 'Balance de LY Juegos',
@@ -3671,7 +3872,7 @@ export class McpServerFactory {
       {
         title: 'Stock de filamento por color',
         description:
-          'Cuánto filamento queda de cada color (suma los rollos activos con stock trackeado). Avisa si hay rollos sin trackear.',
+          'Cuánto filamento queda de cada color, rollo por rollo (con id, marca, gramos y hex). El id sirve para editar_filamento y terminar_filamento. Avisa si hay rollos sin trackear.',
         inputSchema: {},
       },
       async () => {
@@ -3681,9 +3882,14 @@ export class McpServerFactory {
             'No hay stock trackeado todavía. Cargale los gramos restantes a los rollos activos desde /negocio → Filamentos.',
           );
         }
+        const filaments = (await this.printing.getFilaments(userId)) as any[];
+        const byId = new Map(filaments.map((f) => [f.id, f]));
         const lines = stock.colors.map(
           (c: any) =>
-            `• ${c.color}: ${Math.round(c.totalGrams)}g en ${c.rolls.length} rollo${c.rolls.length > 1 ? 's' : ''}`,
+            `• ${c.color}: ${Math.round(c.totalGrams)}g en ${c.rolls.length} rollo${c.rolls.length > 1 ? 's' : ''}` +
+            c.rolls
+              .map((r: any) => `\n    - ${formatRoll(byId.get(r.id) ?? r)}`)
+              .join(''),
         );
         if (stock.untrackedRolls) {
           lines.push(
@@ -3788,19 +3994,61 @@ export class McpServerFactory {
     );
 
     add(
+      'editar_filamento',
+      {
+        title: 'Corregir un rollo de filamento',
+        description:
+          'Ajusta un rollo puntual por id (sale de stock_filamento): gramos que le quedan (pesado en balanza), gramos totales del rollo, color de la paleta, hex, marca, material o notas.',
+        inputSchema: {
+          filamento_id: z.string().describe('id del rollo (sale de stock_filamento)'),
+          gramosRestantes: z.number().optional().describe('Gramos netos que le quedan'),
+          gramos: z.number().optional().describe('Gramos totales del rollo (recalcula el $/g)'),
+          color: z
+            .string()
+            .optional()
+            .describe(`Color de la paleta: ${FILAMENT_COLORS.join(', ')}`),
+          colorHex: z.string().optional().describe('Hex del color, ej "#FF6910"'),
+          marca: z.string().optional(),
+          material: z.string().optional(),
+          notas: z.string().optional(),
+        },
+      },
+      async (a) => {
+        const dto = buildFilamentUpdateFromMcpArgs(a);
+        if (!Object.keys(dto).length) return text('Decime qué corregir del rollo.');
+        const f: any = await this.printing.updateFilament(userId, a.filamento_id, dto as any);
+        return text(`Rollo corregido: ${f.color} — ${formatRoll(f)}.`);
+      },
+    );
+
+    add(
       'terminar_filamento',
       {
         title: 'Marcar un rollo de filamento como terminado',
         description:
-          'Da de baja un rollo del stock ("se me terminó el PLA negro"). Identificalo por color/marca/material; si matchean varios, se elige el más viejo con stock.',
+          'Da de baja un rollo del stock ("se me terminó el PLA negro"): queda en el historial de compras, sale del stock. Mejor por filamento_id (sale de stock_filamento); por descripción, si matchean varios se elige el más viejo.',
         inputSchema: {
+          filamento_id: z
+            .string()
+            .optional()
+            .describe('id exacto del rollo (sale de stock_filamento)'),
           filamento: z
             .string()
-            .describe('Descripción del rollo (ej "negro", "PLA+ negro GST3D")'),
+            .optional()
+            .describe('Descripción del rollo (ej "negro", "PLA Lite negro")'),
         },
       },
       async (a) => {
         const filaments = (await this.printing.getFilaments(userId)) as any[];
+        if (a.filamento_id) {
+          const roll = filaments.find((f) => f.id === a.filamento_id);
+          if (!roll) return text(`No encontré el rollo ${a.filamento_id}.`);
+          await this.stock.finishFilament(userId, roll.id);
+          return text(
+            `Listo: ${roll.brand} ${roll.material} ${roll.color} (comprado ${roll.purchasedAt}) dado de baja, fuera del stock.`,
+          );
+        }
+        if (!a.filamento) return text('Pasame el filamento_id o una descripción del rollo.');
         const q = a.filamento.toLowerCase();
         const active = filaments.filter((f) => !f.discarded && !f.finishedAt);
         const matches = active.filter((f) =>
@@ -3882,7 +4130,7 @@ export class McpServerFactory {
       {
         title: 'Sincronizar impresiones desde Bambu Cloud',
         description:
-          'Trae las últimas impresiones de la P1S desde Bambu Cloud y descuenta el filamento usado del stock (también corre solo cada 30 min).',
+          'Trae las últimas impresiones de la cuenta de Bambu Cloud (P1S y A1 Mini) y descuenta el filamento usado del stock (también corre solo cada 30 min).',
         inputSchema: {},
       },
       async () => {

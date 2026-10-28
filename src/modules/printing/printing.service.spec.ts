@@ -622,6 +622,83 @@ describe('PrintingService', () => {
     });
   });
 
+  describe('paleta de colores', () => {
+    it('createFilament guarda el color canonico ("Beige mate" -> beige)', async () => {
+      prisma.expense.create.mockResolvedValue({ id: 'exp-1' });
+      prisma.filament.create.mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'fil-1', ...data }),
+      );
+      const result = await service.createFilament(userId, {
+        brand: 'Bambu Lab',
+        material: 'PLA Lite',
+        color: 'Beige mate',
+        pricePaid: 20000,
+        purchasedAt: '2026-10-28',
+      });
+      expect(result.color).toBe('beige');
+    });
+
+    it('createFilament rechaza un color fuera de la paleta (sin crear el gasto)', async () => {
+      await expect(
+        service.createFilament(userId, {
+          brand: 'Bambu Lab',
+          material: 'PLA Lite',
+          color: 'fucsia',
+          pricePaid: 20000,
+          purchasedAt: '2026-10-28',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+    });
+
+    it('updateFilament normaliza el color nuevo', async () => {
+      prisma.filament.findFirst.mockResolvedValue({
+        id: 'fil-1', userId, color: 'Gris', grams: 1000, pricePaid: 20000,
+      });
+      prisma.filament.update.mockImplementation(({ data }) => Promise.resolve(data));
+      await service.updateFilament(userId, 'fil-1', { color: 'Cyan' });
+      expect(prisma.filament.update.mock.calls[0][0].data.color).toBe('cian');
+    });
+
+    it('updateFilament no valida si el color no cambia (rollos viejos fuera de la paleta)', async () => {
+      prisma.filament.findFirst.mockResolvedValue({
+        id: 'fil-x', userId, color: 'Interés', grams: 1, pricePaid: 100,
+      });
+      prisma.filament.update.mockImplementation(({ data }) => Promise.resolve(data));
+      await expect(
+        service.updateFilament(userId, 'fil-x', { color: 'Interés', notes: 'x' }),
+      ).resolves.toBeDefined();
+    });
+
+    it('el desglose del producto se guarda con nombres canonicos', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      prisma.printProduct.findFirst.mockResolvedValue(mockProduct);
+      prisma.printProduct.update.mockResolvedValue({ ...mockProduct, photos: [] });
+      await service.updateProduct(userId, mockProduct.id, {
+        colorBreakdown: [
+          { color: 'sunflower yellow', grams: 17 },
+          { colorHex: '#000000', grams: 10 },
+        ],
+      });
+      expect(
+        prisma.printProduct.update.mock.calls[0][0].data.colorBreakdown,
+      ).toEqual([
+        { color: 'amarillo girasol', grams: 17 },
+        { colorHex: '#000000', grams: 10 },
+      ]);
+    });
+
+    it('el desglose rechaza un color fuera de la paleta', async () => {
+      prisma.printSettings.findUnique.mockResolvedValue(mockSettings);
+      await expect(
+        service.createProduct(userId, {
+          name: 'X', grams: 10, hours: 1, colorsLabel: '1',
+          colorBreakdown: [{ color: 'pla wood', grams: 10 }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
   describe('deleteFilament', () => {
     it('borra el filamento y su Expense linkeado', async () => {
       prisma.filament.findFirst.mockResolvedValue({
@@ -651,6 +728,41 @@ describe('PrintingService', () => {
   });
 
   // ── Ventas ──────────────────────────────────────────────────
+  describe('updateSale', () => {
+    it('al bajar la cantidad recalcula el estado contra lo ya cobrado (19 -> 17 con $60.000 pagos)', async () => {
+      prisma.printSale.findFirst.mockResolvedValue({
+        id: 'sale-m', userId, qty: 19, chargedUnit: 5000, status: 'parcial',
+        incomeId: null, settlements: [{ amount: 60000 }],
+      });
+      prisma.printSale.update.mockImplementation(({ data }) => Promise.resolve(data));
+      await service.updateSale(userId, 'sale-m', { qty: 17 });
+      expect(prisma.printSale.update.mock.calls[0][0].data).toMatchObject({
+        qty: 17,
+        status: 'parcial',
+      });
+    });
+
+    it('si con la cantidad nueva ya esta todo cobrado, queda liquidada', async () => {
+      prisma.printSale.findFirst.mockResolvedValue({
+        id: 'sale-m', userId, qty: 19, chargedUnit: 5000, status: 'parcial',
+        incomeId: null, settlements: [{ amount: 60000 }],
+      });
+      prisma.printSale.update.mockImplementation(({ data }) => Promise.resolve(data));
+      await service.updateSale(userId, 'sale-m', { qty: 12 });
+      expect(prisma.printSale.update.mock.calls[0][0].data.status).toBe('liquidado');
+    });
+
+    it('no toca el estado de una venta legacy (liquidada con incomeId, sin pagos)', async () => {
+      prisma.printSale.findFirst.mockResolvedValue({
+        id: 'sale-l', userId, qty: 2, chargedUnit: 100, status: 'liquidado',
+        incomeId: 'inc-1', settlements: [],
+      });
+      prisma.printSale.update.mockImplementation(({ data }) => Promise.resolve(data));
+      await service.updateSale(userId, 'sale-l', { qty: 3 });
+      expect(prisma.printSale.update.mock.calls[0][0].data.status).toBeUndefined();
+    });
+  });
+
   describe('createSale', () => {
     it('snapshotea costo y precio del producto si no se pasan explicitos', async () => {
       prisma.printProduct.findFirst.mockResolvedValue(mockProduct);
