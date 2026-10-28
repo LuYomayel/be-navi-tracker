@@ -51,6 +51,7 @@ import { OrdersService } from '../printing/orders.service';
 import { BambuService } from '../printing/bambu.service';
 import { computePrintCost, computeSalePrice, computeProfit } from '../printing/pricing';
 import { FILAMENT_COLORS } from '../printing/colors';
+import { hexToColorName } from '../printing/stock';
 import {
   selectPendingSales,
   buildSaleUpdateFromMcpArgs,
@@ -4018,6 +4019,96 @@ export class McpServerFactory {
         if (!Object.keys(dto).length) return text('Decime qué corregir del rollo.');
         const f: any = await this.printing.updateFilament(userId, a.filamento_id, dto as any);
         return text(`Rollo corregido: ${f.color} — ${formatRoll(f)}.`);
+      },
+    );
+
+    add(
+      'impresiones_3d',
+      {
+        title: 'Últimas impresiones y qué color descontaron',
+        description:
+          'Lista las últimas impresiones (sincronizadas de la P1S / A1 Mini o cargadas a mano) con la impresora, el color que reportó Bambu y de qué rollo/color se descontó el filamento. Sirve para detectar un descuento equivocado y corregirlo con corregir_impresion_3d.',
+        inputSchema: {
+          cantidad: z.number().optional().describe('Cuántas listar. Default 10.'),
+        },
+      },
+      async (a) => {
+        const jobs = (await this.stock.listJobs(userId, a.cantidad ?? 10)) as any[];
+        if (!jobs.length) return text('No hay impresiones registradas.');
+        const lines = jobs.map((j) => {
+          const reported = ((j.filamentsUsed ?? []) as any[])
+            .map((e) => {
+              const hex = e.colorHex ?? e.reportedHex;
+              const what = e.filamentId
+                ? 'rollo elegido a mano'
+                : e.color ?? (hex ? `hex #${String(hex).slice(0, 6)} (${hexToColorName(hex) ?? '?'})` : '?');
+              return `${Math.round(e.grams)}g ${what}`;
+            })
+            .join(' + ');
+          const deducted = (j.deducted ?? [])
+            .map((d: any) => `${Math.round(d.grams)}g de ${d.color ?? '?'} (${d.brand ?? ''}, rollo ${d.filamentId})`)
+            .join(' + ');
+          return (
+            `• ${j.date} [${j.printer ?? j.source}] ${j.title}${j.status === 'fallida' ? ' ⚠️ fallida' : ''}\n` +
+            `    reportó: ${reported || '—'}\n` +
+            `    descontó: ${deducted || (j.stockApplied ? '—' : 'nada (no aplicada al stock)')}\n` +
+            `    (impresion id ${j.id})`
+          );
+        });
+        return text(`🖨️ Impresiones:\n${lines.join('\n')}`);
+      },
+    );
+
+    add(
+      'corregir_impresion_3d',
+      {
+        title: 'Corregir de qué color salió una impresión',
+        description:
+          'Corrige el color (o el rollo) de una impresión que se descontó mal, ej: la A1 Mini reportó verde porque el slot tenía el color viejo y se imprimió en rojo, o reportó naranja y era marrón. Devuelve al stock lo descontado y vuelve a descontar del color correcto (rollo abierto primero). Con un solo consumo alcanza con "color"; con varios, pasá "consumos" con los gramos de cada uno. El id sale de impresiones_3d.',
+        inputSchema: {
+          impresion_id: z.string().describe('id de la impresión (sale de impresiones_3d)'),
+          color: z
+            .string()
+            .optional()
+            .describe(`Color real (impresión de un solo color): ${FILAMENT_COLORS.join(', ')}`),
+          filamento_id: z
+            .string()
+            .optional()
+            .describe('Rollo exacto (impresión de un solo color), sale de stock_filamento'),
+          consumos: z
+            .array(
+              z.object({
+                color: z.string().optional().describe('Color de la paleta'),
+                filamento_id: z.string().optional().describe('Rollo exacto'),
+                gramos: z.number().describe('Gramos de ese consumo'),
+              }),
+            )
+            .optional()
+            .describe('Para impresiones de varios colores: todos los consumos con sus gramos'),
+        },
+      },
+      async (a) => {
+        const entries = a.consumos?.length
+          ? a.consumos.map((c: any) => ({ color: c.color, filamentId: c.filamento_id, grams: c.gramos }))
+          : [{ color: a.color, filamentId: a.filamento_id }];
+        if (!a.consumos?.length && !a.color && !a.filamento_id) {
+          return text('Decime el color real (o el rollo) de la impresión.');
+        }
+        const res: any = await this.stock.reassignJob(userId, a.impresion_id, entries);
+        const filaments = (await this.printing.getFilaments(userId)) as any[];
+        const byId = new Map(filaments.map((f) => [f.id, f]));
+        const applied = (res.applied ?? [])
+          .map((st: any) => {
+            const f = byId.get(st.filamentId);
+            return `${Math.round(st.grams)}g de ${f?.color ?? '?'} (${f?.brand ?? ''}, quedan ${Math.round(f?.gramsLeft ?? 0)}g)`;
+          })
+          .join(' + ');
+        return text(
+          `Impresión corregida. Se devolvió lo descontado antes y ahora se descontó: ${applied || 'nada'}.` +
+            (res.unmatchedGrams > 0
+              ? ` ⚠️ ${Math.round(res.unmatchedGrams)}g sin rollo de ese color con stock.`
+              : ''),
+        );
       },
     );
 

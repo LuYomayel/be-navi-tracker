@@ -39,7 +39,11 @@ import {
   ResellersService,
   UpdateResellerDto,
 } from './resellers.service';
-import { CreatePrintJobDto, StockService } from './stock.service';
+import {
+  CreatePrintJobDto,
+  ReassignEntryDto,
+  StockService,
+} from './stock.service';
 import { PhotosService } from './photos.service';
 import { BambuService } from './bambu.service';
 
@@ -106,7 +110,10 @@ export class PrintingController {
   // ── Settings ──────────────────────────────────────────────
   @Get('settings')
   async getSettings(@Req() req: any) {
-    return { success: true, data: await this.printing.getSettings(req.user.userId) };
+    return {
+      success: true,
+      data: await this.printing.getSettings(req.user.userId),
+    };
   }
 
   @Put('settings')
@@ -129,13 +136,19 @@ export class PrintingController {
   // ── Resumen / balance ─────────────────────────────────────
   @Get('summary')
   async summary(@Req() req: any) {
-    return { success: true, data: await this.printing.getSummary(req.user.userId) };
+    return {
+      success: true,
+      data: await this.printing.getSummary(req.user.userId),
+    };
   }
 
   // ── Productos ─────────────────────────────────────────────
   @Get('products')
   async listProducts(@Req() req: any) {
-    return { success: true, data: await this.printing.getProducts(req.user.userId) };
+    return {
+      success: true,
+      data: await this.printing.getProducts(req.user.userId),
+    };
   }
 
   @Post('products')
@@ -168,7 +181,10 @@ export class PrintingController {
   // ── Filamentos ────────────────────────────────────────────
   @Get('filaments')
   async listFilaments(@Req() req: any) {
-    return { success: true, data: await this.printing.getFilaments(req.user.userId) };
+    return {
+      success: true,
+      data: await this.printing.getFilaments(req.user.userId),
+    };
   }
 
   @Post('filaments')
@@ -201,7 +217,10 @@ export class PrintingController {
   // ── Ventas / muestras ─────────────────────────────────────
   @Get('sales')
   async listSales(@Req() req: any) {
-    return { success: true, data: await this.printing.getSales(req.user.userId) };
+    return {
+      success: true,
+      data: await this.printing.getSales(req.user.userId),
+    };
   }
 
   @Post('sales')
@@ -306,7 +325,10 @@ export class PrintingController {
   // ── Pedidos (lado Luciano) ────────────────────────────────
   @Get('orders')
   async listOrders(@Req() req: any) {
-    return { success: true, data: await this.orders.getOrders(req.user.userId) };
+    return {
+      success: true,
+      data: await this.orders.getOrders(req.user.userId),
+    };
   }
 
   /** Alta manual de un pedido (ej: se lo pidieron por WhatsApp). */
@@ -479,6 +501,23 @@ export class PrintingController {
     };
   }
 
+  /** Corrige de que color/rollo salio una impresion (revierte y re-descuenta). */
+  @Put('jobs/:id/consumos')
+  async reassignJob(
+    @Param('id') id: string,
+    @Body() body: { filamentsUsed: ReassignEntryDto[] },
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.stock.reassignJob(
+        req.user.userId,
+        id,
+        body.filamentsUsed,
+      ),
+    };
+  }
+
   /** Copia el consumo real del job al producto (dividido por unidades). */
   @Post('jobs/:id/learn')
   @HttpCode(HttpStatus.OK)
@@ -521,10 +560,7 @@ export class PrintingController {
 
   @Post('bambu/sync')
   @HttpCode(HttpStatus.OK)
-  async bambuSync(
-    @Body() body: { importHistory?: boolean },
-    @Req() req: any,
-  ) {
+  async bambuSync(@Body() body: { importHistory?: boolean }, @Req() req: any) {
     return {
       success: true,
       data: await this.bambu.sync(req.user.userId, body ?? {}),

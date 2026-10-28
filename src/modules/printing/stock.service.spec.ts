@@ -92,27 +92,46 @@ describe('StockService', () => {
             filament: {
               findMany: jest.fn().mockResolvedValue(filaments),
               findFirst: jest.fn(),
-              update: jest.fn().mockImplementation(({ where, data }) =>
-                Promise.resolve({ ...filaments.find((f) => f.id === where.id), ...data }),
-              ),
+              update: jest
+                .fn()
+                .mockImplementation(({ where, data }) =>
+                  Promise.resolve({
+                    ...filaments.find((f) => f.id === where.id),
+                    ...data,
+                  }),
+                ),
             },
             printProduct: {
-              findMany: jest.fn().mockResolvedValue([productWithBreakdown, productNoBreakdown]),
+              findMany: jest
+                .fn()
+                .mockResolvedValue([productWithBreakdown, productNoBreakdown]),
               findFirst: jest.fn().mockResolvedValue(productWithBreakdown),
-              update: jest.fn().mockImplementation(({ data }) =>
-                Promise.resolve({ ...productWithBreakdown, ...data }),
-              ),
+              update: jest
+                .fn()
+                .mockImplementation(({ data }) =>
+                  Promise.resolve({ ...productWithBreakdown, ...data }),
+                ),
             },
-            printSettings: { findUnique: jest.fn().mockResolvedValue(settings) },
+            printSettings: {
+              findUnique: jest.fn().mockResolvedValue(settings),
+            },
             printJob: {
               findMany: jest.fn().mockResolvedValue([]),
               findFirst: jest.fn(),
-              create: jest.fn().mockImplementation(({ data }) =>
-                Promise.resolve({ id: 'job-1', stockApplied: false, ...data }),
-              ),
-              update: jest.fn().mockImplementation(({ data }) =>
-                Promise.resolve({ id: 'job-1', ...data }),
-              ),
+              create: jest
+                .fn()
+                .mockImplementation(({ data }) =>
+                  Promise.resolve({
+                    id: 'job-1',
+                    stockApplied: false,
+                    ...data,
+                  }),
+                ),
+              update: jest
+                .fn()
+                .mockImplementation(({ data }) =>
+                  Promise.resolve({ id: 'job-1', ...data }),
+                ),
               delete: jest.fn().mockResolvedValue({}),
             },
           },
@@ -127,8 +146,12 @@ describe('StockService', () => {
   describe('getStock', () => {
     it('devuelve el stock agrupado por color', async () => {
       const res = await service.getStock(userId);
-      expect(res.colors.find((c: any) => c.color === 'negro')!.totalGrams).toBe(1080);
-      expect(res.colors.find((c: any) => c.color === 'rojo')!.totalGrams).toBe(300);
+      expect(res.colors.find((c: any) => c.color === 'negro')!.totalGrams).toBe(
+        1080,
+      );
+      expect(res.colors.find((c: any) => c.color === 'rojo')!.totalGrams).toBe(
+        300,
+      );
       expect(res.untrackedRolls).toBe(0);
     });
   });
@@ -136,7 +159,9 @@ describe('StockService', () => {
   describe('check', () => {
     it('con desglose por color chequea cada color con desperdicio', async () => {
       // 2 unidades: negro 60x2x1.15=138, rojo 40x2x1.15=92 — alcanza
-      const res = await service.check(userId, [{ productId: 'prod-1', qty: 2 }]);
+      const res = await service.check(userId, [
+        { productId: 'prod-1', qty: 2 },
+      ]);
       expect(res.ok).toBe(true);
       const negro = res.perColor.find((c: any) => c.color === 'negro')!;
       expect(negro.needed).toBeCloseTo(138);
@@ -144,14 +169,18 @@ describe('StockService', () => {
 
     it('reporta faltantes por color', async () => {
       // 5 unidades de rojo: 40x5x1.15 = 230 <= 300 ok; 20 unidades = 920 > 300
-      const res = await service.check(userId, [{ productId: 'prod-1', qty: 20 }]);
+      const res = await service.check(userId, [
+        { productId: 'prod-1', qty: 20 },
+      ]);
       expect(res.ok).toBe(false);
       const rojo = res.perColor.find((c: any) => c.color === 'rojo')!;
       expect(rojo.missing).toBeCloseTo(620);
     });
 
     it('producto sin desglose cae al chequeo por gramos totales', async () => {
-      const res = await service.check(userId, [{ productId: 'prod-2', qty: 2 }]);
+      const res = await service.check(userId, [
+        { productId: 'prod-2', qty: 2 },
+      ]);
       // 200x2x1.15 = 460 vs stock total 1380
       expect(res.fallback).toMatchObject({ needed: 460, available: 1380 });
       expect(res.productsWithoutBreakdown).toEqual(['Caja']);
@@ -182,10 +211,16 @@ describe('StockService', () => {
 
       // f1 (80) se vacia y f2 aporta 120
       expect(prisma.filament.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'f1' }, data: { gramsLeft: 0 } }),
+        expect.objectContaining({
+          where: { id: 'f1' },
+          data: { gramsLeft: 0 },
+        }),
       );
       expect(prisma.filament.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'f2' }, data: { gramsLeft: 880 } }),
+        expect.objectContaining({
+          where: { id: 'f2' },
+          data: { gramsLeft: 880 },
+        }),
       );
       expect(res.applied).toEqual([
         { filamentId: 'f1', grams: 80 },
@@ -261,14 +296,152 @@ describe('StockService', () => {
         stockApplied: true,
         appliedPlan: [{ filamentId: 'f1', grams: 80 }],
       });
-      prisma.filament.findFirst.mockResolvedValue({ ...filaments[0], gramsLeft: 0 });
+      prisma.filament.findFirst.mockResolvedValue({
+        ...filaments[0],
+        gramsLeft: 0,
+      });
 
       await service.deleteJob(userId, 'job-1');
 
       expect(prisma.filament.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'f1' }, data: { gramsLeft: 80 } }),
+        expect.objectContaining({
+          where: { id: 'f1' },
+          data: { gramsLeft: 80 },
+        }),
       );
       expect(prisma.printJob.delete).toHaveBeenCalled();
+    });
+  });
+
+  describe('reassignJob (corregir el color de una impresion)', () => {
+    // La A1 Mini reporto verde (el slot tenia el color viejo) pero era rojo.
+    const appliedGreen = {
+      id: 'job-1',
+      userId,
+      status: 'ok',
+      stockApplied: true,
+      filamentsUsed: [{ colorHex: '00BB31FF', grams: 50 }],
+      appliedPlan: [{ filamentId: 'f2', grams: 50 }],
+    };
+
+    it('devuelve lo descontado al rollo equivocado y descuenta del color correcto', async () => {
+      prisma.printJob.findFirst
+        .mockResolvedValueOnce(appliedGreen)
+        .mockResolvedValueOnce({
+          ...appliedGreen,
+          stockApplied: false,
+          appliedPlan: null,
+          filamentsUsed: [
+            { color: 'rojo', grams: 50, reportedHex: '00BB31FF' },
+          ],
+        });
+      prisma.filament.findFirst.mockResolvedValue({
+        ...filaments[1],
+        gramsLeft: 950,
+      });
+
+      const res = await service.reassignJob(userId, 'job-1', [
+        { color: 'Rojo' },
+      ]);
+
+      expect(prisma.filament.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'f2' },
+          data: { gramsLeft: 1000 },
+        }),
+      );
+      expect(prisma.printJob.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: {
+            filamentsUsed: [
+              { color: 'rojo', grams: 50, reportedHex: '00BB31FF' },
+            ],
+            stockApplied: false,
+            appliedPlan: [],
+          },
+        }),
+      );
+      expect(prisma.filament.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'f3' },
+          data: { gramsLeft: 250 },
+        }),
+      );
+      expect(res.applied).toEqual([{ filamentId: 'f3', grams: 50 }]);
+    });
+
+    it('se puede elegir el rollo exacto por id', async () => {
+      prisma.printJob.findFirst
+        .mockResolvedValueOnce(appliedGreen)
+        .mockResolvedValueOnce({
+          ...appliedGreen,
+          stockApplied: false,
+          appliedPlan: null,
+          filamentsUsed: [{ filamentId: 'f3', grams: 50 }],
+        });
+      prisma.filament.findFirst.mockResolvedValue({ ...filaments[2] });
+
+      const res = await service.reassignJob(userId, 'job-1', [
+        { filamentId: 'f3' },
+      ]);
+      expect(res.applied).toEqual([{ filamentId: 'f3', grams: 50 }]);
+    });
+
+    it('con varios consumos hay que pasar los gramos de cada uno', async () => {
+      prisma.printJob.findFirst.mockResolvedValueOnce({
+        ...appliedGreen,
+        filamentsUsed: [
+          { colorHex: '00BB31FF', grams: 50 },
+          { colorHex: '000000FF', grams: 20 },
+        ],
+      });
+      await expect(
+        service.reassignJob(userId, 'job-1', [{ color: 'rojo' }]),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.filament.update).not.toHaveBeenCalled();
+    });
+
+    it('un color fuera de la paleta no toca el stock', async () => {
+      prisma.printJob.findFirst.mockResolvedValueOnce(appliedGreen);
+      await expect(
+        service.reassignJob(userId, 'job-1', [{ color: 'pla wood' }]),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.filament.update).not.toHaveBeenCalled();
+    });
+
+    it('un rollo que no es del usuario tira NotFound sin tocar el stock', async () => {
+      prisma.printJob.findFirst.mockResolvedValueOnce(appliedGreen);
+      prisma.filament.findFirst.mockResolvedValue(null);
+      await expect(
+        service.reassignJob(userId, 'job-1', [{ filamentId: 'ajeno' }]),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.filament.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listJobs', () => {
+    it('cada impresion trae de que rollo/color desconto y en que impresora fue', async () => {
+      prisma.printJob.findMany.mockResolvedValue([
+        {
+          id: 'job-1',
+          notes: 'Impresora 0300GA5A1300999',
+          appliedPlan: [{ filamentId: 'f3', grams: 50 }],
+        },
+        { id: 'job-2', notes: 'Impresora 01P00C542000174', appliedPlan: null },
+      ]);
+      const jobs = await service.listJobs(userId);
+      expect(jobs[0].printer).toBe('A1 Mini');
+      expect(jobs[0].deducted).toEqual([
+        {
+          filamentId: 'f3',
+          grams: 50,
+          color: 'Rojo',
+          brand: 'Grilon3',
+          material: 'PLA',
+        },
+      ]);
+      expect(jobs[1].printer).toBe('P1S');
+      expect(jobs[1].deducted).toEqual([]);
     });
   });
 

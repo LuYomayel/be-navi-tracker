@@ -16,6 +16,7 @@ import {
   NeedItem,
 } from './stock';
 import { getLocalDateString } from '../../common/utils/date.utils';
+import { assertPaletteColor } from './colors';
 
 export interface CreatePrintJobDto {
   title: string;
@@ -32,6 +33,22 @@ export interface CreatePrintJobDto {
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** Consumo corregido a mano: color de la paleta o rollo exacto. */
+export interface ReassignEntryDto {
+  color?: string;
+  filamentId?: string;
+  grams?: number; // sin esto (y con un solo consumo) se mantienen los gramos
+}
+
+/** Serie de Bambu -> nombre de la impresora (el sync guarda "Impresora <serie>"). */
+export function printerName(notes?: string | null): string | null {
+  const serial = notes?.match(/Impresora (\S+)/)?.[1];
+  if (!serial) return null;
+  if (serial.startsWith('030')) return 'A1 Mini';
+  if (serial.startsWith('01P')) return 'P1S';
+  return serial;
+}
 
 /**
  * Stock de filamento por color + impresiones (PrintJob).
@@ -127,13 +144,35 @@ export class StockService {
 
   // ── Impresiones ───────────────────────────────────────────
 
+  /**
+   * Impresiones con lo que descontaron (rollo, color, gramos) y la impresora,
+   * para poder ver si el sync se equivoco de color y corregirlo.
+   */
   async listJobs(userId: string, limit = 60) {
-    return this.prisma.printJob.findMany({
-      where: { userId },
-      include: { product: true },
-      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-      take: limit,
-    });
+    const [jobs, filaments] = await Promise.all([
+      this.prisma.printJob.findMany({
+        where: { userId },
+        include: { product: true },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: limit,
+      }),
+      this.activeFilaments(userId),
+    ]);
+    const byId = new Map(filaments.map((f) => [f.id, f]));
+    return jobs.map((j: any) => ({
+      ...j,
+      printer: printerName(j.notes),
+      deducted: ((j.appliedPlan ?? []) as DeductionStep[]).map((step) => {
+        const roll = byId.get(step.filamentId);
+        return {
+          filamentId: step.filamentId,
+          grams: step.grams,
+          color: roll?.color ?? null,
+          brand: roll?.brand ?? null,
+          material: roll?.material ?? null,
+        };
+      }),
+    }));
   }
 
   /** Registra una impresion y (si esta ok) descuenta el stock. */
@@ -165,7 +204,11 @@ export class StockService {
     });
     if (job.status === 'ok' && entries.length && dto.apply !== false) {
       const applied = await this.applyJob(userId, job.id);
-      return { job: applied.job, applied: applied.applied, unmatchedGrams: applied.unmatchedGrams };
+      return {
+        job: applied.job,
+        applied: applied.applied,
+        unmatchedGrams: applied.unmatchedGrams,
+      };
     }
     return { job, applied: [], unmatchedGrams: 0 };
   }
@@ -181,7 +224,9 @@ export class StockService {
     });
     if (!job) throw new NotFoundException('Impresion no encontrada');
     if (job.stockApplied) {
-      throw new BadRequestException('El stock de esta impresion ya se desconto');
+      throw new BadRequestException(
+        'El stock de esta impresion ya se desconto',
+      );
     }
 
     const entries = ((job.filamentsUsed as any) ?? []) as NeedItem[];
@@ -217,28 +262,94 @@ export class StockService {
     return { job: updated, applied, unmatchedGrams: round1(unmatchedGrams) };
   }
 
+  /** Devuelve a cada rollo lo que el job le habia descontado. */
+  private async revertJob(
+    userId: string,
+    job: { stockApplied: boolean; appliedPlan: unknown },
+  ) {
+    if (!job.stockApplied || !job.appliedPlan) return;
+    for (const step of job.appliedPlan as DeductionStep[]) {
+      const roll = await this.prisma.filament.findFirst({
+        where: { id: step.filamentId, userId },
+      });
+      if (roll && roll.gramsLeft !== null) {
+        await this.prisma.filament.update({
+          where: { id: roll.id },
+          data: { gramsLeft: round1(roll.gramsLeft + step.grams) },
+        });
+      }
+    }
+  }
+
   /** Borra una impresion devolviendo al stock lo que habia descontado. */
   async deleteJob(userId: string, jobId: string) {
     const job = await this.prisma.printJob.findFirst({
       where: { id: jobId, userId },
     });
     if (!job) throw new NotFoundException('Impresion no encontrada');
-
-    if (job.stockApplied && job.appliedPlan) {
-      for (const step of job.appliedPlan as any as DeductionStep[]) {
-        const roll = await this.prisma.filament.findFirst({
-          where: { id: step.filamentId, userId },
-        });
-        if (roll && roll.gramsLeft !== null) {
-          await this.prisma.filament.update({
-            where: { id: roll.id },
-            data: { gramsLeft: round1(roll.gramsLeft + step.grams) },
-          });
-        }
-      }
-    }
+    await this.revertJob(userId, job);
     await this.prisma.printJob.delete({ where: { id: jobId } });
     return true;
+  }
+
+  /**
+   * Corrige de que color (o rollo) salio una impresion: devuelve lo que se
+   * desconto y vuelve a descontar con los consumos nuevos. Caso tipico: el
+   * slot de la A1 Mini tenia cargado el color viejo y Bambu reporto verde
+   * cuando se imprimio en rojo. El hex que reporto Bambu se guarda como
+   * `reportedHex` (informativo) y deja de usarse para matchear.
+   */
+  async reassignJob(
+    userId: string,
+    jobId: string,
+    entries: ReassignEntryDto[],
+  ) {
+    const job = await this.prisma.printJob.findFirst({
+      where: { id: jobId, userId },
+    });
+    if (!job) throw new NotFoundException('Impresion no encontrada');
+    if (!entries?.length) {
+      throw new BadRequestException('Pasame al menos un consumo');
+    }
+    const old = ((job.filamentsUsed as any) ?? []) as NeedItem[];
+    if (entries.some((e) => e.grams === undefined) && old.length !== 1) {
+      throw new BadRequestException(
+        'La impresion tiene varios consumos: pasame los gramos de cada uno',
+      );
+    }
+
+    // Validar TODO antes de tocar el stock.
+    const next: any[] = [];
+    for (const [i, e] of entries.entries()) {
+      const grams = e.grams ?? old[0].grams;
+      if (!Number.isFinite(grams) || grams <= 0) {
+        throw new BadRequestException('Los gramos deben ser mayor a 0');
+      }
+      const item: any = { grams };
+      if (e.filamentId) {
+        const roll = await this.prisma.filament.findFirst({
+          where: { id: e.filamentId, userId },
+        });
+        if (!roll) throw new NotFoundException('Rollo no encontrado');
+        item.filamentId = roll.id;
+      } else {
+        item.color = assertPaletteColor(e.color);
+      }
+      const reportedHex =
+        (old[i] as any)?.reportedHex ?? old[i]?.colorHex ?? undefined;
+      if (reportedHex) item.reportedHex = reportedHex;
+      next.push(item);
+    }
+
+    await this.revertJob(userId, job);
+    await this.prisma.printJob.update({
+      where: { id: job.id },
+      data: { filamentsUsed: next, stockApplied: false, appliedPlan: [] },
+    });
+    if (job.status !== 'ok') {
+      return { job, applied: [], unmatchedGrams: 0 };
+    }
+    return this.applyJob(userId, job.id);
   }
 
   /** Linkea la impresion a un producto del catalogo (para aprender consumos). */
@@ -266,14 +377,18 @@ export class StockService {
    */
   async learnBreakdown(userId: string, jobId: string, units: number) {
     if (!Number.isFinite(units) || units <= 0) {
-      throw new BadRequestException('La cantidad de unidades debe ser mayor a 0');
+      throw new BadRequestException(
+        'La cantidad de unidades debe ser mayor a 0',
+      );
     }
     const job = await this.prisma.printJob.findFirst({
       where: { id: jobId, userId },
     });
     if (!job) throw new NotFoundException('Impresion no encontrada');
     if (!job.productId) {
-      throw new BadRequestException('Linkea la impresion a un producto primero');
+      throw new BadRequestException(
+        'Linkea la impresion a un producto primero',
+      );
     }
     const entries = ((job.filamentsUsed as any) ?? []) as NeedItem[];
     if (!entries.length) {
