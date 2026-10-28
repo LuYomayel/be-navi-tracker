@@ -189,6 +189,23 @@ describe('countBuildable', () => {
     ).toBe(3);
   });
 
+  it('sin ninguna pieza impresa dice eso en vez de listar todas', () => {
+    const res = countBuildable(carrot, stock([]));
+    expect(res.missing).toEqual(['no hay ninguna pieza impresa todavía']);
+  });
+
+  it('con muchos faltantes muestra los primeros 3 y cuantos mas', () => {
+    const katamino: RecipeLine[] = ['i', 'n', 'z', 'u', 'y'].map((k) => ({
+      partId: `pieza-${k}`,
+      qty: 1,
+      colorMode: 'fijo' as const,
+      fixedColor: 'rojo',
+    }));
+    const res = countBuildable(katamino, stock([['pieza-i', 'rojo', 1]]));
+    expect(res.missing).toHaveLength(4);
+    expect(res.missing[3]).toBe('y 1 más');
+  });
+
   it('sin receta no se puede armar nada', () => {
     expect(countBuildable([], stock([])).buildable).toBe(0);
   });

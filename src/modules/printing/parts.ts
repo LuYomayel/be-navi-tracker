@@ -232,11 +232,25 @@ export function countBuildable(
   max = 99,
 ): { buildable: number; missing: string[] } {
   if (!lines.length) return { buildable: 0, missing: ['sin receta de piezas'] };
+  const partIds = new Set(lines.map((l) => l.partId));
+  const anyPrinted = [...stock].some(
+    ([k, qty]) => qty > 0 && partIds.has(k.split('|')[0]),
+  );
+  if (!anyPrinted) {
+    return { buildable: 0, missing: ['no hay ninguna pieza impresa todavía'] };
+  }
   const work: PartStock = new Map(stock);
   let buildable = 0;
   while (buildable < max) {
     const res = planUnit(lines, work, opts);
-    if ('missing' in res) return { buildable, missing: res.missing };
+    if ('missing' in res) {
+      // Mas de 3 faltantes es una pared (Katamino: 15 "faltan 1").
+      const missing =
+        res.missing.length > 3
+          ? [...res.missing.slice(0, 3), `y ${res.missing.length - 3} más`]
+          : res.missing;
+      return { buildable, missing };
+    }
     buildable++;
   }
   return { buildable, missing: [] };
