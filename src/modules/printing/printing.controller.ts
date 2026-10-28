@@ -520,7 +520,12 @@ export class PrintingController {
   @Put('jobs/:id/consumos')
   async reassignJob(
     @Param('id') id: string,
-    @Body() body: { filamentsUsed: ReassignEntryDto[]; learnHex?: boolean },
+    @Body()
+    body: {
+      filamentsUsed: ReassignEntryDto[];
+      learnHex?: boolean;
+      markOk?: boolean; // "se imprimio igual" (Bambu la marco fallida)
+    },
     @Req() req: any,
   ) {
     return {
@@ -529,7 +534,7 @@ export class PrintingController {
         req.user.userId,
         id,
         body.filamentsUsed,
-        { learnHex: body.learnHex === true },
+        { learnHex: body.learnHex === true, markOk: body.markOk === true },
       ),
     };
   }
@@ -552,7 +557,10 @@ export class PrintingController {
   /** Por producto: cuantos se pueden armar y que falta; + stock pieza x color. */
   @Get('parts')
   async getParts(@Req() req: any) {
-    return { success: true, data: await this.parts.getSummary(req.user.userId) };
+    return {
+      success: true,
+      data: await this.parts.getSummary(req.user.userId),
+    };
   }
 
   /** Ajuste manual (+/-) de piezas por color. */

@@ -166,14 +166,23 @@ export class StockService {
     const byId = new Map(filaments.map((f) => [f.id, f]));
     // Piezas que sumo cada impresion (stock de piezas).
     const moves = await this.prisma.printPartMove.findMany({
-      where: { userId, reason: 'impresion', jobId: { in: jobs.map((j: any) => j.id) } },
+      where: {
+        userId,
+        reason: 'impresion',
+        jobId: { in: jobs.map((j: any) => j.id) },
+      },
       include: { part: true },
     });
     const partsByJob = new Map<string, any[]>();
     for (const m of moves as any[]) {
       partsByJob.set(m.jobId, [
         ...(partsByJob.get(m.jobId) ?? []),
-        { partId: m.partId, partName: m.part?.name ?? null, color: m.color, qty: m.qty },
+        {
+          partId: m.partId,
+          partName: m.part?.name ?? null,
+          color: m.color,
+          qty: m.qty,
+        },
       ]);
     }
     return jobs.map((j: any) => ({
@@ -323,7 +332,7 @@ export class StockService {
     userId: string,
     jobId: string,
     entries: ReassignEntryDto[],
-    opts?: { learnHex?: boolean },
+    opts?: { learnHex?: boolean; markOk?: boolean },
   ) {
     const job = await this.prisma.printJob.findFirst({
       where: { id: jobId, userId },
@@ -365,11 +374,25 @@ export class StockService {
     await this.revertJob(userId, job);
     await this.prisma.printJob.update({
       where: { id: job.id },
-      data: { filamentsUsed: next, stockApplied: false, appliedPlan: [] },
+      data: {
+        filamentsUsed: next,
+        stockApplied: false,
+        appliedPlan: [],
+        // "Se imprimio igual": Bambu la marco fallida/cancelada pero salio.
+        ...(opts?.markOk && job.status !== 'ok' ? { status: 'ok' } : {}),
+      },
     });
     const learned = opts?.learnHex ? await this.learnHexes(userId, next) : [];
-    if (job.status !== 'ok') {
-      return { job, applied: [], unmatchedGrams: 0, learned };
+    if (job.status !== 'ok' && !opts?.markOk) {
+      // Fallida: se guarda el color pero NO descuenta. Se avisa para que el
+      // front no diga "stock recalculado" cuando no se toco nada.
+      return {
+        job,
+        applied: [],
+        unmatchedGrams: 0,
+        learned,
+        notApplied: 'fallida' as const,
+      };
     }
     const res = await this.applyJob(userId, job.id);
     // Las piezas que sumo la impresion cambian de color con la correccion.

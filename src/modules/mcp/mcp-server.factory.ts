@@ -4091,6 +4091,10 @@ export class McpServerFactory {
             )
             .optional()
             .describe('Para impresiones de varios colores: todos los consumos con sus gramos'),
+          seImprimio: z
+            .boolean()
+            .optional()
+            .describe('true si Bambu la marcó fallida/cancelada pero se imprimió igual: la pasa a ok y descuenta. Sin esto una fallida guarda el color pero no descuenta.'),
           recordarColor: z
             .boolean()
             .optional()
@@ -4106,7 +4110,13 @@ export class McpServerFactory {
         }
         const res: any = await this.stock.reassignJob(userId, a.impresion_id, entries, {
           learnHex: a.recordarColor === true,
+          markOk: a.seImprimio === true,
         });
+        if (res.notApplied === 'fallida') {
+          return text(
+            'Guardé el color, pero NO descontó: Bambu marcó esa impresión como fallida/cancelada. Si salió igual, repetí con seImprimio=true (y bajá los gramos si se cortó a la mitad).',
+          );
+        }
         const filaments = (await this.printing.getFilaments(userId)) as any[];
         const byId = new Map(filaments.map((f) => [f.id, f]));
         const applied = (res.applied ?? [])

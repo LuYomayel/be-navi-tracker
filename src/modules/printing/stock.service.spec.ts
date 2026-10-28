@@ -384,6 +384,55 @@ describe('StockService', () => {
       expect(res.applied).toEqual([{ filamentId: 'f3', grams: 50 }]);
     });
 
+    it('una impresion fallida no descuenta y lo avisa (en vez de decir "recalculado")', async () => {
+      const failed = {
+        ...appliedGreen,
+        status: 'fallida',
+        stockApplied: false,
+        appliedPlan: [],
+      };
+      prisma.printJob.findFirst.mockResolvedValueOnce(failed);
+      const res: any = await service.reassignJob(userId, 'job-1', [
+        { color: 'blanco' },
+      ]);
+      expect(res.notApplied).toBe('fallida');
+      expect(res.applied).toEqual([]);
+      expect(prisma.filament.update).not.toHaveBeenCalled();
+    });
+
+    it('"se imprimio igual": la pasa a ok y descuenta', async () => {
+      const failed = {
+        ...appliedGreen,
+        status: 'fallida',
+        stockApplied: false,
+        appliedPlan: [],
+      };
+      prisma.printJob.findFirst
+        .mockResolvedValueOnce(failed)
+        .mockResolvedValueOnce({
+          ...failed,
+          status: 'ok',
+          filamentsUsed: [
+            { color: 'rojo', grams: 50, reportedHex: '00BB31FF' },
+          ],
+        });
+      const res: any = await service.reassignJob(
+        userId,
+        'job-1',
+        [{ color: 'rojo' }],
+        {
+          markOk: true,
+        },
+      );
+      expect(prisma.printJob.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'ok' }),
+        }),
+      );
+      expect(res.applied).toEqual([{ filamentId: 'f3', grams: 50 }]);
+      expect(res.notApplied).toBeUndefined();
+    });
+
     it('se puede elegir el rollo exacto por id', async () => {
       prisma.printJob.findFirst
         .mockResolvedValueOnce(appliedGreen)
