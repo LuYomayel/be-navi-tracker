@@ -89,6 +89,24 @@ describe('hexToColorName', () => {
   it('hex invalido devuelve null', () => {
     expect(hexToColorName('zzz')).toBeNull();
   });
+
+  it('los naranjas oscuros son marrón (el PLA Wood del Katamino se descontaba del naranja)', () => {
+    expect(hexToColorName('7C4B00FF')).toBe('marrón');
+    expect(hexToColorName('995F2DFF')).toBe('marrón');
+    expect(hexToColorName('FF671FFF')).toBe('naranja');
+    expect(hexToColorName('FFB549FF')).toBe('naranja');
+  });
+
+  it('los tonos piel poco saturados y claros son beige', () => {
+    expect(hexToColorName('D3B7A7FF')).toBe('beige');
+    expect(hexToColorName('ECC3B2FF')).toBe('beige');
+  });
+
+  it('el verde oliva oscuro es verde militar, el verde vivo sigue siendo verde', () => {
+    expect(hexToColorName('5B6B3A')).toBe('verde militar');
+    expect(hexToColorName('00BB31FF')).toBe('verde');
+    expect(hexToColorName('18C241FF')).toBe('verde');
+  });
 });
 
 describe('matcheo por nombre derivado del hex (rollos SIN hex cargado)', () => {
@@ -140,6 +158,57 @@ describe('matcheo por nombre derivado del hex (rollos SIN hex cargado)', () => {
       rolls as any[],
     );
     expect(plan).toEqual([{ filamentId: 'ag', grams: 50 }]);
+  });
+
+  it('el nombre derivado exacto gana al prefijo (amarillo antes que amarillo girasol)', () => {
+    const conAmarillo = [
+      ...rolls,
+      {
+        id: 'am',
+        color: 'amarillo',
+        colorHex: null,
+        gramsLeft: 144,
+        grams: 1000,
+        purchasedAt: '2026-08-28',
+        discarded: false,
+        finishedAt: null,
+      },
+    ];
+    const { plan } = planDeduction(
+      { colorHex: 'EFE255FF', grams: 12 },
+      conAmarillo as any[],
+    );
+    expect(plan).toEqual([{ filamentId: 'am', grams: 12 }]);
+  });
+
+  it('un verde de Bambu no se come el verde militar mientras haya verde', () => {
+    const verdes = [
+      {
+        id: 'vm',
+        color: 'verde militar',
+        colorHex: null,
+        gramsLeft: 1000,
+        grams: 1000,
+        purchasedAt: '2026-07-01',
+        discarded: false,
+        finishedAt: null,
+      },
+      {
+        id: 'v',
+        color: 'verde',
+        colorHex: null,
+        gramsLeft: 1000,
+        grams: 1000,
+        purchasedAt: '2026-10-07',
+        discarded: false,
+        finishedAt: null,
+      },
+    ];
+    const { plan } = planDeduction(
+      { colorHex: '18C241FF', grams: 12 },
+      verdes as any[],
+    );
+    expect(plan).toEqual([{ filamentId: 'v', grams: 12 }]);
   });
 
   it('checkStock tambien matchea por nombre derivado', () => {

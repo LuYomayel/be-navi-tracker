@@ -86,6 +86,12 @@ export function hexToColorName(hex?: string | null): string | null {
     else if (max === g) hue = 60 * ((b - r) / delta + 2);
     else hue = 60 * ((r - g) / delta + 4);
   }
+  // Antes de los rangos de tono: los naranjas oscuros son marrón (sino el
+  // PLA Wood/marrón del Katamino se descontaba del naranja), los tonos piel
+  // claros y poco saturados son beige, y el verde oliva oscuro es militar.
+  if (hue >= 15 && hue < 50 && v < 0.7) return 'marrón';
+  if (hue >= 15 && hue < 60 && sat < 0.35 && v >= 0.75) return 'beige';
+  if (hue >= 60 && hue < 110 && v < 0.55) return 'verde militar';
   if (hue < 15) return 'rojo';
   if (hue < 40) return 'naranja';
   if (hue < 70) return 'amarillo';
@@ -197,15 +203,20 @@ function matchingRolls(
     : [];
 
   // Ultimo recurso para consumos de Bambu (solo hex) contra rollos cargados
-  // a mano sin hex: derivar el nombre del color del hex ("999D9D" -> gris)
-  // y matchear por prefijo ("amarillo girasol" arranca con "amarillo").
+  // a mano sin hex: derivar el nombre del color del hex ("999D9D" -> gris).
+  // Gana el nombre exacto; solo si no hay, se matchea por prefijo
+  // ("amarillo girasol" arranca con "amarillo"). Asi un verde no se come el
+  // verde militar ni un amarillo el girasol mientras quede del exacto.
   let derived: FilamentLike[] = [];
   if (hex && !direct.length && !name) {
     const derivedName = hexToColorName(hex);
     if (derivedName) {
-      derived = active.filter((f) =>
-        normColor(f.color).startsWith(derivedName),
-      );
+      derived = active.filter((f) => normColor(f.color) === derivedName);
+      if (!derived.length) {
+        derived = active.filter((f) =>
+          normColor(f.color).startsWith(derivedName),
+        );
+      }
     }
   }
 
