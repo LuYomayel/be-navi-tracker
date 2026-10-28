@@ -4,7 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
-import { assertPaletteColor, canonicalColor } from './colors';
+import {
+  assertColorOrCombo,
+  assertPaletteColor,
+  canonicalColor,
+} from './colors';
 import {
   ColorMode,
   countBuildable,
@@ -21,6 +25,7 @@ export interface JobOutput {
   qty: number;
   color?: string; // sin esto: el unico color de la impresion
   perColorLine?: boolean; // qty por CADA color que desconto la impresion
+  combo?: boolean; // una pieza con TODOS los colores de la impresion (soporte River = rojo+blanco)
 }
 
 export interface SetRecipeDto {
@@ -209,7 +214,7 @@ export class PartsService {
       return {
         userId,
         partId: m.partId,
-        color: assertPaletteColor(m.color),
+        color: assertColorOrCombo(m.color),
         qty: m.qty,
         reason: m.reason === 'impresion' ? 'impresion' : 'ajuste',
         jobId: m.jobId ?? null,
@@ -270,7 +275,7 @@ export class PartsService {
           'La cantidad tiene que ser un entero > 0',
         );
       }
-      if (o.color) o.color = assertPaletteColor(o.color);
+      if (o.color) o.color = assertColorOrCombo(o.color);
     }
     const moves = await this.movesForJob(userId, job, outputs);
 
@@ -319,7 +324,8 @@ export class PartsService {
     const moves: any[] = [];
     for (const o of outputs) {
       let targets: string[];
-      if (o.perColorLine) targets = colors;
+      if (o.combo) targets = [colors.join('+')];
+      else if (o.perColorLine) targets = colors;
       else if (o.color) targets = [o.color];
       else if (colors.length === 1) targets = colors;
       else {
@@ -388,11 +394,18 @@ export class PartsService {
       where: { userId_matchKey: { userId, matchKey: job.plateKey } },
     });
     if (!tpl) return null;
-    if (tpl.weight && job.grams && Math.abs(job.grams - tpl.weight) / tpl.weight > 0.03) {
+    if (
+      tpl.weight &&
+      job.grams &&
+      Math.abs(job.grams - tpl.weight) / tpl.weight > 0.03
+    ) {
       return null;
     }
     const k = Math.max(1, Math.round(opts.multiplier ?? 1));
-    const outputs = (tpl.outputs as JobOutput[]).map((o) => ({ ...o, qty: o.qty * k }));
+    const outputs = (tpl.outputs as JobOutput[]).map((o) => ({
+      ...o,
+      qty: o.qty * k,
+    }));
     return this.setJobOutputs(userId, jobId, outputs);
   }
 

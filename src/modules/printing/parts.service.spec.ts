@@ -115,6 +115,26 @@ describe('PartsService', () => {
       ]);
     });
 
+    it('combo: una impresion de varios colores suma UNA pieza con la combinacion (soporte River)', async () => {
+      prisma.printJob.findFirst.mockResolvedValue({
+        ...job4,
+        appliedPlan: [
+          { filamentId: 'f-rojo', grams: 60 },
+          { filamentId: 'f-blanco', grams: 50 },
+        ],
+      });
+      await service.setJobOutputs(userId, 'job-1', [
+        { partId: 'p-punta', qty: 2, combo: true },
+      ]);
+      expect(prisma.printPartMove.createMany.mock.calls[0][0].data).toEqual([
+        expect.objectContaining({
+          partId: 'p-punta',
+          color: 'rojo+blanco',
+          qty: 2,
+        }),
+      ]);
+    });
+
     it('una pieza que no es del usuario se rechaza', async () => {
       await expect(
         service.setJobOutputs(userId, 'job-1', [
@@ -160,12 +180,16 @@ describe('PartsService', () => {
 
     it('suma las piezas de la plantilla', async () => {
       await service.applyTemplate(userId, 'job-1');
-      expect(prisma.printPartMove.createMany.mock.calls[0][0].data).toHaveLength(4);
+      expect(
+        prisma.printPartMove.createMany.mock.calls[0][0].data,
+      ).toHaveLength(4);
     });
 
     it('con repeticiones multiplica', async () => {
       await service.applyTemplate(userId, 'job-1', { multiplier: 2 });
-      expect(prisma.printPartMove.createMany.mock.calls[0][0].data[0].qty).toBe(8);
+      expect(prisma.printPartMove.createMany.mock.calls[0][0].data[0].qty).toBe(
+        8,
+      );
     });
 
     it('otro 3MF con el mismo numero de placa (peso distinto) no aplica', async () => {
@@ -180,7 +204,9 @@ describe('PartsService', () => {
     });
 
     it('una placa incompleta (objetos salteados) no aplica', async () => {
-      expect(await service.applyTemplate(userId, 'job-1', { partial: true })).toBeNull();
+      expect(
+        await service.applyTemplate(userId, 'job-1', { partial: true }),
+      ).toBeNull();
       expect(prisma.printPartMove.createMany).not.toHaveBeenCalled();
     });
   });

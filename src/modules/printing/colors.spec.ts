@@ -45,3 +45,17 @@ describe('paleta de colores de filamento', () => {
     expect(() => assertPaletteColor('fucsia')).toThrow(/negro, blanco/);
   });
 });
+
+describe('combinaciones de colores (soporte River = rojo+blanco)', () => {
+  const { assertColorOrCombo } = require('./colors');
+
+  it('acepta un color solo o una combinacion de la paleta', () => {
+    expect(assertColorOrCombo('Rojo')).toBe('rojo');
+    expect(assertColorOrCombo('rojo + Blanco')).toBe('rojo+blanco');
+    expect(assertColorOrCombo('azul/amarillo')).toBe('azul+amarillo');
+  });
+
+  it('rechaza si alguna parte no esta en la paleta', () => {
+    expect(() => assertColorOrCombo('rojo+fucsia')).toThrow(/fucsia/);
+  });
+});

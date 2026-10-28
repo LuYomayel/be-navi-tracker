@@ -4232,8 +4232,9 @@ export class McpServerFactory {
               z.object({
                 pieza: z.string().describe('Nombre de la pieza (ej "punta", "cara del dado", "ladrillo 3")'),
                 cantidad: z.number().describe('Cuántas (negativo = restar, solo en ajuste manual)'),
-                color: z.string().optional().describe('Color de la paleta. Con impresion_id es opcional.'),
+                color: z.string().optional().describe('Color de la paleta, o combinación "rojo+blanco" (soporte River). Con impresion_id es opcional.'),
                 porCadaColor: z.boolean().optional().describe('La cantidad es por CADA color que usó la impresión'),
+                combinado: z.boolean().optional().describe('Una pieza con TODOS los colores de la impresión (ej soporte River rojo+blanco)'),
               }),
             )
             .describe('Piezas a sumar'),
@@ -4262,6 +4263,7 @@ export class McpServerFactory {
               qty: p.cantidad,
               color: p.color,
               perColorLine: p.porCadaColor === true,
+              combo: p.combinado === true,
             })),
             { remember: a.recordar_placa === true },
           );

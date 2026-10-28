@@ -75,3 +75,16 @@ export function assertPaletteColor(input?: string | null): FilamentColor {
   }
   return color;
 }
+
+/**
+ * Un color de la paleta o una combinacion ("rojo+blanco", "azul/amarillo"):
+ * para piezas de varios colores como el soporte de River. Se guarda con "+".
+ */
+export function assertColorOrCombo(input?: string | null): string {
+  const parts = (input ?? '')
+    .split(/[+/]/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) return assertPaletteColor(input);
+  return parts.map((c) => assertPaletteColor(c)).join('+');
+}
