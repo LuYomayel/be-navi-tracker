@@ -2,10 +2,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { PrismaService } from '../../config/prisma.service';
+import { PartsService } from './parts.service';
 
 describe('StockService', () => {
   let service: StockService;
   let prisma: any;
+  let parts: any;
+  const baseJob = {
+    id: 'job-1',
+    userId: 'user-1',
+    status: 'ok',
+    appliedPlan: [],
+  };
 
   const userId = 'user-1';
 
@@ -114,6 +122,7 @@ describe('StockService', () => {
             printSettings: {
               findUnique: jest.fn().mockResolvedValue(settings),
             },
+            printPartMove: { findMany: jest.fn().mockResolvedValue([]) },
             printJob: {
               findMany: jest.fn().mockResolvedValue([]),
               findFirst: jest.fn(),
@@ -133,11 +142,19 @@ describe('StockService', () => {
             },
           },
         },
+        {
+          provide: PartsService,
+          useValue: {
+            recomputeJob: jest.fn().mockResolvedValue(null),
+            removeJob: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
     service = module.get(StockService);
     prisma = module.get(PrismaService);
+    parts = module.get(PartsService);
   });
 
   describe('getStock', () => {
@@ -470,6 +487,33 @@ describe('StockService', () => {
         service.reassignJob(userId, 'job-1', [{ filamentId: 'ajeno' }]),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.filament.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('piezas de la impresion', () => {
+    it('al corregir el color, las piezas que sumo la impresion se recalculan', async () => {
+      prisma.printJob.findFirst
+        .mockResolvedValueOnce({
+          ...baseJob,
+          stockApplied: false,
+          filamentsUsed: [{ colorHex: '00BB31FF', grams: 50 }],
+        })
+        .mockResolvedValueOnce({
+          ...baseJob,
+          stockApplied: false,
+          filamentsUsed: [{ color: 'rojo', grams: 50 }],
+        });
+      await service.reassignJob(userId, 'job-1', [{ color: 'rojo' }]);
+      expect(parts.recomputeJob).toHaveBeenCalledWith(userId, 'job-1');
+    });
+
+    it('borrar la impresion borra las piezas que habia sumado', async () => {
+      prisma.printJob.findFirst.mockResolvedValue({
+        ...baseJob,
+        stockApplied: false,
+      });
+      await service.deleteJob(userId, 'job-1');
+      expect(parts.removeJob).toHaveBeenCalledWith(userId, 'job-1');
     });
   });
 

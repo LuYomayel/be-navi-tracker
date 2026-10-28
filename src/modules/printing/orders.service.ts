@@ -6,6 +6,8 @@ import {
 import { PrismaService } from '../../config/prisma.service';
 import { SettlementService } from './settlement.service';
 import { isHiddenForReseller, ResellersService } from './resellers.service';
+import { PartsService } from './parts.service';
+import { PlanOptions } from './parts';
 import { pricingForProduct } from './pricing';
 import { getLocalDateString } from '../../common/utils/date.utils';
 
@@ -72,6 +74,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly settlements: SettlementService,
     private readonly resellers: ResellersService,
+    private readonly parts: PartsService,
   ) {}
 
   // ── Lado publico (revendedor) ────────────────────────────
@@ -432,7 +435,12 @@ export class OrdersService {
     });
   }
 
-  async updateStatus(userId: string, id: string, status: OrderStatus) {
+  async updateStatus(
+    userId: string,
+    id: string,
+    status: OrderStatus,
+    partsOpts?: Pick<PlanOptions, 'groupColors' | 'anyGroupColor'>,
+  ) {
     if (!ORDER_STATUSES.includes(status)) {
       throw new BadRequestException('Estado invalido');
     }
@@ -463,10 +471,24 @@ export class OrdersService {
       await this.createSalesForOrder(userId, order);
     }
 
-    return this.prisma.printOrder.update({
+    // Piezas: entregar las resta del stock; salir de entregado las devuelve.
+    const wasDelivered = order.status === 'entregado';
+    if (wasDelivered && status !== 'entregado') {
+      await this.parts.revertOrder(userId, id);
+    }
+    const updated = await this.prisma.printOrder.update({
       where: { id },
       data: { status },
     });
+    if (status === 'entregado' && !wasDelivered) {
+      const parts = await this.parts.consumeForOrder(
+        userId,
+        id,
+        partsOpts ?? {},
+      );
+      return { ...updated, parts };
+    }
+    return updated;
   }
 
   async deleteOrder(userId: string, id: string) {
@@ -485,6 +507,7 @@ export class OrdersService {
     for (const sale of sales) {
       await this.prisma.printSale.delete({ where: { id: sale.id } });
     }
+    await this.parts.revertOrder(userId, id);
     await this.prisma.printOrder.delete({ where: { id } });
     return true;
   }

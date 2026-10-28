@@ -17,6 +17,7 @@ import {
 } from './stock';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import { assertPaletteColor } from './colors';
+import { PartsService } from './parts.service';
 
 export interface CreatePrintJobDto {
   title: string;
@@ -29,6 +30,7 @@ export interface CreatePrintJobDto {
   status?: 'ok' | 'fallida';
   source?: 'manual' | 'bambu';
   externalId?: string;
+  plateKey?: string;
   notes?: string;
 }
 
@@ -60,7 +62,10 @@ export function printerName(notes?: string | null): string | null {
  */
 @Injectable()
 export class StockService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly parts: PartsService,
+  ) {}
 
   private async activeFilaments(userId: string): Promise<FilamentLike[]> {
     return this.prisma.filament.findMany({ where: { userId } }) as Promise<
@@ -159,7 +164,20 @@ export class StockService {
       this.activeFilaments(userId),
     ]);
     const byId = new Map(filaments.map((f) => [f.id, f]));
+    // Piezas que sumo cada impresion (stock de piezas).
+    const moves = await this.prisma.printPartMove.findMany({
+      where: { userId, reason: 'impresion', jobId: { in: jobs.map((j: any) => j.id) } },
+      include: { part: true },
+    });
+    const partsByJob = new Map<string, any[]>();
+    for (const m of moves as any[]) {
+      partsByJob.set(m.jobId, [
+        ...(partsByJob.get(m.jobId) ?? []),
+        { partId: m.partId, partName: m.part?.name ?? null, color: m.color, qty: m.qty },
+      ]);
+    }
     return jobs.map((j: any) => ({
+      partsAdded: partsByJob.get(j.id) ?? [],
       ...j,
       printer: printerName(j.notes),
       deducted: ((j.appliedPlan ?? []) as DeductionStep[]).map((step) => {
@@ -198,6 +216,7 @@ export class StockService {
         filamentsUsed: entries.length ? (entries as any) : null,
         source: dto.source ?? 'manual',
         externalId: dto.externalId || null,
+        plateKey: dto.plateKey || null,
         status: dto.status ?? 'ok',
         notes: dto.notes || null,
       },
@@ -288,6 +307,7 @@ export class StockService {
     });
     if (!job) throw new NotFoundException('Impresion no encontrada');
     await this.revertJob(userId, job);
+    await this.parts.removeJob(userId, jobId);
     await this.prisma.printJob.delete({ where: { id: jobId } });
     return true;
   }
@@ -351,7 +371,10 @@ export class StockService {
     if (job.status !== 'ok') {
       return { job, applied: [], unmatchedGrams: 0, learned };
     }
-    return { ...(await this.applyJob(userId, job.id)), learned };
+    const res = await this.applyJob(userId, job.id);
+    // Las piezas que sumo la impresion cambian de color con la correccion.
+    await this.parts.recomputeJob(userId, job.id);
+    return { ...res, learned };
   }
 
   /**

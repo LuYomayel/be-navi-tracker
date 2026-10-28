@@ -974,6 +974,8 @@ model PrintProduct {
   photos     PrintProductPhoto[]
   orderItems PrintOrderItem[]
   jobs       PrintJob[]
+  parts      PrintPart[]
+  recipe     PrintRecipeLine[]
 
   @@index([userId])
   @@map("print_products")
@@ -1037,6 +1039,7 @@ model PrintSettings {
   bambuToken         String?   @db.Text // access token de Bambu Cloud, encriptado AES-256-GCM
   bambuRegion        String    @default("global") // global | china (define el host de la API)
   bambuLastSyncAt    DateTime? // ultima corrida del sync de impresiones
+  bambuConnectedAt   DateTime? // desde aca las impresiones descuentan stock (lo anterior es historial)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -1184,6 +1187,8 @@ model PrintJob {
   externalId    String? // "bambu:<taskId>" para dedup del sync
   status        String   @default("ok") // ok | fallida
   stockApplied  Boolean  @default(false) // ya desconto el stock
+  partsOutputs  Json? // piezas que produjo: [{ partId, qty, color?, perColorLine? }] (se recalculan si se corrige el color)
+  plateKey      String? // identificador de la placa (para las plantillas "esta placa produce X")
   notes         String?  @db.Text
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -1193,4 +1198,84 @@ model PrintJob {
   @@unique([userId, externalId])
   @@index([userId, date])
   @@map("print_jobs")
+}
+
+// ── Stock de piezas impresas ─────────────────────────────────
+// Cada producto se arma con una receta de piezas (PrintRecipeLine) y cada
+// impresion suma piezas por color (PrintPartMove). El stock es la SUMA de
+// movimientos por (pieza, color); al entregar un pedido se restan. La logica
+// de colores (fijo / libre / juego / distintos) vive en printing/parts.ts.
+
+// Item de stock de un producto (ej Carrot -> "punta", "cara-dado").
+model PrintPart {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  key       String // slug estable, ej "punta"
+  name      String // legible, ej "Punta de zanahoria"
+  createdAt DateTime @default(now())
+
+  product PrintProduct      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  lines   PrintRecipeLine[]
+  moves   PrintPartMove[]
+
+  @@unique([productId, key])
+  @@index([userId])
+  @@map("print_parts")
+}
+
+// Linea de la receta de UNA unidad de producto.
+model PrintRecipeLine {
+  id         String  @id @default(cuid())
+  productId  String
+  partId     String
+  qty        Int
+  colorMode  String // fijo | libre | juego | distintos
+  fixedColor String? // colorMode fijo
+  group      String? // juego / distintos: lineas que comparten la regla
+  slot       String? // distintos: lineas del mismo slot comparten color
+  order      Int     @default(0)
+
+  product PrintProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  part    PrintPart    @relation(fields: [partId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("print_recipe_lines")
+}
+
+// Movimiento de stock de una pieza (+ impresion/ajuste, - entrega/ajuste).
+model PrintPartMove {
+  id        String   @id @default(cuid())
+  userId    String
+  partId    String
+  color     String
+  qty       Int
+  reason    String // impresion | entrega | ajuste
+  jobId     String? // impresion que la produjo
+  orderId   String? // pedido que la consumio (para revertir al des-entregar)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  part PrintPart @relation(fields: [partId], references: [id], onDelete: Cascade)
+
+  @@index([userId, partId])
+  @@index([jobId])
+  @@index([orderId])
+  @@map("print_part_moves")
+}
+
+// "Esta placa produce X": se aplica sola cuando el sync de Bambu trae una
+// impresion con el mismo matchKey.
+model PrintPlateTemplate {
+  id        String   @id @default(cuid())
+  userId    String
+  matchKey  String
+  label     String
+  outputs   Json // [{ partId, qty, color?, perColorLine? }]
+  weight    Float? // gramos de la placa: desempata 3MF distintos con el mismo numero de placa
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, matchKey])
+  @@map("print_plate_templates")
 }

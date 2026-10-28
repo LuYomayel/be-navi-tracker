@@ -3,6 +3,7 @@ import {
   buildSaleUpdateFromMcpArgs,
   buildFilamentUpdateFromMcpArgs,
   formatRoll,
+  resolvePart,
 } from './printing-mcp-utils';
 
 const sale = (over: any) => ({
@@ -105,5 +106,45 @@ describe('formatRoll', () => {
     ).toBe(
       'Bambu Lab PLA Lite — 169g de 1000g · comprado 2026-08-28 · #ff6910 (id fil-1)',
     );
+  });
+});
+
+describe('resolvePart', () => {
+  const parts = [
+    {
+      id: 'c-punta',
+      key: 'punta',
+      name: 'Punta de zanahoria',
+      productName: 'Carrot memotest',
+    },
+    { id: 'c-dado', key: 'dado', name: 'Dado', productName: 'Carrot memotest' },
+    {
+      id: 't-dado',
+      key: 'dado',
+      name: 'Dado',
+      productName: 'TETRIS de equilibrio',
+    },
+    {
+      id: 't-l3',
+      key: 'ladrillo-3',
+      name: 'Ladrillo set 3',
+      productName: 'TETRIS de equilibrio',
+    },
+  ];
+
+  it('encuentra por key o por nombre, sin importar mayusculas ni tildes', () => {
+    expect(resolvePart(parts, 'Punta').part?.id).toBe('c-punta');
+    expect(resolvePart(parts, 'ladrillo 3').part?.id).toBe('t-l3');
+  });
+
+  it('si la pieza existe en dos productos pide el producto', () => {
+    const res = resolvePart(parts, 'dado');
+    expect(res.part).toBeUndefined();
+    expect(res.error).toMatch(/Carrot memotest/);
+    expect(resolvePart(parts, 'dado', 'tetris').part?.id).toBe('t-dado');
+  });
+
+  it('pieza inexistente lista las disponibles', () => {
+    expect(resolvePart(parts, 'tornillo').error).toMatch(/Punta de zanahoria/);
   });
 });

@@ -9,6 +9,7 @@ import { ResellersService } from './resellers.service';
 import { StockService } from './stock.service';
 import { PhotosService } from './photos.service';
 import { BambuService } from './bambu.service';
+import { PartsService } from './parts.service';
 
 @Module({
   imports: [GoalModule],
@@ -21,6 +22,7 @@ import { BambuService } from './bambu.service';
     StockService,
     PhotosService,
     BambuService,
+    PartsService,
     PrismaService,
   ],
   exports: [
@@ -30,6 +32,7 @@ import { BambuService } from './bambu.service';
     ResellersService,
     StockService,
     BambuService,
+    PartsService,
   ],
 })
 export class PrintingModule {}

@@ -46,6 +46,12 @@ import {
 } from './stock.service';
 import { PhotosService } from './photos.service';
 import { BambuService } from './bambu.service';
+import {
+  JobOutput,
+  PartMoveDto,
+  PartsService,
+  SetRecipeDto,
+} from './parts.service';
 
 /** Rutas autenticadas del negocio 3D (catalogo propio, filamentos, ventas, balance). */
 @Controller('printing')
@@ -59,6 +65,7 @@ export class PrintingController {
     private readonly stock: StockService,
     private readonly photos: PhotosService,
     private readonly bambu: BambuService,
+    private readonly parts: PartsService,
   ) {}
 
   // ── Catalogo publico (revendedores, sin auth) ────────────
@@ -356,12 +363,20 @@ export class PrintingController {
   @Patch('orders/:id/status')
   async updateOrderStatus(
     @Param('id') id: string,
-    @Body() body: { status: OrderStatus },
+    @Body()
+    body: {
+      status: OrderStatus;
+      groupColors?: Record<string, string>; // color del juego al entregar (ej { estructura: 'blanco' })
+      anyGroupColor?: string;
+    },
     @Req() req: any,
   ) {
     return {
       success: true,
-      data: await this.orders.updateStatus(req.user.userId, id, body.status),
+      data: await this.orders.updateStatus(req.user.userId, id, body.status, {
+        groupColors: body.groupColors,
+        anyGroupColor: body.anyGroupColor,
+      }),
     };
   }
 
@@ -530,6 +545,53 @@ export class PrintingController {
     return {
       success: true,
       data: await this.stock.learnBreakdown(req.user.userId, id, body.units),
+    };
+  }
+
+  // ── Stock de piezas ───────────────────────────────────────
+  /** Por producto: cuantos se pueden armar y que falta; + stock pieza x color. */
+  @Get('parts')
+  async getParts(@Req() req: any) {
+    return { success: true, data: await this.parts.getSummary(req.user.userId) };
+  }
+
+  /** Ajuste manual (+/-) de piezas por color. */
+  @Post('parts/moves')
+  @HttpCode(HttpStatus.OK)
+  async addPartMoves(@Body() body: { moves: PartMoveDto[] }, @Req() req: any) {
+    return {
+      success: true,
+      data: await this.parts.addMoves(req.user.userId, body.moves),
+    };
+  }
+
+  /** "Lo que salio de esta impresion" (+ recordar la placa para el sync). */
+  @Post('jobs/:id/parts')
+  @HttpCode(HttpStatus.OK)
+  async setJobParts(
+    @Param('id') id: string,
+    @Body() body: { outputs: JobOutput[]; remember?: boolean; label?: string },
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.parts.setJobOutputs(req.user.userId, id, body.outputs, {
+        remember: body.remember === true,
+        label: body.label,
+      }),
+    };
+  }
+
+  /** Reemplaza la receta de piezas de un producto. */
+  @Put('products/:id/recipe')
+  async setRecipe(
+    @Param('id') id: string,
+    @Body() body: SetRecipeDto,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.parts.setRecipe(req.user.userId, id, body),
     };
   }
 

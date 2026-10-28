@@ -49,14 +49,16 @@ import { SettlementService } from '../printing/settlement.service';
 import { StockService } from '../printing/stock.service';
 import { OrdersService } from '../printing/orders.service';
 import { BambuService } from '../printing/bambu.service';
+import { PartsService } from '../printing/parts.service';
 import { computePrintCost, computeSalePrice, computeProfit } from '../printing/pricing';
-import { FILAMENT_COLORS } from '../printing/colors';
+import { FILAMENT_COLORS, canonicalColor } from '../printing/colors';
 import { hexToColorName } from '../printing/stock';
 import {
   selectPendingSales,
   buildSaleUpdateFromMcpArgs,
   buildFilamentUpdateFromMcpArgs,
   formatRoll,
+  resolvePart,
 } from './printing-mcp-utils';
 
 /** Resultado de tool con texto plano (formato que espera el SDK MCP). */
@@ -115,6 +117,7 @@ export class McpServerFactory {
     private readonly stock: StockService,
     private readonly orders: OrdersService,
     private readonly bambu: BambuService,
+    private readonly parts: PartsService,
     private readonly projects: ProjectsService,
   ) {}
 
@@ -4052,6 +4055,9 @@ export class McpServerFactory {
             `• ${j.date} [${j.printer ?? j.source}] ${j.title}${j.status === 'fallida' ? ' ⚠️ fallida' : ''}\n` +
             `    reportó: ${reported || '—'}\n` +
             `    descontó: ${deducted || (j.stockApplied ? '—' : 'nada (no aplicada al stock)')}\n` +
+            ((j.partsAdded ?? []).length
+              ? `    piezas: ${(j.partsAdded as any[]).map((p) => `${p.qty} ${p.partName ?? '?'} ${p.color}`).join(' + ')}\n`
+              : '') +
             `    (impresion id ${j.id})`
           );
         });
@@ -4177,6 +4183,108 @@ export class McpServerFactory {
     );
 
     add(
+      'piezas_3d',
+      {
+        title: 'Stock de piezas impresas y qué se puede armar',
+        description:
+          'Por producto (Carrot, Tetr_s, Katamino, soporte): cuántas unidades se pueden armar con las piezas impresas, qué falta para la próxima, y el stock de cada pieza por color.',
+        inputSchema: {
+          producto: z.string().optional().describe('Filtrar por nombre de producto'),
+        },
+      },
+      async (a) => {
+        const sum: any = await this.parts.getSummary(userId);
+        let products = sum.products as any[];
+        if (a.producto) {
+          const q = a.producto.toLowerCase();
+          products = products.filter((p) => p.productName.toLowerCase().includes(q));
+        }
+        if (!products.length) return text('No hay productos con receta de piezas cargada.');
+        const blocks = products.map((p) => {
+          const stockLines = (p.parts as any[])
+            .map((part) => {
+              const byColor = (sum.stock as any[])
+                .filter((s) => s.partId === part.id && s.qty !== 0)
+                .map((s) => `${s.color} ${s.qty}`);
+              return byColor.length ? `    · ${part.name}: ${byColor.join(', ')}` : null;
+            })
+            .filter(Boolean);
+          return (
+            `🧩 ${p.productName}: podés armar ${p.buildable}` +
+            (p.missing.length ? `\n    para la próxima falta: ${p.missing.join(' · ')}` : '') +
+            (stockLines.length ? `\n${stockLines.join('\n')}` : '\n    (sin piezas en stock)')
+          );
+        });
+        return text(blocks.join('\n\n'));
+      },
+    );
+
+    add(
+      'cargar_piezas_3d',
+      {
+        title: 'Cargar piezas impresas (o ajustar el stock de piezas)',
+        description:
+          'Suma piezas al stock. Con impresion_id: "lo que salió de esta impresión" — el color sale solo del filamento que descontó (en una placa multicolor usá porCadaColor, ej 4 puntas + 1 cara por cada color); recordar_placa=true hace que la próxima vez que se imprima esa placa se carguen solas. Sin impresion_id: ajuste manual con color obligatorio (cantidad negativa para restar). Las piezas se nombran como en piezas_3d.',
+        inputSchema: {
+          impresion_id: z.string().optional().describe('Impresión de la que salieron (sale de impresiones_3d)'),
+          piezas: z
+            .array(
+              z.object({
+                pieza: z.string().describe('Nombre de la pieza (ej "punta", "cara del dado", "ladrillo 3")'),
+                cantidad: z.number().describe('Cuántas (negativo = restar, solo en ajuste manual)'),
+                color: z.string().optional().describe('Color de la paleta. Con impresion_id es opcional.'),
+                porCadaColor: z.boolean().optional().describe('La cantidad es por CADA color que usó la impresión'),
+              }),
+            )
+            .describe('Piezas a sumar'),
+          producto: z.string().optional().describe('Producto, si el nombre de la pieza se repite (ej "dado")'),
+          recordar_placa: z.boolean().optional().describe('Guardar esta placa para que el sync la cargue sola la próxima vez'),
+          nota: z.string().optional(),
+        },
+      },
+      async (a) => {
+        const sum: any = await this.parts.getSummary(userId);
+        const all = (sum.products as any[]).flatMap((p) =>
+          (p.parts as any[]).map((part) => ({ ...part, productName: p.productName })),
+        );
+        const resolved: any[] = [];
+        for (const pz of a.piezas ?? []) {
+          const r = resolvePart(all, pz.pieza, a.producto);
+          if (r.error) return text(r.error);
+          resolved.push({ ...pz, partId: r.part!.id, partName: r.part!.name });
+        }
+        if (a.impresion_id) {
+          const res: any = await this.parts.setJobOutputs(
+            userId,
+            a.impresion_id,
+            resolved.map((p) => ({
+              partId: p.partId,
+              qty: p.cantidad,
+              color: p.color,
+              perColorLine: p.porCadaColor === true,
+            })),
+            { remember: a.recordar_placa === true },
+          );
+          const names = new Map(resolved.map((p) => [p.partId, p.partName]));
+          return text(
+            `Cargado de la impresión: ${(res.added as any[]).map((m) => `${m.qty} ${names.get(m.partId)} ${m.color}`).join(' + ')}.` +
+              (a.recordar_placa ? ' 📌 Placa recordada: la próxima se carga sola.' : ''),
+          );
+        }
+        if (resolved.some((p) => !p.color)) {
+          return text('Sin impresion_id necesito el color de cada pieza.');
+        }
+        await this.parts.addMoves(
+          userId,
+          resolved.map((p) => ({ partId: p.partId, color: p.color, qty: p.cantidad, reason: 'ajuste' as const, notes: a.nota })),
+        );
+        return text(
+          `Stock ajustado: ${resolved.map((p) => `${p.cantidad > 0 ? '+' : ''}${p.cantidad} ${p.partName} ${p.color}`).join(', ')}.`,
+        );
+      },
+    );
+
+    add(
       'pedidos_3d',
       {
         title: 'Pedidos de los revendedores',
@@ -4188,20 +4296,34 @@ export class McpServerFactory {
             .optional()
             .describe('Si se pasa junto con pedido_id, actualiza ese pedido a este estado.'),
           pedido_id: z.string().optional().describe('Pedido a actualizar'),
+          color_juego: z
+            .string()
+            .optional()
+            .describe('Al entregar: color de las piezas que van juego (ej "blanco" = estructura del Tetr_s blanca). Sin esto elige el color con más juegos completos.'),
         },
       },
       async (a) => {
         if (a.pedido_id && a.estado) {
-          const updated = await this.orders.updateStatus(
+          const updated: any = await this.orders.updateStatus(
             userId,
             a.pedido_id,
             a.estado,
+            { anyGroupColor: a.color_juego ? canonicalColor(a.color_juego) ?? a.color_juego : undefined },
           );
+          const parts = updated.parts as
+            | { consumed: { product: string; units: number }[]; shortfall: string[] }
+            | undefined;
           return text(
             `Pedido actualizado a "${updated.status}"` +
               (a.estado === 'entregado'
                 ? ' — se crearon las ventas a liquidar.'
-                : '.'),
+                : '.') +
+              (parts?.consumed.length
+                ? `\n🧩 Piezas descontadas: ${parts.consumed.map((c) => `${c.units}x ${c.product}`).join(', ')}.`
+                : '') +
+              (parts?.shortfall.length
+                ? `\n⚠️ No alcanzaron las piezas: ${parts.shortfall.join(' · ')}`
+                : ''),
           );
         }
         const [orders, notices] = await Promise.all([

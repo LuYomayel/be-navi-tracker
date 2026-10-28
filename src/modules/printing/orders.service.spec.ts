@@ -3,12 +3,14 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { SettlementService } from './settlement.service';
 import { ResellersService } from './resellers.service';
+import { PartsService } from './parts.service';
 import { PrismaService } from '../../config/prisma.service';
 import { GoalService } from '../goal/goal.service';
 
 describe('OrdersService', () => {
   let service: OrdersService;
   let prisma: any;
+  let parts: any;
 
   const userId = 'user-1';
   const token = 'token-abc';
@@ -147,11 +149,19 @@ describe('OrdersService', () => {
           },
         },
         { provide: GoalService, useValue: { getActive: jest.fn().mockResolvedValue(null) } },
+        {
+          provide: PartsService,
+          useValue: {
+            consumeForOrder: jest.fn().mockResolvedValue({ consumed: [], shortfall: [] }),
+            revertOrder: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
     service = module.get(OrdersService);
     prisma = module.get(PrismaService);
+    parts = module.get(PartsService);
   });
 
   describe('createPublicOrder', () => {
@@ -213,6 +223,43 @@ describe('OrdersService', () => {
   });
 
   describe('updateStatus', () => {
+    it('al entregar resta las piezas del stock (con el color elegido para el juego)', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({ ...order, status: 'listo' });
+      parts.consumeForOrder.mockResolvedValue({
+        consumed: [{ product: 'TETRIS', units: 1 }],
+        shortfall: ['TETRIS: faltan 4 de 5'],
+      });
+
+      const res: any = await service.updateStatus(userId, 'order-1', 'entregado', {
+        groupColors: { estructura: 'blanco' },
+      });
+
+      expect(parts.consumeForOrder).toHaveBeenCalledWith(userId, 'order-1', {
+        groupColors: { estructura: 'blanco' },
+      });
+      expect(res.parts.shortfall).toEqual(['TETRIS: faltan 4 de 5']);
+    });
+
+    it('re-marcar entregado un pedido ya entregado no vuelve a restar piezas', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({
+        ...order,
+        status: 'entregado',
+        sales: [{ id: 'sale-1', settlements: [] }],
+      });
+      await service.updateStatus(userId, 'order-1', 'entregado');
+      expect(parts.consumeForOrder).not.toHaveBeenCalled();
+    });
+
+    it('sacarlo de entregado devuelve las piezas al stock', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({
+        ...order,
+        status: 'entregado',
+        sales: [{ id: 'sale-1', settlements: [] }],
+      });
+      await service.updateStatus(userId, 'order-1', 'listo');
+      expect(parts.revertOrder).toHaveBeenCalledWith(userId, 'order-1');
+    });
+
     it('estado invalido tira BadRequest', async () => {
       prisma.printOrder.findFirst.mockResolvedValue({ ...order });
       await expect(

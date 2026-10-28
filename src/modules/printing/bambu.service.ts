@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../config/prisma.service';
 import { StockService } from './stock.service';
+import { PartsService } from './parts.service';
 import { toLocalDateString } from '../../common/utils/date.utils';
 
 const HOSTS: Record<string, string> = {
@@ -14,7 +15,12 @@ interface BambuTask {
   id: number;
   title?: string;
   deviceId?: string;
-  status?: number;
+  status?: number; // 2 = terminada, 3 = fallida/cancelada, 4 = imprimiendo
+  designId?: number; // diseño de MakerWorld (estable entre envios)
+  plateIndex?: number; // numero de placa dentro del 3MF
+  plateName?: string;
+  repetitions?: number; // >1 = la placa se imprimio N veces
+  skipObjects?: unknown[] | null; // objetos salteados: la placa no salio completa
   startTime?: string; // ISO
   endTime?: string;
   weight?: number; // gramos totales
@@ -37,6 +43,15 @@ interface BambuTask {
  * El token se saca de la sesion de MakerWorld (cookie `token`) y se guarda
  * encriptado AES-256-GCM (mismo esquema que Google Calendar).
  */
+/** Identificador de la placa: diseño + numero de placa (title = perfil, no sirve). */
+export function plateKeyOf(task: BambuTask): string | undefined {
+  if (task.plateIndex === undefined || task.plateIndex === null)
+    return undefined;
+  return task.designId
+    ? `${task.designId}:${task.plateIndex}`
+    : `t:${task.title ?? ''}:${task.plateIndex}`;
+}
+
 @Injectable()
 export class BambuService {
   private readonly logger = new Logger(BambuService.name);
@@ -44,6 +59,7 @@ export class BambuService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stock: StockService,
+    private readonly parts: PartsService,
   ) {}
 
   // ── Conexion ──────────────────────────────────────────────
@@ -67,6 +83,7 @@ export class BambuService {
         // Desde aca en adelante: lo impreso ANTES de conectar no descuenta
         // stock (se puede importar como historial, sin aplicar).
         bambuLastSyncAt: new Date(),
+        bambuConnectedAt: new Date(),
       },
     });
     return { connected: true, region };
@@ -107,9 +124,17 @@ export class BambuService {
     }
     const token = this.decrypt(settings.bambuToken);
     const region = settings.bambuRegion ?? 'global';
-    const since = settings.bambuLastSyncAt
-      ? new Date(settings.bambuLastSyncAt)
-      : new Date(0);
+    // Descuentan stock las impresiones que arrancaron despues de conectar.
+    // Sin fecha de conexion (cuentas viejas): 48 h antes del ultimo sync, asi
+    // una impresion larga que arranco antes del sync y termino despues entra.
+    // (Antes se comparaba contra el ultimo sync y eso las dejaba afuera.)
+    const since = settings.bambuConnectedAt
+      ? new Date(settings.bambuConnectedAt)
+      : settings.bambuLastSyncAt
+        ? new Date(
+            new Date(settings.bambuLastSyncAt).getTime() - 48 * 3600 * 1000,
+          )
+        : new Date(0);
 
     const { hits } = await this.fetchTasks(token, region, 40);
     const existing = new Set(
@@ -123,6 +148,7 @@ export class BambuService {
 
     let created = 0;
     let skipped = 0;
+    let pending = 0;
     let unmatchedGrams = 0;
     const results: any[] = [];
 
@@ -132,6 +158,13 @@ export class BambuService {
         skipped++;
         continue;
       }
+      // Solo terminadas (2) o fallidas (3). En curso (4) u otro estado se
+      // espera al proximo sync: su endTime es falso y puede cancelarse.
+      if (task.status !== 2 && task.status !== 3) {
+        pending++;
+        continue;
+      }
+      const failed = task.status === 3;
       const startedAt = task.startTime ? new Date(task.startTime) : null;
       const isNew = !!startedAt && startedAt > since;
       if (!isNew && !opts?.importHistory) {
@@ -161,13 +194,33 @@ export class BambuService {
           ? Math.round((task.costTime / 3600) * 100) / 100
           : undefined,
         filamentsUsed: entries,
-        apply: isNew ? undefined : false,
+        apply: isNew && !failed ? undefined : false,
+        status: failed ? 'fallida' : undefined,
         source: 'bambu',
         externalId,
-        notes: task.deviceId ? `Impresora ${task.deviceId}` : undefined,
+        plateKey: plateKeyOf(task),
+        notes:
+          [
+            task.deviceId ? `Impresora ${task.deviceId}` : null,
+            task.plateName ? `placa ${task.plateName}` : null,
+            task.skipObjects?.length
+              ? 'placa incompleta (objetos salteados)'
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' · ') || undefined,
       });
       created++;
       unmatchedGrams += res.unmatchedGrams ?? 0;
+      // Placa conocida: suma sus piezas sola (sin romper el sync si falla).
+      if (res.job?.id && !failed) {
+        await this.parts
+          .applyTemplate(userId, res.job.id, {
+            multiplier: task.repetitions ?? 1,
+            partial: !!task.skipObjects?.length,
+          })
+          .catch((e) => this.logger.warn(`Plantilla de placa: ${e}`));
+      }
       results.push({
         title: task.title,
         grams: task.weight,
@@ -181,7 +234,7 @@ export class BambuService {
       data: { bambuLastSyncAt: new Date() },
     });
 
-    return { created, skipped, unmatchedGrams, results };
+    return { created, skipped, pending, unmatchedGrams, results };
   }
 
   /** Cron cada 30 min: sync de todos los usuarios con Bambu conectado. */

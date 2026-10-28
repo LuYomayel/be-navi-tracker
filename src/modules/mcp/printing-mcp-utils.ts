@@ -90,3 +90,54 @@ export function formatRoll(f: RollLike): string {
     ` (id ${f.id})`
   );
 }
+
+interface PartLike {
+  id: string;
+  key: string;
+  name: string;
+  productName: string;
+}
+
+const fold = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * Pieza por key o nombre ("punta", "ladrillo 3"), opcionalmente dentro de un
+ * producto. Exacto gana a parcial; si quedan varias, pide desambiguar.
+ */
+export function resolvePart<T extends PartLike>(
+  parts: T[],
+  query: string,
+  producto?: string,
+): { part?: T; error?: string } {
+  const q = fold(query);
+  let pool = parts;
+  if (producto) {
+    const pq = fold(producto);
+    pool = parts.filter((p) => fold(p.productName).includes(pq));
+  }
+  const exact = pool.filter((p) => fold(p.key) === q || fold(p.name) === q);
+  const matches = exact.length
+    ? exact
+    : pool.filter((p) => fold(p.key).includes(q) || fold(p.name).includes(q));
+  if (matches.length === 1) return { part: matches[0] };
+  if (!matches.length) {
+    return {
+      error:
+        `No encontré la pieza "${query}"${producto ? ` en ${producto}` : ''}. Piezas: ` +
+        pool.map((p) => `${p.name} (${p.productName})`).join(', '),
+    };
+  }
+  return {
+    error:
+      `"${query}" es ambiguo: ` +
+      matches.map((p) => `${p.name} de ${p.productName}`).join(' / ') +
+      '. Decime el producto.',
+  };
+}
