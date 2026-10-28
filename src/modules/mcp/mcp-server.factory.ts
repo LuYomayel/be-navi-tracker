@@ -4085,6 +4085,10 @@ export class McpServerFactory {
             )
             .optional()
             .describe('Para impresiones de varios colores: todos los consumos con sus gramos'),
+          recordarColor: z
+            .boolean()
+            .optional()
+            .describe('true = el hex que reportó Bambu queda guardado en los rollos de ese color, así la próxima impresión se descuenta sola bien. NO usar si solo se olvidó de cambiar el color del slot en Handy.'),
         },
       },
       async (a) => {
@@ -4094,7 +4098,9 @@ export class McpServerFactory {
         if (!a.consumos?.length && !a.color && !a.filamento_id) {
           return text('Decime el color real (o el rollo) de la impresión.');
         }
-        const res: any = await this.stock.reassignJob(userId, a.impresion_id, entries);
+        const res: any = await this.stock.reassignJob(userId, a.impresion_id, entries, {
+          learnHex: a.recordarColor === true,
+        });
         const filaments = (await this.printing.getFilaments(userId)) as any[];
         const byId = new Map(filaments.map((f) => [f.id, f]));
         const applied = (res.applied ?? [])
@@ -4105,6 +4111,14 @@ export class McpServerFactory {
           .join(' + ');
         return text(
           `Impresión corregida. Se devolvió lo descontado antes y ahora se descontó: ${applied || 'nada'}.` +
+            ((res.learned ?? []) as any[])
+              .map(
+                (l) =>
+                  ` 🎯 Recordado: ${l.hex} = ${l.color} (${l.rolls} rollo${l.rolls > 1 ? 's' : ''})` +
+                  (l.removedFrom.length ? `, se lo saqué a ${l.removedFrom.join(', ')}` : '') +
+                  '.',
+              )
+              .join('') +
             (res.unmatchedGrams > 0
               ? ` ⚠️ ${Math.round(res.unmatchedGrams)}g sin rollo de ese color con stock.`
               : ''),

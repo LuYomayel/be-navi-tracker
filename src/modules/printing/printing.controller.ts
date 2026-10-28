@@ -505,7 +505,7 @@ export class PrintingController {
   @Put('jobs/:id/consumos')
   async reassignJob(
     @Param('id') id: string,
-    @Body() body: { filamentsUsed: ReassignEntryDto[] },
+    @Body() body: { filamentsUsed: ReassignEntryDto[]; learnHex?: boolean },
     @Req() req: any,
   ) {
     return {
@@ -514,6 +514,7 @@ export class PrintingController {
         req.user.userId,
         id,
         body.filamentsUsed,
+        { learnHex: body.learnHex === true },
       ),
     };
   }

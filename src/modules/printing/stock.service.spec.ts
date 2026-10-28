@@ -92,14 +92,13 @@ describe('StockService', () => {
             filament: {
               findMany: jest.fn().mockResolvedValue(filaments),
               findFirst: jest.fn(),
-              update: jest
-                .fn()
-                .mockImplementation(({ where, data }) =>
-                  Promise.resolve({
-                    ...filaments.find((f) => f.id === where.id),
-                    ...data,
-                  }),
-                ),
+              update: jest.fn().mockImplementation(({ where, data }) =>
+                Promise.resolve({
+                  ...filaments.find((f) => f.id === where.id),
+                  ...data,
+                }),
+              ),
+              updateMany: jest.fn().mockResolvedValue({ count: 1 }),
             },
             printProduct: {
               findMany: jest
@@ -118,15 +117,13 @@ describe('StockService', () => {
             printJob: {
               findMany: jest.fn().mockResolvedValue([]),
               findFirst: jest.fn(),
-              create: jest
-                .fn()
-                .mockImplementation(({ data }) =>
-                  Promise.resolve({
-                    id: 'job-1',
-                    stockApplied: false,
-                    ...data,
-                  }),
-                ),
+              create: jest.fn().mockImplementation(({ data }) =>
+                Promise.resolve({
+                  id: 'job-1',
+                  stockApplied: false,
+                  ...data,
+                }),
+              ),
               update: jest
                 .fn()
                 .mockImplementation(({ data }) =>
@@ -385,6 +382,63 @@ describe('StockService', () => {
         { filamentId: 'f3' },
       ]);
       expect(res.applied).toEqual([{ filamentId: 'f3', grams: 50 }]);
+    });
+
+    it('recordar color: el hex reportado pasa a los rollos vivos de ese color y sale de los de otro color', async () => {
+      // Bambu reporto 000000 (el slot decia negro) y era rojo, y se marca "recordar".
+      const job = {
+        ...appliedGreen,
+        filamentsUsed: [{ colorHex: '000000FF', grams: 50 }],
+      };
+      prisma.printJob.findFirst
+        .mockResolvedValueOnce(job)
+        .mockResolvedValueOnce({
+          ...job,
+          stockApplied: false,
+          appliedPlan: [],
+        });
+      prisma.filament.findFirst.mockResolvedValue({
+        ...filaments[1],
+        gramsLeft: 950,
+      });
+
+      const res = await service.reassignJob(
+        userId,
+        'job-1',
+        [{ color: 'rojo' }],
+        {
+          learnHex: true,
+        },
+      );
+
+      // f1 (Negro #000000) lo pierde; f3 (Rojo) lo gana
+      expect(prisma.filament.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['f1'] }, userId },
+        data: { colorHex: null },
+      });
+      expect(prisma.filament.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['f3'] }, userId },
+        data: { colorHex: '#000000' },
+      });
+      expect(res.learned).toEqual([
+        { color: 'rojo', hex: '#000000', rolls: 1, removedFrom: ['negro'] },
+      ]);
+    });
+
+    it('sin recordar color no toca el hex de ningun rollo', async () => {
+      prisma.printJob.findFirst
+        .mockResolvedValueOnce(appliedGreen)
+        .mockResolvedValueOnce({
+          ...appliedGreen,
+          stockApplied: false,
+          appliedPlan: [],
+        });
+      prisma.filament.findFirst.mockResolvedValue({
+        ...filaments[1],
+        gramsLeft: 950,
+      });
+      await service.reassignJob(userId, 'job-1', [{ color: 'rojo' }]);
+      expect(prisma.filament.updateMany).not.toHaveBeenCalled();
     });
 
     it('con varios consumos hay que pasar los gramos de cada uno', async () => {

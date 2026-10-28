@@ -303,6 +303,7 @@ export class StockService {
     userId: string,
     jobId: string,
     entries: ReassignEntryDto[],
+    opts?: { learnHex?: boolean },
   ) {
     const job = await this.prisma.printJob.findFirst({
       where: { id: jobId, userId },
@@ -346,10 +347,60 @@ export class StockService {
       where: { id: job.id },
       data: { filamentsUsed: next, stockApplied: false, appliedPlan: [] },
     });
+    const learned = opts?.learnHex ? await this.learnHexes(userId, next) : [];
     if (job.status !== 'ok') {
-      return { job, applied: [], unmatchedGrams: 0 };
+      return { job, applied: [], unmatchedGrams: 0, learned };
     }
-    return this.applyJob(userId, job.id);
+    return { ...(await this.applyJob(userId, job.id)), learned };
+  }
+
+  /**
+   * "Recordar este color": el hex que reporto Bambu queda en todos los rollos
+   * vivos del color corregido, y se le saca a los rollos vivos de OTRO color
+   * que lo tenian (un hex apunta a un solo color, sino matchea dos). Asi la
+   * proxima impresion de ese rollo se descuenta sola del color correcto.
+   * Se compara en JS: en la base conviven "#ff7900", "#FF671F", "00BB31FF".
+   */
+  private async learnHexes(userId: string, entries: any[]) {
+    const active = (await this.activeFilaments(userId)).filter(
+      (f) => !f.discarded && !f.finishedAt,
+    );
+    const learned: {
+      color: string;
+      hex: string;
+      rolls: number;
+      removedFrom: string[];
+    }[] = [];
+    for (const e of entries) {
+      const h6 = normHex(e.reportedHex);
+      const color = e.filamentId
+        ? normColor(active.find((f) => f.id === e.filamentId)?.color)
+        : normColor(e.color);
+      if (!h6 || !color) continue;
+      const others = active.filter(
+        (f) => normHex(f.colorHex) === h6 && normColor(f.color) !== color,
+      );
+      if (others.length) {
+        await this.prisma.filament.updateMany({
+          where: { id: { in: others.map((f) => f.id) }, userId },
+          data: { colorHex: null },
+        });
+      }
+      const mine = active.filter((f) => normColor(f.color) === color);
+      if (!mine.length) continue;
+      const hex = `#${h6.toUpperCase()}`;
+      await this.prisma.filament.updateMany({
+        where: { id: { in: mine.map((f) => f.id) }, userId },
+        data: { colorHex: hex },
+      });
+      learned.push({
+        color,
+        hex,
+        rolls: mine.length,
+        removedFrom: [...new Set(others.map((f) => normColor(f.color)))],
+      });
+    }
+    return learned;
   }
 
   /** Linkea la impresion a un producto del catalogo (para aprender consumos). */
