@@ -143,7 +143,10 @@ describe('matcheo por nombre derivado del hex (rollos SIN hex cargado)', () => {
   });
 
   it('checkStock tambien matchea por nombre derivado', () => {
-    const res = checkStock([{ colorHex: '999D9D', grams: 200 }], rolls as any[]);
+    const res = checkStock(
+      [{ colorHex: '999D9D', grams: 200 }],
+      rolls as any[],
+    );
     expect(res.ok).toBe(true);
     expect(res.perColor[0].matched).toBe(true);
     expect(res.perColor[0].available).toBe(1350);
@@ -198,7 +201,10 @@ describe('aggregateNeeds', () => {
 
 describe('checkStock', () => {
   it('alcanza cuando hay stock del color', () => {
-    const res = checkStock([{ color: 'Negro', grams: 500 }], filaments as any[]);
+    const res = checkStock(
+      [{ color: 'Negro', grams: 500 }],
+      filaments as any[],
+    );
     expect(res.ok).toBe(true);
     expect(res.perColor[0]).toMatchObject({
       needed: 500,
@@ -209,7 +215,10 @@ describe('checkStock', () => {
   });
 
   it('reporta faltante cuando no alcanza', () => {
-    const res = checkStock([{ color: 'negro', grams: 1200 }], filaments as any[]);
+    const res = checkStock(
+      [{ color: 'negro', grams: 1200 }],
+      filaments as any[],
+    );
     expect(res.ok).toBe(false);
     expect(res.perColor[0].missing).toBe(120);
   });
@@ -224,9 +233,16 @@ describe('checkStock', () => {
   });
 
   it('color inexistente: missing = todo lo pedido y matched false', () => {
-    const res = checkStock([{ color: 'Violeta', grams: 100 }], filaments as any[]);
+    const res = checkStock(
+      [{ color: 'Violeta', grams: 100 }],
+      filaments as any[],
+    );
     expect(res.ok).toBe(false);
-    expect(res.perColor[0]).toMatchObject({ available: 0, missing: 100, matched: false });
+    expect(res.perColor[0]).toMatchObject({
+      available: 0,
+      missing: 100,
+      matched: false,
+    });
   });
 
   it('avisa cuantos rollos activos no trackean stock', () => {
@@ -246,6 +262,61 @@ describe('planDeduction', () => {
       { filamentId: 'f2', grams: 120 },
     ]);
     expect(unmatchedGrams).toBe(0);
+  });
+
+  it('con dos rollos de la misma fecha, usa primero el abierto (el cerrado queda entero)', () => {
+    const rolls = [
+      {
+        id: 'cerrado',
+        color: 'naranja',
+        gramsLeft: 1000,
+        grams: 1000,
+        purchasedAt: '2026-08-28',
+        discarded: false,
+      },
+      {
+        id: 'abierto',
+        color: 'naranja',
+        gramsLeft: 169,
+        grams: 1000,
+        purchasedAt: '2026-08-28',
+        discarded: false,
+      },
+    ];
+    const { plan } = planDeduction(
+      { color: 'naranja', grams: 64 },
+      rolls as any[],
+    );
+    expect(plan).toEqual([{ filamentId: 'abierto', grams: 64 }]);
+  });
+
+  it('un rollo abierto se usa antes que uno cerrado mas viejo', () => {
+    const rolls = [
+      {
+        id: 'cerrado-viejo',
+        color: 'gris',
+        gramsLeft: 1000,
+        grams: 1000,
+        purchasedAt: '2026-08-01',
+        discarded: false,
+      },
+      {
+        id: 'abierto',
+        color: 'gris',
+        gramsLeft: 87,
+        grams: 1000,
+        purchasedAt: '2026-08-28',
+        discarded: false,
+      },
+    ];
+    const { plan } = planDeduction(
+      { color: 'gris', grams: 100 },
+      rolls as any[],
+    );
+    expect(plan).toEqual([
+      { filamentId: 'abierto', grams: 87 },
+      { filamentId: 'cerrado-viejo', grams: 13 },
+    ]);
   });
 
   it('si piden mas de lo que hay, queda unmatched', () => {

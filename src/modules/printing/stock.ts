@@ -16,6 +16,7 @@ export interface FilamentLike {
   color: string;
   colorHex?: string | null;
   gramsLeft?: number | null;
+  grams?: number; // tamaño del rollo: si gramsLeft < grams, esta abierto
   purchasedAt: string;
   discarded: boolean;
   finishedAt?: string | null;
@@ -34,7 +35,13 @@ export interface ColorStock {
   color: string;
   colorHex: string | null;
   totalGrams: number;
-  rolls: { id: string; brand?: string; material?: string; gramsLeft: number; purchasedAt: string }[];
+  rolls: {
+    id: string;
+    brand?: string;
+    material?: string;
+    gramsLeft: number;
+    purchasedAt: string;
+  }[];
 }
 
 export function normColor(c?: string | null): string {
@@ -104,7 +111,10 @@ function isActiveTracked(f: FilamentLike): boolean {
 /** Rollo activo pero sin stock trackeado (gramsLeft null): se avisa aparte. */
 export function countUntracked(filaments: FilamentLike[]): number {
   return filaments.filter(
-    (f) => !f.discarded && !f.finishedAt && (f.gramsLeft === null || f.gramsLeft === undefined),
+    (f) =>
+      !f.discarded &&
+      !f.finishedAt &&
+      (f.gramsLeft === null || f.gramsLeft === undefined),
   ).length;
 }
 
@@ -139,18 +149,35 @@ export function aggregateNeeds(items: NeedItem[]): NeedItem[] {
     const key = hex ? `hex:${hex}` : `name:${normColor(item.color)}`;
     const prev = map.get(key);
     if (prev) prev.grams += item.grams;
-    else map.set(key, { color: normColor(item.color) || undefined, colorHex: hex, grams: item.grams });
+    else
+      map.set(key, {
+        color: normColor(item.color) || undefined,
+        colorHex: hex,
+        grams: item.grams,
+      });
   }
   return [...map.values()];
 }
 
+/** Rollo empezado: le falta filamento respecto de su tamaño. */
+function isOpen(f: FilamentLike): boolean {
+  return (
+    f.grams !== undefined && f.grams !== null && (f.gramsLeft ?? 0) < f.grams
+  );
+}
+
 /**
- * Rollos activos que matchean el color pedido, FIFO (mas viejo primero).
+ * Rollos activos que matchean el color pedido: primero los abiertos (en la
+ * impresora se termina el rollo empezado antes de abrir uno cerrado) y
+ * despues FIFO (mas viejo primero).
  * Dos pasos: primero por hex/nombre directo, y despues se suman los rollos
  * SIN hex que comparten nombre con uno ya matcheado por hex (caso tipico:
  * Bambu reporta #000000 y hay un rollo "negro" viejo sin hex cargado).
  */
-function matchingRolls(need: NeedItem, filaments: FilamentLike[]): FilamentLike[] {
+function matchingRolls(
+  need: NeedItem,
+  filaments: FilamentLike[],
+): FilamentLike[] {
   const hex = normHex(need.colorHex);
   const name = normColor(need.color);
   const active = filaments.filter(isActiveTracked);
@@ -164,7 +191,9 @@ function matchingRolls(need: NeedItem, filaments: FilamentLike[]): FilamentLike[
 
   const names = new Set(direct.map((f) => normColor(f.color)));
   const byName = hex
-    ? active.filter((f) => !normHex(f.colorHex) && names.has(normColor(f.color)))
+    ? active.filter(
+        (f) => !normHex(f.colorHex) && names.has(normColor(f.color)),
+      )
     : [];
 
   // Ultimo recurso para consumos de Bambu (solo hex) contra rollos cargados
@@ -174,12 +203,16 @@ function matchingRolls(need: NeedItem, filaments: FilamentLike[]): FilamentLike[
   if (hex && !direct.length && !name) {
     const derivedName = hexToColorName(hex);
     if (derivedName) {
-      derived = active.filter((f) => normColor(f.color).startsWith(derivedName));
+      derived = active.filter((f) =>
+        normColor(f.color).startsWith(derivedName),
+      );
     }
   }
 
-  return [...new Set([...direct, ...byName, ...derived])].sort((a, b) =>
-    a.purchasedAt.localeCompare(b.purchasedAt),
+  return [...new Set([...direct, ...byName, ...derived])].sort(
+    (a, b) =>
+      Number(isOpen(b)) - Number(isOpen(a)) ||
+      a.purchasedAt.localeCompare(b.purchasedAt),
   );
 }
 
@@ -236,7 +269,10 @@ export function planDeduction(
   if (need.filamentId) {
     const roll = filaments.find((f) => f.id === need.filamentId);
     if (roll && isActiveTracked(roll)) {
-      return { plan: [{ filamentId: roll.id, grams: need.grams }], unmatchedGrams: 0 };
+      return {
+        plan: [{ filamentId: roll.id, grams: need.grams }],
+        unmatchedGrams: 0,
+      };
     }
     return { plan: [], unmatchedGrams: need.grams };
   }
