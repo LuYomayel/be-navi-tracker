@@ -187,6 +187,7 @@ export interface CycleItem {
   tipo: 'consumo' | 'cuota' | 'fijo' | 'estimado';
   originalAmount?: number | null;
   originalCurrency?: string | null;
+  exchangeRate?: number | null;
 }
 
 export interface CardStatementDto {
@@ -1017,6 +1018,7 @@ export class ExpensesService {
     recurring: any[],
     conf: CardRow | undefined,
     now: Date,
+    withEstimate = true, // false si el pago del ciclo ya está cargado
   ): CycleItem[] {
     const recs = recurring.filter(
       (r) => r.tarjeta && r.active !== false && sameCard(r.card, key),
@@ -1044,6 +1046,7 @@ export class ExpensesService {
               : 'fijo',
           originalAmount: e.originalAmount,
           originalCurrency: e.originalCurrency,
+          exchangeRate: e.exchangeRate,
         };
       });
     const periods = [...new Set([cyc.start.slice(0, 7), cyc.closing.slice(0, 7)])];
@@ -1066,10 +1069,11 @@ export class ExpensesService {
           tipo: r.totalInstallments ? 'cuota' : 'fijo',
           originalAmount: r.originalAmount,
           originalCurrency: r.originalCurrency,
+          exchangeRate: r.exchangeRate,
         });
       }
     }
-    if (conf?.variableEstimate) {
+    if (conf?.variableEstimate && withEstimate) {
       const variable = items
         .filter((i) => i.tipo === 'consumo')
         .reduce((a, i) => a + i.amount, 0);
@@ -1393,6 +1397,7 @@ export class ExpensesService {
         amount: r.amount,
         originalAmount: r.originalAmount,
         originalCurrency: r.originalCurrency,
+        exchangeRate: r.exchangeRate,
         dayOfMonth: r.dayOfMonth,
         active: r.active,
         totalInstallments: r.totalInstallments,
@@ -1417,7 +1422,7 @@ export class ExpensesService {
     const paidThisCycle = statements.some((e) => e.date.startsWith(aPagarCycle.due.slice(0, 7)));
     const aPagar = this.cycleSummary(
       aPagarCycle,
-      this.cycleItems(card, aPagarCycle, pending, recs, conf, now),
+      this.cycleItems(card, aPagarCycle, pending, recs, conf, now, !paidThisCycle),
     );
     const cicloAbierto = this.cycleSummary(
       abiertoCycle,
@@ -1465,6 +1470,7 @@ export class ExpensesService {
         description: e.description,
         originalAmount: e.originalAmount,
         originalCurrency: e.originalCurrency,
+        exchangeRate: e.exchangeRate,
       })),
     };
   }

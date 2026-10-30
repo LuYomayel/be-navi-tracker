@@ -1869,7 +1869,7 @@ export class McpServerFactory {
       `$${Math.round(n).toLocaleString('es-AR')}`;
     const usdLabel = (e: any) =>
       e.originalCurrency === 'USD'
-        ? ` (USD ${e.originalAmount} a ${ars(e.exchangeRate)})`
+        ? ` (USD ${e.originalAmount}${e.exchangeRate ? ` a ${ars(e.exchangeRate)}` : ''})`
         : '';
     const monedaSchema = {
       moneda: z

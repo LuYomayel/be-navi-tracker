@@ -1762,4 +1762,38 @@ describe('ExpensesService', () => {
       }
     });
   });
+
+  describe('getCardDetail: resumen ya cargado y cotización', () => {
+    it('should not add the variable estimate to a cycle whose payment is loaded, and keep the USD rate on items', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 9, 30, 12)); // 30/10
+      try {
+        (prisma.creditCard.findMany as jest.Mock).mockResolvedValue([
+          { id: 'cc-v', name: 'Visa 4112', isOwn: true, label: null, kind: 'propia', payee: 'ICBC', closingDay: 29, dueDay: 11, variableEstimate: 75000 },
+        ]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+          { ...mockRecurring, id: 'r-g1', description: 'Google One', amount: 31184, originalAmount: 19.99, originalCurrency: 'USD', exchangeRate: 1560, dayOfMonth: 21, tarjeta: true, card: null, startPeriod: '2026-11', lastPostedPeriod: null },
+        ]);
+        (prisma.expense.findMany as jest.Mock).mockImplementation(({ where }) => {
+          if (where.source === 'resumen-tarjeta')
+            return Promise.resolve([
+              { id: 'st', date: '2026-11-11', amount: 68578, originalAmount: 43.96, originalCurrency: 'USD', exchangeRate: 1560, description: 'Resumen', card: null },
+            ]);
+          return Promise.resolve([]);
+        });
+
+        const d = await service.getCardDetail(userId, null);
+
+        expect(d.aPagar.yaCargado).toBe(true);
+        expect(d.aPagar.items).toEqual([]);
+        // el ciclo abierto sí lleva el estimado
+        expect(d.cicloAbierto.items.some((i) => i.tipo === 'estimado')).toBe(true);
+        const g = d.cicloAbierto.items.find((i) => i.description === 'Google One')!;
+        expect(g.exchangeRate).toBe(1560);
+        expect(d.items[0].exchangeRate).toBe(1560);
+        expect(d.resumenesPagados[0].exchangeRate).toBe(1560);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
 });
