@@ -1867,15 +1867,54 @@ export class McpServerFactory {
   ) {
     const ars = (n: number) =>
       `$${Math.round(n).toLocaleString('es-AR')}`;
+    const usdLabel = (e: any) =>
+      e.originalCurrency === 'USD'
+        ? ` (USD ${e.originalAmount} a ${ars(e.exchangeRate)})`
+        : '';
+    const monedaSchema = {
+      moneda: z
+        .enum(['ARS', 'USD'])
+        .optional()
+        .describe('Moneda del monto. USD → el monto va en dólares y hace falta cotizacion. Default ARS.'),
+      cotizacion: z
+        .number()
+        .optional()
+        .describe('Pesos por dólar (ej MEP 1560). Obligatoria si moneda=USD; queda guardada.'),
+    };
+    // monto + moneda → campos del DTO (ARS: amount; USD: amountUsd + rate)
+    const montoDto = (monto: number | undefined, moneda?: string, cotizacion?: number) =>
+      moneda === 'USD'
+        ? { amountUsd: monto, exchangeRate: cotizacion }
+        : cotizacion !== undefined && monto === undefined
+          ? { exchangeRate: cotizacion }
+          : { amount: monto };
+    // tarjeta del MCP (true / nombre) → card del service (null = la propia)
+    const cardOf = (t: boolean | string | undefined) =>
+      typeof t === 'string' &&
+      !['visa', 'mia', 'mía', 'propia', 'true'].includes(t.trim().toLowerCase())
+        ? t.trim()
+        : null;
+    const findCategoryId = async (nombre?: string) => {
+      if (!nombre) return undefined;
+      const cats = await this.expenses.getCategories(userId);
+      const q = nombre.toLowerCase();
+      const cat =
+        cats.find((c) => c.name.toLowerCase() === q) ||
+        cats.find((c) => c.name.toLowerCase().includes(q));
+      return cat?.id;
+    };
 
     add(
       'registrar_gasto',
       {
         title: 'Registrar un gasto',
         description:
-          'Registra un gasto en pesos (ARS): monto, descripción y opcionalmente categoría (por nombre) y fecha. Usá resumen_gastos para ver el estado del mes.',
+          'Registra un gasto: monto, descripción y opcionalmente categoría (por nombre) y fecha. En pesos por defecto; con moneda=USD + cotizacion guarda los dólares y la cotización y lo suma en pesos. Usá resumen_gastos para ver el estado del mes.',
         inputSchema: {
-          monto: z.number().describe('Monto en pesos argentinos'),
+          monto: z
+            .number()
+            .describe('Monto en pesos argentinos (o en dólares si moneda=USD)'),
+          ...monedaSchema,
           descripcion: z
             .string()
             .describe('Qué fue el gasto (ej: "Supermercado Coto")'),
@@ -1926,7 +1965,7 @@ export class McpServerFactory {
         const card = typeof a.tarjeta === 'string' ? a.tarjeta.trim() : null;
         const exp = await this.expenses.createExpense(userId, {
           date: fecha,
-          amount: a.monto,
+          ...montoDto(a.monto, a.moneda, a.cotizacion),
           description: a.descripcion,
           categoryId,
           goalId,
@@ -1935,11 +1974,11 @@ export class McpServerFactory {
         });
         if (a.tarjeta) {
           return text(
-            `💳 Anotado en el próximo resumen (${card || 'Visa'}): ${ars(exp.amount)} — ${exp.description}${catLabel}. No cuenta como gasto del mes hasta que llegue el resumen. id ${exp.id}.`,
+            `💳 Anotado en el próximo resumen (${card || 'Visa'}): ${ars(exp.amount)}${usdLabel(exp)} — ${exp.description}${catLabel}. No cuenta como gasto del mes hasta que llegue el resumen. id ${exp.id}.`,
           );
         }
         return text(
-          `Gasto registrado (${fecha}): ${ars(exp.amount)} — ${exp.description}${catLabel}${goalId ? ' 🖨️ inversión del negocio 3D' : ''}. id ${exp.id}.`,
+          `Gasto registrado (${fecha}): ${ars(exp.amount)}${usdLabel(exp)} — ${exp.description}${catLabel}${goalId ? ' 🖨️ inversión del negocio 3D' : ''}. id ${exp.id}.`,
         );
       },
     );
@@ -2028,7 +2067,7 @@ export class McpServerFactory {
         const total = list.reduce((acc, e) => acc + e.amount, 0);
         const lines = list.map(
           (e) =>
-            `• ${e.date} ${ars(e.amount)} — ${e.description}${e.category ? ` [${e.category.name}]` : ''}${e.source === 'recurring' ? ' (recurrente)' : ''}`,
+            `• ${e.date} ${ars(e.amount)}${usdLabel(e)} — ${e.description}${e.category ? ` [${e.category.name}]` : ''}${e.source === 'recurring' ? ' (recurrente)' : ''}${e.source === 'resumen-tarjeta' ? ` 💳 pago de resumen ${e.card || 'Visa'}` : ''} (id ${e.id})`,
         );
         return text(
           `Gastos de ${mes} (${list.length}, total ${ars(total)}):\n${lines.join('\n')}`,
@@ -2092,7 +2131,12 @@ export class McpServerFactory {
           'Crea un pago recurrente o suscripción mensual (ej: Netflix, alquiler) o un plan de CUOTAS con fin (ej: "12 cuotas de la heladera"). Se registra solo como gasto cada mes. Con cuotas + primer_mes (puede ser un mes pasado, ej arrancaste a pagar en marzo) el sistema deriva cuántas van pagadas, avisa cuándo termina y se desactiva solo en la última.',
         inputSchema: {
           descripcion: z.string().describe('Qué es (ej: "Netflix", "Cuota heladera")'),
-          monto: z.number().describe('Monto mensual en ARS'),
+          monto: z.number().describe('Monto mensual en ARS (o en dólares si moneda=USD)'),
+          ...monedaSchema,
+          inversion_3d: z
+            .boolean()
+            .optional()
+            .describe('true si es inversión del negocio 3D (ej: impresora en cuotas): cada cuota cuenta como inversión'),
           dia_del_mes: z
             .number()
             .describe('Día del mes en que se cobra (1-28)'),
@@ -2124,18 +2168,14 @@ export class McpServerFactory {
         },
       },
       async (a) => {
-        let categoryId: string | undefined;
-        if (a.categoria) {
-          const cats = await this.expenses.getCategories(userId);
-          const q = a.categoria.toLowerCase();
-          const cat =
-            cats.find((c) => c.name.toLowerCase() === q) ||
-            cats.find((c) => c.name.toLowerCase().includes(q));
-          if (cat) categoryId = cat.id;
-        }
+        const categoryId = await findCategoryId(a.categoria);
+        const goalId = a.inversion_3d
+          ? (await this.goal.getActive(userId))?.id
+          : undefined;
         const rec = await this.expenses.createRecurring(userId, {
           description: a.descripcion,
-          amount: a.monto,
+          ...montoDto(a.monto, a.moneda, a.cotizacion),
+          goalId,
           dayOfMonth: a.dia_del_mes,
           kind: a.tipo,
           categoryId,
@@ -2143,7 +2183,7 @@ export class McpServerFactory {
           installmentsPaid: a.cuotas_pagadas,
           startPeriod: a.primer_mes,
           tarjeta: !!a.tarjeta,
-          card: typeof a.tarjeta === 'string' ? a.tarjeta.trim() : null,
+          card: cardOf(a.tarjeta),
         });
         const label =
           rec.kind === 'subscription' ? 'Suscripción' : 'Pago recurrente';
@@ -2152,12 +2192,12 @@ export class McpServerFactory {
           : '';
         if (!rec.totalInstallments) {
           return text(
-            `${label} creado: "${rec.description}" ${ars(rec.amount)}/mes el día ${rec.dayOfMonth}.${tarjetaLabel} id ${rec.id}.`,
+            `${label} creado: "${rec.description}" ${ars(rec.amount)}${usdLabel(rec)}/mes el día ${rec.dayOfMonth}.${tarjetaLabel} id ${rec.id}.`,
           );
         }
         const end = recurringEndPeriod(rec as any);
         return text(
-          `${label} en cuotas creado: "${rec.description}" ${ars(rec.amount)}/mes el día ${rec.dayOfMonth} — van ${rec.installmentsPaid}/${rec.totalInstallments} pagadas.` +
+          `${label} en cuotas creado: "${rec.description}" ${ars(rec.amount)}${usdLabel(rec)}/mes el día ${rec.dayOfMonth} — van ${rec.installmentsPaid}/${rec.totalInstallments} pagadas.` +
             (rec.active && end
               ? ` Última cuota: ${end} (ahí se liberan ${ars(rec.amount)}/mes).`
               : ' ✅ Ya está terminado.') +
@@ -2191,7 +2231,7 @@ export class McpServerFactory {
             : '';
           const tarjetaInfo = r.tarjeta ? ` · 💳 ${r.card || 'Visa'}` : '';
           lines.push(
-            `• ${r.active ? '' : '(inactivo) '}${r.description}: ${ars(r.amount)}/mes el día ${r.dayOfMonth}${r.kind === 'subscription' ? ' [sub]' : ''}${cuotaInfo}${tarjetaInfo}`,
+            `• ${r.active ? '' : '(inactivo) '}${r.description}: ${ars(r.amount)}${usdLabel(r)}/mes el día ${r.dayOfMonth}${r.kind === 'subscription' ? ' [sub]' : ''}${cuotaInfo}${tarjetaInfo}${r.goalId ? ' 🖨️' : ''} (id ${r.id})`,
           );
         }
         const liberations = active
@@ -2214,7 +2254,12 @@ export class McpServerFactory {
       query: string,
       mes: string,
     ): Promise<{ gasto?: any; error?: string }> => {
-      const list = (await this.expenses.getExpenses(userId, mes)) as any[];
+      // Gastos del mes + consumos de tarjeta sin pagar (de cualquier fecha)
+      const [delMes, buffer] = await Promise.all([
+        this.expenses.getExpenses(userId, mes) as Promise<any[]>,
+        this.expenses.getCardPending(userId) as Promise<any[]>,
+      ]);
+      const list = [...delMes, ...buffer];
       const byId = list.find((e) => e.id === query);
       if (byId) return { gasto: byId };
       const q = query.toLowerCase();
@@ -2231,7 +2276,10 @@ export class McpServerFactory {
         error:
           `Hay ${matches.length} gastos que matchean "${query}" en ${mes}:\n` +
           matches
-            .map((e) => `• ${e.date} ${ars(e.amount)} — ${e.description} (id ${e.id})`)
+            .map(
+              (e) =>
+                `• ${e.date} ${ars(e.amount)} — ${e.description}${e.source === 'tarjeta-pendiente' ? ` 💳 ${e.card || 'Visa'}` : ''} (id ${e.id})`,
+            )
             .join('\n') +
           '\nRepetí indicando el id.',
       };
@@ -2298,7 +2346,11 @@ export class McpServerFactory {
             .string()
             .optional()
             .describe('Mes YYYY-MM donde buscarlo. Por defecto el actual.'),
-          monto: z.number().optional().describe('Nuevo monto en ARS'),
+          monto: z
+            .number()
+            .optional()
+            .describe('Nuevo monto en ARS (o en dólares si moneda=USD)'),
+          ...monedaSchema,
           descripcion: z.string().optional().describe('Nueva descripción'),
           fecha: z.string().optional().describe('Nueva fecha YYYY-MM-DD'),
           categoria: z
@@ -2312,7 +2364,9 @@ export class McpServerFactory {
         const { gasto, error } = await resolveExpense(a.gasto, mes);
         if (error) return text(error);
         const update: any = {};
-        if (a.monto !== undefined) update.amount = a.monto;
+        if (a.monto !== undefined || a.cotizacion !== undefined) {
+          Object.assign(update, montoDto(a.monto, a.moneda, a.cotizacion));
+        }
         if (a.descripcion) update.description = a.descripcion;
         if (a.fecha) update.date = a.fecha;
         if (a.categoria !== undefined) {
@@ -2334,12 +2388,12 @@ export class McpServerFactory {
         }
         if (!Object.keys(update).length) {
           return text(
-            `No indicaste ningún cambio para "${gasto.description}". Podés cambiar monto, descripción, fecha o categoría.`,
+            `No indicaste ningún cambio para "${gasto.description}". Podés cambiar monto (y moneda/cotización), descripción, fecha o categoría.`,
           );
         }
         const upd = await this.expenses.updateExpense(userId, gasto.id, update);
         return text(
-          `Gasto actualizado: ${upd.date} ${ars(upd.amount)} — ${upd.description}${(upd as any).category ? ` [${(upd as any).category.name}]` : ''}.`,
+          `Gasto actualizado: ${upd.date} ${ars(upd.amount)}${usdLabel(upd)} — ${upd.description}${(upd as any).category ? ` [${(upd as any).category.name}]` : ''}.`,
         );
       },
     );
@@ -2349,7 +2403,7 @@ export class McpServerFactory {
       {
         title: 'Borrar un gasto',
         description:
-          'Borra un gasto identificado por su descripción (o su id). Si hay varios parecidos, lista los candidatos para que elijas.',
+          'Borra un gasto identificado por su descripción (o su id). También encuentra consumos de tarjeta todavía sin pagar (buffer del próximo resumen), de cualquier fecha. Si hay varios parecidos, lista los candidatos para que elijas.',
         inputSchema: {
           gasto: z
             .string()
@@ -2673,12 +2727,223 @@ export class McpServerFactory {
       },
     );
 
+    // Resuelve un recurrente (activo o no) por id o descripción parcial.
+    const resolveRecurring = async (
+      query: string,
+    ): Promise<{ rec?: any; error?: string }> => {
+      const list = (await this.expenses.getRecurring(userId)) as any[];
+      const byId = list.find((r) => r.id === query);
+      if (byId) return { rec: byId };
+      const q = query.toLowerCase();
+      const matches = list.filter((r) => r.description.toLowerCase().includes(q));
+      if (matches.length === 1) return { rec: matches[0] };
+      if (!matches.length) {
+        return { error: `No encontré un recurrente "${query}". Usá list_recurrentes.` };
+      }
+      return {
+        error:
+          `Hay ${matches.length} recurrentes que matchean "${query}":\n` +
+          matches
+            .map((r) => `• ${r.active ? '' : '(inactivo) '}${r.description} ${ars(r.amount)} (id ${r.id})`)
+            .join('\n') +
+          '\nRepetí indicando el id.',
+      };
+    };
+
+    add(
+      'editar_recurrente',
+      {
+        title: 'Editar / pausar / terminar un recurrente o plan en cuotas',
+        description:
+          'Corrige un pago recurrente, suscripción o plan en cuotas (por descripción o id): monto (ARS o USD), día, cuotas totales/pagadas, primer mes, tarjeta, categoría, inversión 3D. activo=false lo pausa; terminado=true lo da por pagado (ej: cuotas pagadas por adelantado) y no se cobra más. Con primer_mes la cuota de cada mes sale del calendario: si cuotas_pagadas ya cubre la de este mes, no se vuelve a cobrar.',
+        inputSchema: {
+          recurrente: z.string().describe('Descripción (o parte) o id del recurrente'),
+          descripcion: z.string().optional().describe('Nueva descripción'),
+          monto: z.number().optional().describe('Nuevo monto mensual (ARS, o USD si moneda=USD)'),
+          ...monedaSchema,
+          dia_del_mes: z.number().optional().describe('Nuevo día de cobro (1-28)'),
+          cuotas: z.number().optional().describe('Cantidad total de cuotas (0 = sin fin)'),
+          cuotas_pagadas: z.number().optional().describe('Cuotas ya pagadas'),
+          primer_mes: z.string().optional().describe('Mes de la 1ª cuota YYYY-MM'),
+          activo: z.boolean().optional().describe('false = pausarlo, true = reactivarlo'),
+          terminado: z
+            .boolean()
+            .optional()
+            .describe('true = ya está pago entero / terminado: marca todas las cuotas pagas y lo apaga'),
+          tarjeta: z
+            .union([z.boolean(), z.string()])
+            .optional()
+            .describe('true = Visa propia, nombre = otra tarjeta (ej "Leandro"), false = no va con tarjeta'),
+          categoria: z.string().optional().describe('Categoría por nombre'),
+          inversion_3d: z.boolean().optional().describe('true/false: cuenta como inversión del negocio 3D'),
+        },
+      },
+      async (a) => {
+        const { rec, error } = await resolveRecurring(a.recurrente);
+        if (error) return text(error);
+        const dto: any = {};
+        if (a.descripcion) dto.description = a.descripcion;
+        if (a.monto !== undefined || a.cotizacion !== undefined) {
+          Object.assign(dto, montoDto(a.monto, a.moneda, a.cotizacion));
+        }
+        if (a.dia_del_mes !== undefined) dto.dayOfMonth = a.dia_del_mes;
+        if (a.cuotas !== undefined) dto.totalInstallments = a.cuotas > 0 ? a.cuotas : null;
+        if (a.cuotas_pagadas !== undefined) dto.installmentsPaid = a.cuotas_pagadas;
+        if (a.primer_mes !== undefined) dto.startPeriod = a.primer_mes || null;
+        if (a.activo !== undefined) dto.active = a.activo;
+        if (a.terminado) dto.finished = true;
+        if (a.tarjeta !== undefined) {
+          dto.tarjeta = a.tarjeta !== false;
+          dto.card = a.tarjeta === false ? null : cardOf(a.tarjeta);
+        }
+        if (a.categoria !== undefined) {
+          const categoryId = await findCategoryId(a.categoria);
+          if (!categoryId) return text(`No existe la categoría "${a.categoria}".`);
+          dto.categoryId = categoryId;
+        }
+        if (a.inversion_3d !== undefined) {
+          dto.goalId = a.inversion_3d ? (await this.goal.getActive(userId))?.id ?? null : null;
+        }
+        if (!Object.keys(dto).length) {
+          return text(`No indicaste ningún cambio para "${rec.description}".`);
+        }
+        const upd: any = await this.expenses.updateRecurring(userId, rec.id, dto);
+        const end = recurringEndPeriod(upd);
+        return text(
+          `Recurrente actualizado: ${upd.active ? '' : '(inactivo) '}"${upd.description}" ${ars(upd.amount)}${usdLabel(upd)}/mes el día ${upd.dayOfMonth}` +
+            (upd.totalInstallments
+              ? ` · cuota ${upd.installmentsPaid}/${upd.totalInstallments}${end ? ` · termina ${end}` : ' · ✅ terminado'}`
+              : '') +
+            (upd.tarjeta ? ` · 💳 ${upd.card || 'Visa'}` : '') +
+            (upd.goalId ? ' · 🖨️ inversión 3D' : '') +
+            `. id ${upd.id}.`,
+        );
+      },
+    );
+
+    add(
+      'borrar_recurrente',
+      {
+        title: 'Borrar un recurrente',
+        description:
+          'Borra un pago recurrente / plan en cuotas (por descripción o id). Los gastos que ya generó quedan. Si solo terminó o lo pagaste, preferí editar_recurrente con terminado=true (queda el historial).',
+        inputSchema: {
+          recurrente: z.string().describe('Descripción (o parte) o id del recurrente'),
+        },
+      },
+      async (a) => {
+        const { rec, error } = await resolveRecurring(a.recurrente);
+        if (error) return text(error);
+        await this.expenses.deleteRecurring(userId, rec.id);
+        return text(`Recurrente borrado: "${rec.description}" ${ars(rec.amount)}/mes.`);
+      },
+    );
+
+    add(
+      'pagar_resumen_tarjeta',
+      {
+        title: 'Cargar / pagar el resumen de una tarjeta',
+        description:
+          'Carga el resumen real de una tarjeta de crédito como gasto del mes en que se paga (fecha puede ser futura = queda agendado en la proyección) y salda el buffer de esa tarjeta: los consumos anotados hasta el cierre pasan a ser el detalle de ese resumen (no cuentan doble). Parte en pesos y parte en USD con su cotización. Para la tarjeta de otra persona (ej la adicional del hermano) es lo que le transferís. Devuelve cuánto del resumen no estaba anotado.',
+        inputSchema: {
+          tarjeta: z
+            .union([z.boolean(), z.string()])
+            .describe('true = la Visa propia, o el nombre de la otra tarjeta (ej "Leandro")'),
+          monto: z.number().optional().describe('Parte en PESOS del resumen'),
+          monto_usd: z.number().optional().describe('Parte en DÓLARES del resumen'),
+          cotizacion: z.number().optional().describe('Pesos por dólar con que pagás la parte USD'),
+          fecha: z.string().describe('Fecha de pago / vencimiento YYYY-MM-DD (puede ser futura)'),
+          cierre: z
+            .string()
+            .optional()
+            .describe('Fecha de cierre YYYY-MM-DD: salda los consumos del buffer hasta ese día. Default = fecha de pago. Lo posterior queda para el próximo resumen.'),
+          descripcion: z.string().optional().describe('Descripción (default "Resumen tarjeta <nombre>")'),
+        },
+      },
+      async (a) => {
+        const r = await this.expenses.payCardStatement(userId, {
+          card: cardOf(a.tarjeta),
+          amount: a.monto,
+          amountUsd: a.monto_usd,
+          exchangeRate: a.cotizacion,
+          date: a.fecha,
+          closingDate: a.cierre,
+          description: a.descripcion,
+        });
+        const lines = [
+          `💳 Resumen ${r.label} cargado para el ${a.fecha}: ${ars(r.total)}`,
+          ...r.expenses.map((e: any) => `  • ${ars(e.amount)}${usdLabel(e)} — ${e.description} (id ${e.id})`),
+        ];
+        if (r.settled.length) {
+          lines.push(`Saldados del buffer (${r.settled.length}, ${ars(r.settledTotal)}):`);
+          for (const e of r.settled) lines.push(`  • ${e.date} ${ars(e.amount)} — ${e.description}`);
+        }
+        lines.push(
+          r.untracked > 0
+            ? `No estaba anotado: ${ars(r.untracked)}.`
+            : r.untracked < 0
+              ? `⚠️ El buffer saldado (${ars(r.settledTotal)}) supera el resumen por ${ars(-r.untracked)}: revisá el cierre o si algún consumo va a otra tarjeta.`
+              : 'El buffer cerraba justo con el resumen ✅',
+        );
+        if (r.remaining.length) {
+          lines.push(
+            `Quedan para el próximo resumen: ${r.remaining.length} consumos (${ars(r.remaining.reduce((s: number, e: any) => s + e.amount, 0))}).`,
+          );
+        }
+        return text(lines.join('\n'));
+      },
+    );
+
+    add(
+      'ver_tarjeta',
+      {
+        title: 'Ver una tarjeta / lo que le debo a alguien',
+        description:
+          'Todo lo agrupado en una tarjeta o persona (ej "Leandro", la adicional del hermano): ítems fijos y en cuotas (cuántas faltan y cuándo terminan), cuánto lleva pagado cada uno, lo que se debe hoy (consumos sin pagar) y los resúmenes ya pagados. Sin tarjeta, lista todas.',
+        inputSchema: {
+          tarjeta: z
+            .union([z.boolean(), z.string()])
+            .optional()
+            .describe('true = Visa propia, o el nombre (ej "Leandro"). Vacío = resumen de todas'),
+        },
+      },
+      async (a) => {
+        if (a.tarjeta === undefined) {
+          const cards = await this.expenses.listCards(userId);
+          if (!cards.length) return text('No hay tarjetas con consumos ni recurrentes.');
+          return text(
+            ['💳 Tarjetas:', ...cards.map((c) => `• ${c.label}: debe hoy ${ars(c.pendiente)} · fijos/cuotas ${ars(c.mensual)}/mes`)].join('\n'),
+          );
+        }
+        const d = await this.expenses.getCardDetail(userId, cardOf(a.tarjeta));
+        const lines = [`💳 ${d.label} — fijos y cuotas activos: ${ars(d.mensualActivo)}/mes`];
+        for (const i of d.items) {
+          lines.push(
+            `• ${i.active ? '' : '(inactivo) '}${i.description}: ${ars(i.amount)}/mes el día ${i.dayOfMonth}` +
+              (i.totalInstallments
+                ? ` · cuota ${i.installmentsPaid}/${i.totalInstallments} · faltan ${i.cuotasRestantes}${i.endPeriod ? ` · termina ${i.endPeriod}` : ' · ✅ terminado'}`
+                : ' · sin fin') +
+              ` · pagado ${ars(i.pagado)} (id ${i.id})`,
+          );
+        }
+        lines.push(`Debe hoy (consumos sin pagar): ${ars(d.pendiente.total)}`);
+        for (const e of d.pendiente.items) lines.push(`  • ${e.date} ${ars(e.amount)} — ${e.description} (id ${e.id})`);
+        if (d.resumenesPagados.length) {
+          lines.push('Resúmenes pagados / agendados:');
+          for (const e of d.resumenesPagados.slice(0, 6)) {
+            lines.push(`  • ${e.date} ${ars(e.amount)}${usdLabel(e)} — ${e.description}`);
+          }
+        }
+        return text(lines.join('\n'));
+      },
+    );
+
     add(
       'proyeccion_mes',
       {
         title: 'Proyección del resto del mes',
         description:
-          'Cuánta plata disponés REALMENTE para lo que queda del mes: saldo de hoy menos los gastos ya agendados a futuro (ej: sesión de psicóloga de la semana que viene) y las cuotas/recurrentes que faltan pagar, más los ingresos esperados (ej: aguinaldo pendiente). Para agendar un gasto futuro usá registrar_gasto con fecha futura; para un ingreso esperado, registrar_ingreso con pendiente=true.',
+          'Cuánta plata disponés REALMENTE para lo que queda del mes: saldo de hoy menos los gastos ya agendados a futuro (ej: sesión de psicóloga de la semana que viene) y las cuotas/recurrentes que faltan pagar, más los ingresos esperados (ej: aguinaldo pendiente). En meses FUTUROS también resta el resumen estimado de cada tarjeta (consumos + cuotas del mes anterior) salvo que ya esté cargado con pagar_resumen_tarjeta. Para agendar un gasto futuro usá registrar_gasto con fecha futura; para un ingreso esperado, registrar_ingreso con pendiente=true.',
         inputSchema: {
           mes: z
             .string()
@@ -2707,6 +2972,16 @@ export class McpServerFactory {
           lines.push(`Ingresos esperados (+${ars(pr.ingresosEsperadosTotal)}):`);
           for (const i of pr.ingresosEsperados)
             lines.push(`  • ${i.date} ${ars(i.amount)} — ${i.description}`);
+        }
+        if (pr.resumenesEstimados.length) {
+          lines.push(
+            `Resúmenes de tarjeta estimados (${ars(pr.resumenesEstimadosTotal)}) — consumos y cuotas del mes anterior; desaparece al cargar el real con pagar_resumen_tarjeta:`,
+          );
+          for (const t of pr.resumenesEstimados) {
+            lines.push(`  ${t.label}: ${ars(t.total)}`);
+            for (const c of t.items)
+              lines.push(`    • ${c.date} ${ars(c.amount)} — ${c.description}`);
+          }
         }
         lines.push(
           `💰 Disponible real para el resto del mes: ${pr.disponibleProyectado >= 0 ? '+' : ''}${ars(pr.disponibleProyectado)}`,

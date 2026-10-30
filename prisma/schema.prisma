@@ -860,11 +860,15 @@ model Expense {
   amount             Float // ARS
   description        String
   categoryId         String?
-  source             String   @default("manual") // manual | recurring | mercadopago
+  source             String   @default("manual") // manual | recurring | mercadopago | tarjeta-pendiente (buffer) | tarjeta-saldada (detalle de un resumen pagado, fuera del balance) | resumen-tarjeta (pago del resumen)
   card               String? // para consumos de crédito: null = la Visa propia, texto = otra tarjeta (ej "Hermano")
   recurringExpenseId String? // si lo generó un pago recurrente
   externalId         String? // id externo (ej: mp:<SOURCE_ID>) para dedup de imports
   goalId             String? // inversión para un objetivo (ej: filamento 3D → fondo NZ)
+  originalAmount     Float? // monto en la moneda original (ej: USD 44); amount = originalAmount * exchangeRate
+  originalCurrency   String? // null = ARS; "USD"
+  exchangeRate       Float? // cotización usada para pasar a ARS
+  statementId        String? // consumo saldado (source tarjeta-saldada): id del gasto "resumen-tarjeta" que lo pagó
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -908,6 +912,10 @@ model RecurringExpense {
   startPeriod       String? // YYYY-MM de la primera cuota (puede ser pasado; deriva pagadas y fecha de fin)
   tarjeta           Boolean  @default(false) // se paga con tarjeta de crédito → va al buffer del resumen
   card              String? // qué tarjeta: null = la Visa propia, texto = otra (ej "Hermano")
+  goalId            String? // inversión para un objetivo (ej: impresora en cuotas → negocio 3D); se copia a cada gasto
+  originalAmount    Float? // monto en USD si es en dólares; amount = originalAmount * exchangeRate
+  originalCurrency  String? // null = ARS; "USD"
+  exchangeRate      Float?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

@@ -11,7 +11,9 @@ import { getLocalDateString } from '../../common/utils/date.utils';
 
 export interface CreateExpenseDto {
   date: string; // YYYY-MM-DD
-  amount: number;
+  amount?: number; // ARS (si viene amountUsd se calcula)
+  amountUsd?: number; // gasto en dólares: amount = amountUsd * exchangeRate
+  exchangeRate?: number;
   description: string;
   categoryId?: string | null;
   goalId?: string | null; // inversión para un objetivo (ej: filamento 3D)
@@ -21,6 +23,39 @@ export interface CreateExpenseDto {
 
 /** Etiqueta de la tarjeta propia (card = null en la DB). */
 export const DEFAULT_CARD_LABEL = 'Visa';
+
+/**
+ * Sources que NO son gasto del mes: el buffer de crédito (deuda del próximo
+ * resumen) y el detalle de un resumen ya pagado (el gasto real es el
+ * "resumen-tarjeta", sumarlos contaría doble).
+ */
+export const OFF_BALANCE_SOURCES = ['tarjeta-pendiente', 'tarjeta-saldada'];
+
+/** Misma tarjeta: null = la propia; los nombres se comparan sin mayúsculas. */
+function sameCard(a: string | null, b: string | null): boolean {
+  if (!a || !b) return !a && !b;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Valida un monto en USD + cotización y devuelve los campos a guardar. */
+function usdFields(amountUsd: number, exchangeRate: number | undefined) {
+  if (!(amountUsd > 0)) {
+    throw new BadRequestException('El monto en USD debe ser mayor a 0');
+  }
+  if (!exchangeRate || exchangeRate <= 0) {
+    throw new BadRequestException(
+      'Para un gasto en USD falta la cotización (ARS por dólar)',
+    );
+  }
+  return {
+    amount: round2(amountUsd * exchangeRate),
+    originalAmount: amountUsd,
+    originalCurrency: 'USD',
+    exchangeRate,
+  };
+}
 
 /** Consumos de crédito pendientes agrupados por tarjeta (la propia primero). */
 function groupByCard(
@@ -60,6 +95,8 @@ function groupByCard(
 export interface UpdateExpenseDto {
   date?: string;
   amount?: number;
+  amountUsd?: number; // pasa (o corrige) el gasto a dólares
+  exchangeRate?: number; // sola: recalcula el ARS de un gasto que ya está en USD
   description?: string;
   categoryId?: string | null;
   goalId?: string | null;
@@ -86,6 +123,9 @@ export interface CategoryDto {
 export interface RecurringDto {
   description?: string;
   amount?: number;
+  amountUsd?: number; // en dólares: amount = amountUsd * exchangeRate
+  exchangeRate?: number;
+  goalId?: string | null; // inversión (ej: impresora en cuotas → negocio 3D)
   categoryId?: string | null;
   dayOfMonth?: number;
   kind?: 'recurring' | 'subscription';
@@ -95,6 +135,17 @@ export interface RecurringDto {
   startPeriod?: string | null; // YYYY-MM de la primera cuota (puede ser pasado)
   tarjeta?: boolean; // se paga con tarjeta de crédito
   card?: string | null; // qué tarjeta: null = la Visa propia, texto = otra
+  finished?: boolean; // terminado / pagado por adelantado: todas las cuotas pagas y se apaga
+}
+
+export interface CardStatementDto {
+  card: string | null; // null = la Visa propia
+  amount?: number; // parte en pesos del resumen
+  amountUsd?: number; // parte en dólares
+  exchangeRate?: number; // cotización de la parte en dólares
+  date: string; // día del pago / vencimiento (puede ser futuro)
+  closingDate?: string; // cierre: salda los consumos del buffer hasta esta fecha (default = date)
+  description?: string;
 }
 
 /** Última fecha válida del mes YYYY-MM (para el filtro lte). */
@@ -117,6 +168,44 @@ function addMonths(period: string, n: number): string {
   const [y, m] = period.split('-').map(Number);
   const d = new Date(y, m - 1 + n, 1);
   return periodOf(d);
+}
+
+/**
+ * ¿Le toca cobrarse al recurrente en el mes `period`, y qué cuota es?
+ * Con startPeriod la cuota sale del calendario (cuota n = meses desde el
+ * primero + 1), así una cuota ya pagada por adelantado (installmentsPaid >= n)
+ * no se vuelve a cobrar. Sin startPeriod se cuenta desde el próximo mes sin
+ * postear.
+ */
+export function installmentForPeriod(
+  rec: {
+    totalInstallments: number | null;
+    installmentsPaid: number;
+    startPeriod: string | null;
+    lastPostedPeriod: string | null;
+  },
+  period: string,
+  now: Date = new Date(),
+): { due: boolean; cuota: number | null } {
+  if (rec.startPeriod && rec.startPeriod > period) {
+    return { due: false, cuota: null };
+  }
+  if (!rec.totalInstallments) return { due: true, cuota: null };
+  let cuota: number;
+  if (rec.startPeriod) {
+    cuota = monthsBetween(rec.startPeriod, period) + 1;
+  } else {
+    const next = rec.lastPostedPeriod
+      ? addMonths(rec.lastPostedPeriod, 1)
+      : periodOf(now);
+    const ahead = monthsBetween(next, period);
+    if (ahead < 0) return { due: false, cuota: null };
+    cuota = rec.installmentsPaid + 1 + ahead;
+  }
+  return {
+    due: cuota > rec.installmentsPaid && cuota <= rec.totalInstallments,
+    cuota,
+  };
 }
 
 /**
@@ -161,7 +250,7 @@ export class ExpensesService {
       where: {
         userId,
         date: monthRange(month),
-        source: { not: 'tarjeta-pendiente' },
+        source: { notIn: OFF_BALANCE_SOURCES },
       },
       include: { category: true },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
@@ -169,7 +258,11 @@ export class ExpensesService {
   }
 
   async createExpense(userId: string, dto: CreateExpenseDto) {
-    if (!dto.amount || dto.amount <= 0) {
+    const usd =
+      dto.amountUsd !== undefined
+        ? usdFields(dto.amountUsd, dto.exchangeRate)
+        : null;
+    if (!usd && (!dto.amount || dto.amount <= 0)) {
       throw new BadRequestException('El monto debe ser mayor a 0');
     }
     if (!dto.description?.trim()) {
@@ -193,7 +286,8 @@ export class ExpensesService {
       data: {
         userId,
         date: dto.date,
-        amount: dto.amount,
+        amount: dto.amount as number,
+        ...(usd || {}),
         description: dto.description.trim(),
         categoryId,
         goalId: dto.goalId || null,
@@ -213,11 +307,30 @@ export class ExpensesService {
     if (dto.amount !== undefined && dto.amount <= 0) {
       throw new BadRequestException('El monto debe ser mayor a 0');
     }
+    // USD: monto nuevo en dólares, o solo la cotización de uno que ya lo es
+    let usd: ReturnType<typeof usdFields> | null = null;
+    if (dto.amountUsd !== undefined) {
+      usd = usdFields(dto.amountUsd, dto.exchangeRate ?? existing.exchangeRate ?? undefined);
+    } else if (dto.exchangeRate !== undefined) {
+      if (existing.originalCurrency !== 'USD' || !existing.originalAmount) {
+        throw new BadRequestException(
+          'Ese gasto no está en dólares: pasá el monto en USD además de la cotización',
+        );
+      }
+      usd = usdFields(existing.originalAmount, dto.exchangeRate);
+    }
+    // Monto en pesos explícito sobre un gasto en dólares: deja de serlo
+    const currencyReset =
+      !usd && dto.amount !== undefined && existing.originalCurrency
+        ? { originalAmount: null, originalCurrency: null, exchangeRate: null }
+        : {};
     return this.prisma.expense.update({
       where: { id },
       data: {
+        ...currencyReset,
+        ...(usd || {}),
         date: dto.date,
-        amount: dto.amount,
+        amount: usd ? usd.amount : dto.amount,
         description: dto.description?.trim(),
         categoryId: dto.categoryId === undefined ? undefined : dto.categoryId,
         goalId: dto.goalId === undefined ? undefined : dto.goalId,
@@ -304,7 +417,11 @@ export class ExpensesService {
     if (!dto.description?.trim()) {
       throw new BadRequestException('Falta la descripción');
     }
-    if (!dto.amount || dto.amount <= 0) {
+    const usd =
+      dto.amountUsd !== undefined
+        ? usdFields(dto.amountUsd, dto.exchangeRate)
+        : null;
+    if (!usd && (!dto.amount || dto.amount <= 0)) {
       throw new BadRequestException('El monto debe ser mayor a 0');
     }
     if (dto.totalInstallments !== undefined && dto.totalInstallments !== null) {
@@ -335,7 +452,9 @@ export class ExpensesService {
       data: {
         userId,
         description: dto.description.trim(),
-        amount: dto.amount,
+        amount: dto.amount as number,
+        ...(usd || {}),
+        goalId: dto.goalId || null,
         categoryId: dto.categoryId || null,
         dayOfMonth: day,
         kind: dto.kind === 'subscription' ? 'subscription' : 'recurring',
@@ -355,23 +474,49 @@ export class ExpensesService {
       where: { id, userId },
     });
     if (!existing) throw new NotFoundException('Pago recurrente no encontrado');
+    const total =
+      dto.totalInstallments === undefined
+        ? existing.totalInstallments
+        : dto.totalInstallments;
+    let paid = dto.installmentsPaid;
+    let active = dto.active;
+    let usd: ReturnType<typeof usdFields> | null = null;
+    if (dto.amountUsd !== undefined) {
+      usd = usdFields(dto.amountUsd, dto.exchangeRate ?? existing.exchangeRate ?? undefined);
+    } else if (dto.exchangeRate !== undefined && existing.originalAmount) {
+      usd = usdFields(existing.originalAmount, dto.exchangeRate);
+    }
+    const currencyReset =
+      !usd && dto.amount !== undefined && existing.originalCurrency
+        ? { originalAmount: null, originalCurrency: null, exchangeRate: null }
+        : {};
+    if (dto.finished) {
+      // Terminado o pagado por adelantado: no se cobra más
+      active = false;
+      if (total) paid = total;
+    } else if (total && (paid ?? existing.installmentsPaid) >= total) {
+      active = false;
+    }
     return this.prisma.recurringExpense.update({
       where: { id },
       data: {
+        ...currencyReset,
+        ...(usd || {}),
         description: dto.description?.trim(),
-        amount: dto.amount,
+        amount: usd ? usd.amount : dto.amount,
+        goalId: dto.goalId === undefined ? undefined : dto.goalId,
         categoryId: dto.categoryId === undefined ? undefined : dto.categoryId,
         dayOfMonth:
           dto.dayOfMonth !== undefined
             ? Math.min(Math.max(dto.dayOfMonth, 1), 28)
             : undefined,
         kind: dto.kind,
-        active: dto.active,
+        active,
         totalInstallments:
           dto.totalInstallments === undefined
             ? undefined
             : dto.totalInstallments,
-        installmentsPaid: dto.installmentsPaid,
+        installmentsPaid: paid,
         startPeriod:
           dto.startPeriod === undefined ? undefined : dto.startPeriod,
         tarjeta:
@@ -422,10 +567,10 @@ export class ExpensesService {
     for (const rec of due) {
       if (rec.dayOfMonth > day) continue;
       if (rec.lastPostedPeriod === period) continue;
-      // Cuotas que arrancan en un mes futuro: todavía no se pagan
-      if (rec.startPeriod && rec.startPeriod > period) continue;
+      // Cuotas que arrancan en un mes futuro o ya pagadas por adelantado
+      const { due: toca, cuota } = installmentForPeriod(rec, period, now);
+      if (!toca) continue;
 
-      const cuota = rec.totalInstallments ? rec.installmentsPaid + 1 : null;
       await this.prisma.expense.create({
         data: {
           userId: rec.userId,
@@ -435,6 +580,14 @@ export class ExpensesService {
             rec.description +
             (cuota ? ` (cuota ${cuota}/${rec.totalInstallments})` : ''),
           categoryId: rec.categoryId,
+          goalId: rec.goalId ?? null,
+          ...(rec.originalCurrency
+            ? {
+                originalAmount: rec.originalAmount,
+                originalCurrency: rec.originalCurrency,
+                exchangeRate: rec.exchangeRate,
+              }
+            : {}),
           // Si se paga con crédito no es gasto del mes: queda como deuda del
           // próximo resumen de esa tarjeta.
           source: rec.tarjeta ? 'tarjeta-pendiente' : 'recurring',
@@ -600,7 +753,7 @@ export class ExpensesService {
         where: {
           userId,
           date: monthRange(month),
-          source: { not: 'tarjeta-pendiente' },
+          source: { notIn: OFF_BALANCE_SOURCES },
         },
       }),
       this.prisma.income.findMany({
@@ -653,7 +806,7 @@ export class ExpensesService {
         where: {
           userId,
           date: monthRange(month),
-          source: { not: 'tarjeta-pendiente' },
+          source: { notIn: OFF_BALANCE_SOURCES },
         },
         orderBy: { date: 'asc' },
       }),
@@ -682,16 +835,11 @@ export class ExpensesService {
     );
 
     // Recurrentes que todavía no postearon su gasto de este mes
-    const porVenir = recurring.filter((r) => {
-      if (r.lastPostedPeriod === month) return false;
-      if (r.startPeriod && r.startPeriod > month) return false;
-      if (
-        r.totalInstallments &&
-        r.installmentsPaid >= r.totalInstallments
-      )
-        return false;
-      return true;
-    });
+    const now = new Date();
+    const porVenir = recurring
+      .filter((r) => r.lastPostedPeriod !== month)
+      .map((r) => ({ ...r, ...installmentForPeriod(r, month, now) }))
+      .filter((r) => r.due);
     // Los que se pagan con crédito no salen de la plata del mes: son deuda
     // del próximo resumen de esa tarjeta.
     const recurrentesPorVenir = porVenir.filter((r) => !r.tarjeta);
@@ -707,9 +855,7 @@ export class ExpensesService {
         amount: r.amount,
         description:
           r.description +
-          (r.totalInstallments
-            ? ` (cuota ${r.installmentsPaid + 1}/${r.totalInstallments})`
-            : ''),
+          (r.cuota ? ` (cuota ${r.cuota}/${r.totalInstallments})` : ''),
         card: r.card,
         pending: true, // todavía no lo consumió: lo postea el cron el día X
       }));
@@ -726,11 +872,30 @@ export class ExpensesService {
       ...recurrentesEnTarjeta,
     ].sort((a, b) => a.date.localeCompare(b.date));
 
+    // Meses futuros: el resumen de cada tarjeta que vence ese mes (consumos
+    // del mes anterior + cuotas/fijos con tarjeta) sale de la plata del mes,
+    // salvo que el pago del resumen ya esté cargado (gasto resumen-tarjeta).
+    const resumenesEstimados =
+      month > today.slice(0, 7)
+        ? this.estimateStatements(
+            month,
+            tarjetaPendiente,
+            recurring,
+            expenses.filter((e) => e.source === 'resumen-tarjeta'),
+            now,
+          )
+        : [];
+    const resumenesEstimadosTotal = resumenesEstimados.reduce(
+      (a, g) => a + g.total,
+      0,
+    );
+
     const saldoHoy = ingresosCobrados - gastosEjecutados;
     const disponibleProyectado =
       saldoHoy -
       gastosFuturosTotal -
-      recurrentesPorVenirTotal +
+      recurrentesPorVenirTotal -
+      resumenesEstimadosTotal +
       ingresosEsperadosTotal;
 
     return {
@@ -751,9 +916,7 @@ export class ExpensesService {
         description: r.description,
         amount: r.amount,
         dayOfMonth: r.dayOfMonth,
-        cuota: r.totalInstallments
-          ? `${r.installmentsPaid + 1}/${r.totalInstallments}`
-          : null,
+        cuota: r.cuota ? `${r.cuota}/${r.totalInstallments}` : null,
       })),
       recurrentesPorVenirTotal,
       ingresosEsperados: pendingIncomes.map((i) => ({
@@ -776,6 +939,274 @@ export class ExpensesService {
       })),
       tarjetaPendienteTotal: deudaTarjeta.reduce((a, e) => a + e.amount, 0),
       tarjetaPendientePorTarjeta: groupByCard(deudaTarjeta),
+      resumenesEstimados,
+      resumenesEstimadosTotal,
+    };
+  }
+
+  /**
+   * Resumen estimado por tarjeta que vence en `month`: lo consumido el mes
+   * anterior (buffer) + lo que los recurrentes con tarjeta cobran ese mes y
+   * todavía no postearon. Las tarjetas con el pago ya cargado no se estiman.
+   */
+  private estimateStatements(
+    month: string,
+    buffer: { id: string; date: string; amount: number; description: string; card: string | null }[],
+    recurring: any[],
+    paidStatements: { card: string | null }[],
+    now: Date,
+  ) {
+    const prev = addMonths(month, -1);
+    const items = [
+      ...buffer
+        .filter((e) => e.date.startsWith(prev))
+        .map((e) => ({ ...e, pending: false })),
+      ...recurring
+        .filter((r) => r.tarjeta && r.lastPostedPeriod !== prev)
+        .map((r) => ({ r, ...installmentForPeriod(r, prev, now) }))
+        .filter((x) => x.due)
+        .map(({ r, cuota }) => ({
+          id: r.id,
+          date: `${prev}-${String(r.dayOfMonth).padStart(2, '0')}`,
+          amount: r.amount,
+          description:
+            r.description +
+            (cuota ? ` (cuota ${cuota}/${r.totalInstallments})` : ''),
+          card: r.card as string | null,
+          pending: true,
+        })),
+    ].filter((i) => !paidStatements.some((st) => sameCard(st.card, i.card)));
+    // Un mismo nombre de tarjeta con distinta capitalización va al mismo grupo
+    const canon: string[] = [];
+    for (const i of items) {
+      if (!i.card) continue;
+      const c = canon.find((k) => sameCard(k, i.card));
+      if (c) i.card = c;
+      else canon.push(i.card);
+    }
+    return groupByCard(items);
+  }
+
+  // ── Tarjetas: resumen y detalle ───────────────────────────
+
+  /**
+   * Carga el pago del resumen de una tarjeta: crea el gasto real (fechado al
+   * pago, puede ser futuro) y salda los consumos del buffer de esa tarjeta
+   * hasta el cierre. Los saldados quedan como detalle/historial
+   * (tarjeta-saldada, fuera del balance) linkeados al pago por statementId.
+   */
+  async payCardStatement(userId: string, dto: CardStatementDto) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dto.date || '')) {
+      throw new BadRequestException('Fecha de pago inválida (YYYY-MM-DD)');
+    }
+    const closing = dto.closingDate || dto.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(closing)) {
+      throw new BadRequestException('Fecha de cierre inválida (YYYY-MM-DD)');
+    }
+    const ars = dto.amount ?? 0;
+    if (ars < 0) throw new BadRequestException('Monto inválido');
+    const usd =
+      dto.amountUsd !== undefined && dto.amountUsd > 0
+        ? usdFields(dto.amountUsd, dto.exchangeRate)
+        : null;
+    if (ars <= 0 && !usd) {
+      throw new BadRequestException('El resumen no tiene monto (pesos ni USD)');
+    }
+
+    const buffer = await this.prisma.expense.findMany({
+      where: { userId, source: 'tarjeta-pendiente' },
+      orderBy: { date: 'asc' },
+    });
+    const ofCard = buffer.filter((e) => sameCard(e.card, dto.card));
+    // Nombre canónico: el que ya usan el buffer o los recurrentes
+    let card = dto.card?.trim() || null;
+    if (card) {
+      const recs = await this.prisma.recurringExpense.findMany({
+        where: { userId, tarjeta: true },
+      });
+      card =
+        ofCard.find((e) => e.card)?.card ||
+        recs.find((r) => sameCard(r.card, card))?.card ||
+        card;
+    }
+    const label = card ?? DEFAULT_CARD_LABEL;
+    const base = dto.description?.trim() || `Resumen tarjeta ${label}`;
+
+    const created: any[] = [];
+    if (ars > 0) {
+      created.push(
+        await this.prisma.expense.create({
+          data: {
+            userId,
+            date: dto.date,
+            amount: ars,
+            description: usd ? `${base} (pesos)` : base,
+            source: 'resumen-tarjeta',
+            card,
+          },
+        }),
+      );
+    }
+    if (usd) {
+      created.push(
+        await this.prisma.expense.create({
+          data: {
+            userId,
+            date: dto.date,
+            ...usd,
+            description: `${base} (USD ${dto.amountUsd})`,
+            source: 'resumen-tarjeta',
+            card,
+          },
+        }),
+      );
+    }
+
+    const settled = ofCard.filter((e) => e.date <= closing);
+    if (settled.length) {
+      await this.prisma.expense.updateMany({
+        where: { id: { in: settled.map((e) => e.id) }, userId },
+        data: { source: 'tarjeta-saldada', statementId: created[0].id },
+      });
+    }
+    const total = round2(created.reduce((a, e) => a + e.amount, 0));
+    const settledTotal = round2(settled.reduce((a, e) => a + e.amount, 0));
+    return {
+      card,
+      label,
+      expenses: created,
+      total,
+      settled,
+      settledTotal,
+      // Lo del resumen que no estaba anotado en el buffer
+      untracked: round2(total - settledTotal),
+      remaining: ofCard.filter((e) => e.date > closing),
+    };
+  }
+
+  /** Consumos de crédito sin pagar (buffer de todas las tarjetas). */
+  async getCardPending(userId: string) {
+    return this.prisma.expense.findMany({
+      where: { userId, source: 'tarjeta-pendiente' },
+      include: { category: true },
+      orderBy: { date: 'asc' },
+    });
+  }
+
+  /** Tarjetas conocidas (buffer, recurrentes y resúmenes pagados). */
+  async listCards(userId: string) {
+    const [buffer, recs, statements] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: { userId, source: 'tarjeta-pendiente' },
+      }),
+      this.prisma.recurringExpense.findMany({
+        where: { userId, tarjeta: true, active: true },
+      }),
+      this.prisma.expense.findMany({
+        where: { userId, source: 'resumen-tarjeta' },
+      }),
+    ]);
+    const cards: (string | null)[] = [];
+    for (const c of [
+      ...buffer.map((e) => e.card),
+      ...recs.map((r) => r.card),
+      ...statements.map((e) => e.card),
+    ]) {
+      if (!cards.some((k) => sameCard(k, c))) cards.push(c);
+    }
+    return cards.map((card) => ({
+      card,
+      label: card ?? DEFAULT_CARD_LABEL,
+      pendiente: buffer
+        .filter((e) => sameCard(e.card, card))
+        .reduce((a, e) => a + e.amount, 0),
+      mensual: recs
+        .filter((r) => sameCard(r.card, card))
+        .reduce((a, r) => a + r.amount, 0),
+    }));
+  }
+
+  /**
+   * Todo lo de una tarjeta / persona (ej: la adicional del hermano): ítems
+   * (fijos y cuotas, cuántas faltan y cuándo terminan), lo que se debe hoy,
+   * los resúmenes ya pagados y cuánto lleva pagado cada ítem.
+   */
+  async getCardDetail(userId: string, card: string | null) {
+    const now = new Date();
+    const [recsAll, buffer, statementsAll] = await Promise.all([
+      this.prisma.recurringExpense.findMany({
+        where: { userId, tarjeta: true },
+        orderBy: [{ active: 'desc' }, { dayOfMonth: 'asc' }],
+      }),
+      this.prisma.expense.findMany({
+        where: { userId, source: 'tarjeta-pendiente' },
+        orderBy: { date: 'asc' },
+      }),
+      this.prisma.expense.findMany({
+        where: { userId, source: 'resumen-tarjeta' },
+        orderBy: { date: 'desc' },
+      }),
+    ]);
+    const recs = recsAll.filter((r) => sameCard(r.card, card));
+    const pending = buffer.filter((e) => sameCard(e.card, card));
+    const statements = statementsAll.filter((e) => sameCard(e.card, card));
+    const history = recs.length
+      ? await this.prisma.expense.findMany({
+          where: { userId, recurringExpenseId: { in: recs.map((r) => r.id) } },
+        })
+      : [];
+
+    const items = recs.map((r) => {
+      const posted = history.filter((h) => h.recurringExpenseId === r.id);
+      const postedTotal = posted.reduce((a, h) => a + h.amount, 0);
+      return {
+        id: r.id,
+        description: r.description,
+        amount: r.amount,
+        dayOfMonth: r.dayOfMonth,
+        active: r.active,
+        totalInstallments: r.totalInstallments,
+        installmentsPaid: r.installmentsPaid,
+        cuotasRestantes: r.totalInstallments
+          ? Math.max(0, r.totalInstallments - r.installmentsPaid)
+          : null,
+        endPeriod: recurringEndPeriod(r, now),
+        // Cuotas: lo pagado sale del contador (incluye las previas a cargarlo);
+        // fijos sin fin: lo registrado.
+        pagado: r.totalInstallments
+          ? round2(r.installmentsPaid * r.amount)
+          : round2(postedTotal),
+        registros: posted.length,
+      };
+    });
+    const label =
+      card === null
+        ? DEFAULT_CARD_LABEL
+        : recs[0]?.card || pending[0]?.card || statements[0]?.card || card;
+    return {
+      card: card === null ? null : label,
+      label,
+      items,
+      mensualActivo: round2(
+        items.filter((i) => i.active).reduce((a, i) => a + i.amount, 0),
+      ),
+      pendiente: {
+        total: round2(pending.reduce((a, e) => a + e.amount, 0)),
+        items: pending.map((e) => ({
+          id: e.id,
+          date: e.date,
+          amount: e.amount,
+          description: e.description,
+        })),
+      },
+      resumenesPagados: statements.map((e) => ({
+        id: e.id,
+        date: e.date,
+        amount: e.amount,
+        description: e.description,
+        originalAmount: e.originalAmount,
+        originalCurrency: e.originalCurrency,
+      })),
     };
   }
 
@@ -791,14 +1222,14 @@ export class ExpensesService {
         where: {
           userId,
           date: monthRange(month),
-          source: { not: 'tarjeta-pendiente' },
+          source: { notIn: OFF_BALANCE_SOURCES },
         },
       }),
       this.prisma.expense.findMany({
         where: {
           userId,
           date: monthRange(prevMonth),
-          source: { not: 'tarjeta-pendiente' },
+          source: { notIn: OFF_BALANCE_SOURCES },
         },
       }),
       this.prisma.expenseCategory.findMany({ where: { userId } }),

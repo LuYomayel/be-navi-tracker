@@ -67,6 +67,7 @@ describe('ExpensesService', () => {
               findFirst: jest.fn(),
               create: jest.fn(),
               update: jest.fn(),
+              updateMany: jest.fn(),
               delete: jest.fn(),
             },
             expenseCategory: {
@@ -185,7 +186,7 @@ describe('ExpensesService', () => {
         where: {
           userId,
           date: { gte: '2026-08-01', lte: '2026-08-31' },
-          source: { not: 'tarjeta-pendiente' },
+          source: { notIn: ['tarjeta-pendiente', 'tarjeta-saldada'] },
         },
         include: { category: true },
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
@@ -421,7 +422,8 @@ describe('ExpensesService', () => {
 
     it('should deactivate the recurring after posting the last installment', async () => {
       (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
-        { ...cuotaRec, installmentsPaid: 11 },
+        // arrancó en sep-25 → agosto-26 es la 12ª por calendario
+        { ...cuotaRec, installmentsPaid: 11, startPeriod: '2025-09' },
       ]);
       (prisma.expense.create as jest.Mock).mockResolvedValue({});
       (prisma.recurringExpense.update as jest.Mock).mockResolvedValue({});
@@ -992,7 +994,7 @@ describe('ExpensesService', () => {
       expect(prisma.expense.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            source: { not: 'tarjeta-pendiente' },
+            source: { notIn: ['tarjeta-pendiente', 'tarjeta-saldada'] },
           }),
         }),
       );
@@ -1098,6 +1100,456 @@ describe('ExpensesService', () => {
       expect(summary.overBudget).toEqual(['Comida']);
       expect(summary.subscriptionsMonthly).toBe(12000);
       expect(summary.topExpenses[0].amount).toBe(80000);
+    });
+  });
+
+  // ── Cuotas numeradas por calendario ───────────────────────
+
+  describe('postDueRecurringExpenses con cuotas pagadas por adelantado', () => {
+    // Trimetra3d: 3 cuotas, la 1ª en sep-26; la 2ª ya entró en un resumen
+    // pagado (cuotas_pagadas=2) → octubre no se postea, noviembre va la 3/3.
+    const trimetra = {
+      ...mockRecurring,
+      id: 'rec-tri',
+      description: 'Trimetra3d',
+      amount: 192966.66,
+      dayOfMonth: 14,
+      kind: 'recurring',
+      totalInstallments: 3,
+      installmentsPaid: 2,
+      startPeriod: '2026-09',
+      tarjeta: true,
+      card: 'Leandro',
+    };
+
+    it('should not post the cuota of a month that is already paid', async () => {
+      (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([trimetra]);
+
+      const posted = await service.postDueRecurringExpenses(new Date(2026, 9, 30));
+
+      expect(posted).toBe(0);
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+    });
+
+    it('should number the cuota by calendar from startPeriod', async () => {
+      (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([trimetra]);
+      (prisma.expense.create as jest.Mock).mockResolvedValue({});
+      (prisma.recurringExpense.update as jest.Mock).mockResolvedValue({});
+
+      await service.postDueRecurringExpenses(new Date(2026, 10, 14));
+
+      expect(prisma.expense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          description: 'Trimetra3d (cuota 3/3)',
+          date: '2026-11-14',
+          source: 'tarjeta-pendiente',
+          card: 'Leandro',
+        }),
+      });
+      expect(prisma.recurringExpense.update).toHaveBeenCalledWith({
+        where: { id: 'rec-tri' },
+        data: expect.objectContaining({ installmentsPaid: 3, active: false }),
+      });
+    });
+  });
+
+  describe('updateRecurring', () => {
+    const bambu = {
+      ...mockRecurring,
+      id: 'rec-bambu',
+      description: 'Cuota impresora Bambu',
+      amount: 167000,
+      totalInstallments: 12,
+      installmentsPaid: 10,
+      startPeriod: '2026-01',
+    };
+
+    beforeEach(() => {
+      (prisma.recurringExpense.findFirst as jest.Mock).mockResolvedValue(bambu);
+      (prisma.recurringExpense.update as jest.Mock).mockImplementation(
+        ({ data }) => Promise.resolve({ ...bambu, ...data }),
+      );
+    });
+
+    it('should mark a plan as finished (pagado por adelantado): all cuotas paid and inactive', async () => {
+      await service.updateRecurring(userId, 'rec-bambu', { finished: true });
+
+      expect(prisma.recurringExpense.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ installmentsPaid: 12, active: false }),
+        }),
+      );
+    });
+
+    it('should deactivate when the paid cuotas reach the total', async () => {
+      await service.updateRecurring(userId, 'rec-bambu', { installmentsPaid: 12 });
+
+      expect(prisma.recurringExpense.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ installmentsPaid: 12, active: false }),
+        }),
+      );
+    });
+
+    it('should throw if the recurring does not exist', async () => {
+      (prisma.recurringExpense.findFirst as jest.Mock).mockResolvedValue(null);
+      await expect(
+        service.updateRecurring(userId, 'nope', { amount: 1 }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── Gastos en dólares ─────────────────────────────────────
+
+  describe('gastos en USD', () => {
+    it('should store the USD amount and rate, and the ARS equivalent as amount', async () => {
+      (prisma.expense.create as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'e-usd', ...data }),
+      );
+
+      await service.createExpense(userId, {
+        date: '2026-11-02',
+        description: 'Servidor NaviTracker + EaseTrain',
+        amountUsd: 20,
+        exchangeRate: 1560,
+      });
+
+      expect(prisma.expense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            amount: 31200,
+            originalAmount: 20,
+            originalCurrency: 'USD',
+            exchangeRate: 1560,
+          }),
+        }),
+      );
+    });
+
+    it('should reject a USD expense without exchange rate', async () => {
+      await expect(
+        service.createExpense(userId, {
+          date: '2026-11-02',
+          description: 'Servidor',
+          amountUsd: 20,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should recalculate the ARS amount when only the rate of a USD expense changes', async () => {
+      (prisma.expense.findFirst as jest.Mock).mockResolvedValue({
+        ...mockExpense,
+        amount: 31200,
+        originalAmount: 20,
+        originalCurrency: 'USD',
+        exchangeRate: 1560,
+      });
+      (prisma.expense.update as jest.Mock).mockResolvedValue({});
+
+      await service.updateExpense(userId, 'exp-1', { exchangeRate: 1600 });
+
+      expect(prisma.expense.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ amount: 32000, exchangeRate: 1600 }),
+        }),
+      );
+    });
+
+    it('should convert an existing ARS expense to USD', async () => {
+      (prisma.expense.findFirst as jest.Mock).mockResolvedValue(mockExpense);
+      (prisma.expense.update as jest.Mock).mockResolvedValue({});
+
+      await service.updateExpense(userId, 'exp-1', {
+        amountUsd: 44,
+        exchangeRate: 1560,
+      });
+
+      expect(prisma.expense.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            amount: 68640,
+            originalAmount: 44,
+            originalCurrency: 'USD',
+            exchangeRate: 1560,
+          }),
+        }),
+      );
+    });
+  });
+
+  // ── Resumen de tarjeta ────────────────────────────────────
+
+  describe('payCardStatement', () => {
+    const buffer = [
+      { id: 'b1', date: '2026-09-07', amount: 40000, description: 'Service Kwid (cuota 1/3)', card: 'Leandro' },
+      { id: 'b2', date: '2026-10-07', amount: 40000, description: 'Service Kwid (cuota 2/3)', card: 'leandro' },
+      { id: 'b3', date: '2026-11-03', amount: 5000, description: 'Nafta', card: 'Leandro' }, // después del cierre
+      { id: 'b4', date: '2026-10-01', amount: 9999, description: 'Otra', card: 'Primo' },
+    ];
+
+    beforeEach(() => {
+      (prisma.expense.findMany as jest.Mock).mockResolvedValue(buffer);
+      (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([]);
+      let n = 0;
+      (prisma.expense.create as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ id: `st-${++n}`, ...data }),
+      );
+      (prisma.expense.updateMany as jest.Mock).mockResolvedValue({ count: 2 });
+    });
+
+    it('should create the statement payment as a real expense and settle the card buffer up to the closing date', async () => {
+      const res = await service.payCardStatement(userId, {
+        card: 'LEANDRO',
+        amount: 561011.7,
+        date: '2026-11-11',
+        closingDate: '2026-10-31',
+      });
+
+      expect(prisma.expense.create).toHaveBeenCalledTimes(1);
+      expect(prisma.expense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            date: '2026-11-11',
+            amount: 561011.7,
+            source: 'resumen-tarjeta',
+            card: 'Leandro', // nombre canónico del buffer
+          }),
+        }),
+      );
+      expect(prisma.expense.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['b1', 'b2'] }, userId },
+        data: { source: 'tarjeta-saldada', statementId: 'st-1' },
+      });
+      expect(res.settledTotal).toBe(80000);
+      expect(res.total).toBe(561011.7);
+      expect(res.untracked).toBeCloseTo(481011.7, 2);
+    });
+
+    it('should split the USD part into its own expense with the rate (tarjeta propia = null)', async () => {
+      (prisma.expense.findMany as jest.Mock).mockResolvedValue([
+        { id: 'v1', date: '2026-08-04', amount: 68008, description: 'YPF', card: null },
+      ]);
+
+      const res = await service.payCardStatement(userId, {
+        card: null,
+        amount: 454455,
+        amountUsd: 44,
+        exchangeRate: 1560,
+        date: '2026-11-02',
+      });
+
+      expect(prisma.expense.create).toHaveBeenCalledTimes(2);
+      expect(prisma.expense.create).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            amount: 68640,
+            originalAmount: 44,
+            originalCurrency: 'USD',
+            exchangeRate: 1560,
+            source: 'resumen-tarjeta',
+            card: null,
+          }),
+        }),
+      );
+      expect(prisma.expense.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['v1'] }, userId },
+        data: { source: 'tarjeta-saldada', statementId: 'st-1' },
+      });
+      expect(res.total).toBe(454455 + 68640);
+    });
+
+    it('should reject USD without rate and empty statements', async () => {
+      await expect(
+        service.payCardStatement(userId, { card: null, amountUsd: 44, date: '2026-11-02' }),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.payCardStatement(userId, { card: null, date: '2026-11-02' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getMonthProjection con resúmenes estimados', () => {
+    const leandroRecs = [
+      // fijo mensual sin fin con la tarjeta del hermano, arranca en noviembre
+      { ...mockRecurring, id: 'r-seg', description: 'Seguro La Meridional', amount: 150573.71, dayOfMonth: 2, kind: 'recurring', startPeriod: '2026-11', tarjeta: true, card: 'Leandro' },
+      // cuotas: la 3/3 cae en noviembre → se paga en el resumen de diciembre
+      { ...mockRecurring, id: 'r-tri', description: 'Trimetra3d', amount: 192966.66, dayOfMonth: 14, kind: 'recurring', totalInstallments: 3, installmentsPaid: 2, startPeriod: '2026-09', tarjeta: true, card: 'Leandro' },
+    ];
+
+    it('should subtract the estimated statement of each card in a future month (consumos del mes anterior)', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 9, 30, 12));
+      try {
+        (prisma.expense.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue(leandroRecs);
+
+        const pr = await service.getMonthProjection(userId, '2026-12');
+
+        expect(pr.resumenesEstimados).toEqual([
+          expect.objectContaining({
+            card: 'Leandro',
+            total: 150573.71 + 192966.66,
+            items: expect.arrayContaining([
+              expect.objectContaining({ description: 'Trimetra3d (cuota 3/3)' }),
+              expect.objectContaining({ description: 'Seguro La Meridional' }),
+            ]),
+          }),
+        ]);
+        expect(pr.disponibleProyectado).toBeCloseTo(-(150573.71 + 192966.66), 2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should not estimate a card whose statement payment is already loaded in that month', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 9, 30, 12));
+      try {
+        (prisma.expense.findMany as jest.Mock).mockImplementation(({ where }) =>
+          where.source === 'tarjeta-pendiente'
+            ? Promise.resolve([])
+            : Promise.resolve([
+                { ...mockExpense, id: 'st', date: '2026-12-11', amount: 400000, source: 'resumen-tarjeta', card: 'leandro' },
+              ]),
+        );
+        (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue(leandroRecs);
+
+        const pr = await service.getMonthProjection(userId, '2026-12');
+
+        expect(pr.resumenesEstimados).toEqual([]);
+        expect(pr.disponibleProyectado).toBe(-400000);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should not estimate statements for the current month', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 9, 30, 12));
+      try {
+        (prisma.expense.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue(leandroRecs);
+
+        const pr = await service.getMonthProjection(userId, '2026-10');
+
+        expect(pr.resumenesEstimados).toEqual([]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('getCardDetail', () => {
+    it('should group items, pending debt, paid statements and paid history of a card', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 9, 30, 12));
+      try {
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+          { ...mockRecurring, id: 'r-tri', description: 'Trimetra3d', amount: 192966.66, totalInstallments: 3, installmentsPaid: 2, startPeriod: '2026-09', tarjeta: true, card: 'Leandro' },
+          { ...mockRecurring, id: 'r-seg', description: 'Seguro', amount: 150000, tarjeta: true, card: 'leandro' },
+          { ...mockRecurring, id: 'r-otra', description: 'Netflix', tarjeta: true, card: null },
+        ]);
+        (prisma.expense.findMany as jest.Mock).mockImplementation(({ where }) => {
+          if (where.source === 'tarjeta-pendiente')
+            return Promise.resolve([
+              { id: 'b1', date: '2026-10-07', amount: 40000, description: 'Kwid', card: 'Leandro' },
+              { id: 'b2', date: '2026-10-08', amount: 1, description: 'x', card: null },
+            ]);
+          if (where.source === 'resumen-tarjeta')
+            return Promise.resolve([
+              { id: 'st1', date: '2026-10-11', amount: 300000, description: 'Resumen Leandro', card: 'Leandro' },
+            ]);
+          // historial de los recurrentes
+          return Promise.resolve([
+            { id: 'h1', amount: 150000, recurringExpenseId: 'r-seg' },
+            { id: 'h2', amount: 150000, recurringExpenseId: 'r-seg' },
+          ]);
+        });
+
+        const d = await service.getCardDetail(userId, 'Leandro');
+
+        expect(d.label).toBe('Leandro');
+        expect(d.items.map((i) => i.id)).toEqual(['r-tri', 'r-seg']);
+        const tri = d.items.find((i) => i.id === 'r-tri')!;
+        expect(tri.cuotasRestantes).toBe(1);
+        expect(tri.endPeriod).toBe('2026-11');
+        expect(tri.pagado).toBeCloseTo(192966.66 * 2, 2);
+        expect(d.items.find((i) => i.id === 'r-seg')!.pagado).toBe(300000);
+        expect(d.pendiente.total).toBe(40000);
+        expect(d.resumenesPagados).toHaveLength(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('recurrentes en USD e inversión 3D', () => {
+    it('should create a USD recurring with its ARS equivalent and a goal link', async () => {
+      (prisma.recurringExpense.create as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'r-usd', ...data }),
+      );
+
+      await service.createRecurring(userId, {
+        description: 'Google One',
+        amountUsd: 19.99,
+        exchangeRate: 1500,
+        dayOfMonth: 21,
+        tarjeta: true,
+        goalId: 'goal-1',
+      });
+
+      expect(prisma.recurringExpense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            amount: 29985,
+            originalAmount: 19.99,
+            originalCurrency: 'USD',
+            exchangeRate: 1500,
+            goalId: 'goal-1',
+          }),
+        }),
+      );
+    });
+
+    it('should copy currency and goal to the posted expense', async () => {
+      (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+        {
+          ...mockRecurring,
+          id: 'r-a1',
+          description: 'Bambu A1',
+          amount: 250000,
+          totalInstallments: 3,
+          installmentsPaid: 0,
+          startPeriod: '2026-11',
+          goalId: 'goal-1',
+          originalAmount: null,
+          originalCurrency: null,
+          exchangeRate: null,
+        },
+      ]);
+      (prisma.expense.create as jest.Mock).mockResolvedValue({});
+      (prisma.recurringExpense.update as jest.Mock).mockResolvedValue({});
+
+      await service.postDueRecurringExpenses(new Date(2026, 10, 10));
+
+      expect(prisma.expense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          description: 'Bambu A1 (cuota 1/3)',
+          goalId: 'goal-1',
+        }),
+      });
+    });
+  });
+
+  describe('getCardPending', () => {
+    it('should list the unpaid card consumptions of every card, any date', async () => {
+      (prisma.expense.findMany as jest.Mock).mockResolvedValue([]);
+      await service.getCardPending(userId);
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId, source: 'tarjeta-pendiente' },
+        }),
+      );
     });
   });
 });
