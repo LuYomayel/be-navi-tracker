@@ -84,6 +84,12 @@ describe('ExpensesService', () => {
               update: jest.fn(),
               delete: jest.fn(),
             },
+            creditCard: {
+              findMany: jest.fn().mockResolvedValue([]),
+              findFirst: jest.fn(),
+              create: jest.fn(),
+              update: jest.fn(),
+            },
             income: {
               findMany: jest.fn(),
               findFirst: jest.fn(),
@@ -1550,6 +1556,210 @@ describe('ExpensesService', () => {
           where: { userId, source: 'tarjeta-pendiente' },
         }),
       );
+    });
+  });
+
+  // ── v2: tarjetas con ciclo de cierre y vencimiento ────────
+
+  describe('upsertCard', () => {
+    it('should create a card config with its cycle', async () => {
+      (prisma.creditCard.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.creditCard.create as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ id: 'cc-1', ...data }),
+      );
+
+      await service.upsertCard(userId, {
+        name: 'Leandro',
+        label: 'Hermano (Leandro) – adicional Visa Santander 7809',
+        kind: 'adicional',
+        payee: 'Leandro',
+        closingDay: 29,
+        dueDay: 11,
+      });
+
+      expect(prisma.creditCard.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId,
+          name: 'Leandro',
+          isOwn: false,
+          closingDay: 29,
+          dueDay: 11,
+        }),
+      });
+    });
+
+    it('should update the own card when it already exists (una sola propia)', async () => {
+      (prisma.creditCard.findFirst as jest.Mock).mockResolvedValue({ id: 'cc-own', isOwn: true });
+      (prisma.creditCard.update as jest.Mock).mockResolvedValue({});
+
+      await service.upsertCard(userId, { name: 'Visa 4112', isOwn: true, closingDay: 29, dueDay: 11 });
+
+      expect(prisma.creditCard.findFirst).toHaveBeenCalledWith({ where: { userId, isOwn: true } });
+      expect(prisma.creditCard.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'cc-own' } }),
+      );
+    });
+
+    it('should reject invalid days', async () => {
+      await expect(
+        service.upsertCard(userId, { name: 'X', closingDay: 0, dueDay: 11 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getMonthProjection con ciclos configurados', () => {
+    const leandroCfg = { id: 'cc-l', userId, name: 'Leandro', isOwn: false, label: 'Hermano (Leandro)', kind: 'adicional', payee: 'Leandro', closingDay: 29, dueDay: 11, variableEstimate: null };
+    const visaCfg = { id: 'cc-v', userId, name: 'Visa 4112', isOwn: true, label: null, kind: 'propia', payee: 'Santander', closingDay: 29, dueDay: 11, variableEstimate: 75000 };
+
+    const mockExpenses = (buffer: any[], month: any[] = []) =>
+      (prisma.expense.findMany as jest.Mock).mockImplementation(({ where }) =>
+        Promise.resolve(where.source === 'tarjeta-pendiente' ? buffer : month),
+      );
+
+    it('should count the cycle due this month in the current month while it is not due yet', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 10, 5, 12)); // 5/11
+      try {
+        (prisma.creditCard.findMany as jest.Mock).mockResolvedValue([leandroCfg]);
+        mockExpenses([
+          // cierra 29/10 → vence 11/11
+          { id: 'b1', date: '2026-10-15', amount: 19138, description: 'Mutual', card: 'Leandro', recurringExpenseId: null },
+          // 30/10 → ya es del ciclo que vence en diciembre
+          { id: 'b2', date: '2026-10-30', amount: 5000, description: 'Nafta', card: 'Leandro', recurringExpenseId: null },
+        ]);
+        (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([]);
+
+        const pr = await service.getMonthProjection(userId, '2026-11');
+
+        expect(pr.resumenesEstimados).toEqual([
+          expect.objectContaining({
+            card: 'Leandro',
+            label: 'Hermano (Leandro)',
+            due: '2026-11-11',
+            total: 19138,
+          }),
+        ]);
+        expect(pr.disponibleProyectado).toBe(-19138);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should not count a cycle of the current month that is already due', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 10, 12, 12)); // 12/11
+      try {
+        (prisma.creditCard.findMany as jest.Mock).mockResolvedValue([leandroCfg]);
+        mockExpenses([
+          { id: 'b1', date: '2026-10-15', amount: 19138, description: 'Mutual', card: 'Leandro', recurringExpenseId: null },
+        ]);
+        (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([]);
+
+        const pr = await service.getMonthProjection(userId, '2026-11');
+
+        expect(pr.resumenesEstimados).toEqual([]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should use the exact cycle (30/10 al 29/11) for a future month, with cuotas and the variable estimate', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 9, 30, 12)); // 30/10
+      try {
+        (prisma.creditCard.findMany as jest.Mock).mockResolvedValue([visaCfg]);
+        mockExpenses([
+          { id: 'n1', date: '2026-10-30', amount: 20000, description: 'Nafta', card: null, recurringExpenseId: null },
+          { id: 'n0', date: '2026-10-29', amount: 999, description: 'Del ciclo anterior', card: null, recurringExpenseId: null },
+        ]);
+        (prisma.income.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+          { ...mockRecurring, id: 'r-net', description: 'Netflix', amount: 25398, dayOfMonth: 14, tarjeta: true, card: null, lastPostedPeriod: null },
+          // día 30: el de octubre ya cae en este ciclo; el de noviembre (30/11) en el siguiente
+          { ...mockRecurring, id: 'r-30', description: 'Gym', amount: 1000, dayOfMonth: 30, tarjeta: true, card: null, lastPostedPeriod: '2026-09' },
+        ]);
+
+        const pr = await service.getMonthProjection(userId, '2026-12');
+        const visa = pr.resumenesEstimados[0];
+
+        expect(visa.label).toBe('Visa 4112');
+        expect(visa.due).toBe('2026-12-11');
+        expect(visa.items.map((i) => i.description).sort()).toEqual(
+          ['Consumos variables estimados', 'Gym', 'Nafta', 'Netflix'].sort(),
+        );
+        // 20.000 nafta real + 55.000 que falta para el estimado de 75.000
+        expect(visa.items.find((i) => i.description === 'Consumos variables estimados')!.amount).toBe(55000);
+        expect(visa.total).toBe(20000 + 55000 + 25398 + 1000);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('payCardStatement con ciclo configurado', () => {
+    it('should default the payment date and closing to the next cycle of the card', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 9, 30, 12)); // 30/10
+      try {
+        (prisma.creditCard.findMany as jest.Mock).mockResolvedValue([
+          { id: 'cc-l', name: 'Leandro', isOwn: false, closingDay: 29, dueDay: 11 },
+        ]);
+        (prisma.expense.findMany as jest.Mock).mockResolvedValue([
+          { id: 'b1', date: '2026-10-29', amount: 100, description: 'a', card: 'Leandro' },
+          { id: 'b2', date: '2026-10-30', amount: 200, description: 'b', card: 'Leandro' },
+        ]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.expense.create as jest.Mock).mockImplementation(({ data }) =>
+          Promise.resolve({ id: 'st-1', ...data }),
+        );
+        (prisma.expense.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+        const res = await service.payCardStatement(userId, { card: 'Leandro', amount: 561011.7 });
+
+        expect(prisma.expense.create).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ date: '2026-11-11' }) }),
+        );
+        expect(res.settled.map((e) => e.id)).toEqual(['b1']);
+        expect(res.remaining.map((e) => e.id)).toEqual(['b2']);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('getCardDetail con ciclos', () => {
+    it('should split statement to pay, open cycle (ARS + USD) and overdue unsettled items', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 9, 30, 12)); // 30/10
+      try {
+        (prisma.creditCard.findMany as jest.Mock).mockResolvedValue([
+          { id: 'cc-v', name: 'Visa 4112', isOwn: true, label: null, kind: 'propia', payee: null, closingDay: 29, dueDay: 11, variableEstimate: null },
+        ]);
+        (prisma.recurringExpense.findMany as jest.Mock).mockResolvedValue([
+          { ...mockRecurring, id: 'r-g1', description: 'Google One', amount: 29985, originalAmount: 19.99, originalCurrency: 'USD', exchangeRate: 1500, dayOfMonth: 21, tarjeta: true, card: null, lastPostedPeriod: '2026-10' },
+        ]);
+        (prisma.expense.findMany as jest.Mock).mockImplementation(({ where }) => {
+          if (where.source === 'tarjeta-pendiente')
+            return Promise.resolve([
+              { id: 'old', date: '2026-08-05', amount: 10499.83, description: 'Zapatillas 4/6', card: null, recurringExpenseId: null },
+              { id: 'g-oct', date: '2026-10-21', amount: 29985, originalAmount: 19.99, originalCurrency: 'USD', description: 'Google One', card: null, recurringExpenseId: 'r-g1' },
+              { id: 'naf', date: '2026-10-30', amount: 75000, description: 'Nafta', card: null, recurringExpenseId: null },
+            ]);
+          return Promise.resolve([]);
+        });
+
+        const d = await service.getCardDetail(userId, null);
+
+        expect(d.label).toBe('Visa 4112');
+        expect(d.aPagar!.cycle.due).toBe('2026-11-11');
+        expect(d.aPagar!.items).toEqual([
+          expect.objectContaining({ id: 'g-oct', tipo: 'fijo' }),
+        ]);
+        expect(d.aPagar!.totalUsd).toBeCloseTo(19.99, 2);
+        expect(d.cicloAbierto!.cycle.due).toBe('2026-12-11');
+        // nafta ya cargada + Google One de noviembre que todavía no se posteó
+        expect(d.cicloAbierto!.items.map((i) => i.description).sort()).toEqual(['Google One', 'Nafta']);
+        expect(d.vencidosSinSaldar.map((e) => e.id)).toEqual(['old']);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 });

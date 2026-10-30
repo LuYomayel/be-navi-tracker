@@ -2852,11 +2852,14 @@ export class McpServerFactory {
           monto: z.number().optional().describe('Parte en PESOS del resumen'),
           monto_usd: z.number().optional().describe('Parte en DÓLARES del resumen'),
           cotizacion: z.number().optional().describe('Pesos por dólar con que pagás la parte USD'),
-          fecha: z.string().describe('Fecha de pago / vencimiento YYYY-MM-DD (puede ser futura)'),
+          fecha: z
+            .string()
+            .optional()
+            .describe('Fecha de pago YYYY-MM-DD (puede ser futura). Default: el próximo vencimiento de la tarjeta (configurar_tarjeta).'),
           cierre: z
             .string()
             .optional()
-            .describe('Fecha de cierre YYYY-MM-DD: salda los consumos del buffer hasta ese día. Default = fecha de pago. Lo posterior queda para el próximo resumen.'),
+            .describe('Fecha de cierre YYYY-MM-DD: salda los consumos del buffer hasta ese día. Default: el cierre del ciclo que vence en el mes de pago. Lo posterior queda para el próximo resumen.'),
           descripcion: z.string().optional().describe('Descripción (default "Resumen tarjeta <nombre>")'),
         },
       },
@@ -2871,7 +2874,7 @@ export class McpServerFactory {
           description: a.descripcion,
         });
         const lines = [
-          `💳 Resumen ${r.label} cargado para el ${a.fecha}: ${ars(r.total)}`,
+          `💳 Resumen ${r.label} cargado para el ${r.date} (cierre ${r.closing}): ${ars(r.total)}`,
           ...r.expenses.map((e: any) => `  • ${ars(e.amount)}${usdLabel(e)} — ${e.description} (id ${e.id})`),
         ];
         if (r.settled.length) {
@@ -2895,16 +2898,55 @@ export class McpServerFactory {
     );
 
     add(
+      'configurar_tarjeta',
+      {
+        title: 'Configurar una tarjeta / cuenta a pagar',
+        description:
+          'Crea o corrige una tarjeta (la propia o la adicional de otra persona, ej "Leandro") con su ciclo: día de cierre y día de vencimiento. Con eso cada consumo, cuota o fijo con esa tarjeta cae en su ciclo, proyeccion_mes descuenta el resumen en el mes en que vence (también el mes en curso) y pagar_resumen_tarjeta saca fecha y cierre solos. estimado_variable = gasto variable por ciclo (ej combustible) que se proyecta si los consumos anotados no llegan.',
+        inputSchema: {
+          nombre: z
+            .string()
+            .describe('Nombre de la tarjeta. Para otra persona, el mismo que usás en tarjeta="..." (ej "Leandro"). Para la propia, el que quieras mostrar (ej "Visa 4112")'),
+          propia: z.boolean().optional().describe('true = tu tarjeta (los consumos con tarjeta=true)'),
+          cierre: z.number().describe('Día de cierre del ciclo (1-31)'),
+          vencimiento: z.number().describe('Día de vencimiento / pago (1-31)'),
+          etiqueta: z.string().optional().describe('Nombre largo para mostrar (ej "Hermano (Leandro) – adicional Visa Santander 7809")'),
+          tipo: z.enum(['propia', 'adicional', 'acreedor']).optional(),
+          paga_a: z.string().optional().describe('A quién se le paga (banco o persona)'),
+          estimado_variable: z.number().optional().describe('Gasto variable estimado por ciclo en ARS (0 = sacarlo)'),
+        },
+      },
+      async (a) => {
+        const c: any = await this.expenses.upsertCard(userId, {
+          name: a.nombre,
+          isOwn: a.propia,
+          label: a.etiqueta,
+          kind: a.tipo,
+          payee: a.paga_a,
+          closingDay: a.cierre,
+          dueDay: a.vencimiento,
+          variableEstimate: a.estimado_variable,
+        });
+        return text(
+          `💳 ${c.label || c.name}${c.isOwn ? ' (propia)' : ''}: cierra el ${c.closingDay}, vence el ${c.dueDay}` +
+            (c.payee ? ` · se le paga a ${c.payee}` : '') +
+            (c.variableEstimate ? ` · variable estimado ${ars(c.variableEstimate)}/ciclo` : '') +
+            `. Usá ver_tarjeta para ver el ciclo.`,
+        );
+      },
+    );
+
+    add(
       'ver_tarjeta',
       {
         title: 'Ver una tarjeta / lo que le debo a alguien',
         description:
-          'Todo lo agrupado en una tarjeta o persona (ej "Leandro", la adicional del hermano): ítems fijos y en cuotas (cuántas faltan y cuándo terminan), cuánto lleva pagado cada uno, lo que se debe hoy (consumos sin pagar) y los resúmenes ya pagados. Sin tarjeta, lista todas.',
+          'Todo lo de una tarjeta o persona (ej "Leandro", la adicional del hermano): resumen a pagar y ciclo abierto (total ARS + USD, ítems con tipo consumo / cuota X/N / fijo), ítems fijos y en cuotas (cuántas faltan, cuándo terminan, cuánto lleva pagado cada uno), consumos de ciclos ya vencidos sin saldar y resúmenes pagados. Sin tarjeta, lista todas.',
         inputSchema: {
           tarjeta: z
             .union([z.boolean(), z.string()])
             .optional()
-            .describe('true = Visa propia, o el nombre (ej "Leandro"). Vacío = resumen de todas'),
+            .describe('true = la propia, o el nombre (ej "Leandro"). Vacío = resumen de todas'),
         },
       },
       async (a) => {
@@ -2912,22 +2954,55 @@ export class McpServerFactory {
           const cards = await this.expenses.listCards(userId);
           if (!cards.length) return text('No hay tarjetas con consumos ni recurrentes.');
           return text(
-            ['💳 Tarjetas:', ...cards.map((c) => `• ${c.label}: debe hoy ${ars(c.pendiente)} · fijos/cuotas ${ars(c.mensual)}/mes`)].join('\n'),
+            [
+              '💳 Tarjetas:',
+              ...cards.map(
+                (c) =>
+                  `• ${c.label}${c.closingDay ? ` (cierra ${c.closingDay}, vence ${c.dueDay})` : ' (sin ciclo configurado)'}: anotado sin pagar ${ars(c.pendiente)} · fijos/cuotas ${ars(c.mensual)}/mes`,
+              ),
+            ].join('\n'),
           );
         }
         const d = await this.expenses.getCardDetail(userId, cardOf(a.tarjeta));
-        const lines = [`💳 ${d.label} — fijos y cuotas activos: ${ars(d.mensualActivo)}/mes`];
+        const tipoLabel = { consumo: '', cuota: '', fijo: ' [fijo]', estimado: ' [estimado]' };
+        const cycleLines = (titulo: string, c: any) => {
+          const out = [
+            `${titulo} (${c.cycle.start} → cierre ${c.cycle.closing}, vence ${c.cycle.due}): ${ars(c.total)}${c.totalUsd ? ` (incluye USD ${c.totalUsd})` : ''}`,
+          ];
+          for (const i of c.items) {
+            out.push(
+              `  • ${i.date} ${ars(i.amount)}${usdLabel(i)} — ${i.description}${(tipoLabel as any)[i.tipo]}${i.pending ? ' (por venir)' : ''}`,
+            );
+          }
+          return out;
+        };
+        const lines = [
+          `💳 ${d.label}` +
+            (d.config
+              ? ` — cierra el ${d.config.closingDay}, vence el ${d.config.dueDay}${d.config.payee ? `, se le paga a ${d.config.payee}` : ''}`
+              : ' — sin ciclo configurado (configurar_tarjeta)'),
+          ...cycleLines(
+            d.aPagar.yaCargado ? 'Resumen a pagar (pago YA cargado)' : 'Resumen a pagar',
+            d.aPagar,
+          ),
+          ...cycleLines('Ciclo abierto', d.cicloAbierto),
+          `Fijos y cuotas activos: ${ars(d.mensualActivo)}/mes`,
+        ];
         for (const i of d.items) {
           lines.push(
-            `• ${i.active ? '' : '(inactivo) '}${i.description}: ${ars(i.amount)}/mes el día ${i.dayOfMonth}` +
+            `• ${i.active ? '' : '(inactivo) '}${i.description}: ${ars(i.amount)}${usdLabel(i)}/mes el día ${i.dayOfMonth}` +
               (i.totalInstallments
                 ? ` · cuota ${i.installmentsPaid}/${i.totalInstallments} · faltan ${i.cuotasRestantes}${i.endPeriod ? ` · termina ${i.endPeriod}` : ' · ✅ terminado'}`
                 : ' · sin fin') +
               ` · pagado ${ars(i.pagado)} (id ${i.id})`,
           );
         }
-        lines.push(`Debe hoy (consumos sin pagar): ${ars(d.pendiente.total)}`);
-        for (const e of d.pendiente.items) lines.push(`  • ${e.date} ${ars(e.amount)} — ${e.description} (id ${e.id})`);
+        if (d.vencidosSinSaldar.length) {
+          lines.push(
+            `⚠️ Consumos de ciclos ya vencidos sin saldar (${ars(d.vencidosSinSaldar.reduce((s: number, e: any) => s + e.amount, 0))}) — se saldan al cargar el resumen con pagar_resumen_tarjeta, o borralos con borrar_gasto si no existen:`,
+          );
+          for (const e of d.vencidosSinSaldar) lines.push(`  • ${e.date} ${ars(e.amount)} — ${e.description} (id ${e.id})`);
+        }
         if (d.resumenesPagados.length) {
           lines.push('Resúmenes pagados / agendados:');
           for (const e of d.resumenesPagados.slice(0, 6)) {
@@ -2943,7 +3018,7 @@ export class McpServerFactory {
       {
         title: 'Proyección del resto del mes',
         description:
-          'Cuánta plata disponés REALMENTE para lo que queda del mes: saldo de hoy menos los gastos ya agendados a futuro (ej: sesión de psicóloga de la semana que viene) y las cuotas/recurrentes que faltan pagar, más los ingresos esperados (ej: aguinaldo pendiente). En meses FUTUROS también resta el resumen estimado de cada tarjeta (consumos + cuotas del mes anterior) salvo que ya esté cargado con pagar_resumen_tarjeta. Para agendar un gasto futuro usá registrar_gasto con fecha futura; para un ingreso esperado, registrar_ingreso con pendiente=true.',
+          'Cuánta plata disponés REALMENTE para lo que queda del mes: saldo de hoy menos los gastos ya agendados a futuro (ej: sesión de psicóloga de la semana que viene) y las cuotas/recurrentes que faltan pagar, más los ingresos esperados (ej: aguinaldo pendiente). También resta el resumen de cada tarjeta que vence en el mes (su ciclo de consumos + cuotas + fijos; configurar_tarjeta define cierre y vencimiento) salvo que ya esté cargado con pagar_resumen_tarjeta. Para agendar un gasto futuro usá registrar_gasto con fecha futura; para un ingreso esperado, registrar_ingreso con pendiente=true.',
         inputSchema: {
           mes: z
             .string()
@@ -2975,10 +3050,10 @@ export class McpServerFactory {
         }
         if (pr.resumenesEstimados.length) {
           lines.push(
-            `Resúmenes de tarjeta estimados (${ars(pr.resumenesEstimadosTotal)}) — consumos y cuotas del mes anterior; desaparece al cargar el real con pagar_resumen_tarjeta:`,
+            `Resúmenes de tarjeta que vencen este mes (${ars(pr.resumenesEstimadosTotal)}) — estimados con su ciclo; se reemplazan al cargar el real con pagar_resumen_tarjeta:`,
           );
           for (const t of pr.resumenesEstimados) {
-            lines.push(`  ${t.label}: ${ars(t.total)}`);
+            lines.push(`  ${t.label} (vence ${t.due}): ${ars(t.total)}`);
             for (const c of t.items)
               lines.push(`    • ${c.date} ${ars(c.amount)} — ${c.description}`);
           }
@@ -2988,7 +3063,7 @@ export class McpServerFactory {
         );
         if (pr.tarjetaPendienteTotal > 0) {
           lines.push(
-            `💳 Próximo resumen de tarjeta (${ars(pr.tarjetaPendienteTotal)}) — no cuenta en el disponible:`,
+            `💳 Anotado en tarjetas sin pagar (${ars(pr.tarjetaPendienteTotal)}) — cuenta en el disponible del mes en que vence cada ciclo:`,
           );
           for (const t of pr.tarjetaPendientePorTarjeta) {
             lines.push(`  ${t.label}: ${ars(t.total)}`);

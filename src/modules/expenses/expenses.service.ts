@@ -8,6 +8,15 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../config/prisma.service';
 import { ExpenseCategorizerService } from './expense-categorizer.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
+import {
+  CardCycle,
+  CardCycleConfig,
+  DEFAULT_CYCLE,
+  cycleDueIn,
+  dayIn,
+  nextCycle,
+  nextDueCycle,
+} from './card-cycle';
 
 export interface CreateExpenseDto {
   date: string; // YYYY-MM-DD
@@ -138,12 +147,54 @@ export interface RecurringDto {
   finished?: boolean; // terminado / pagado por adelantado: todas las cuotas pagas y se apaga
 }
 
+export interface CardConfigDto {
+  name: string; // = Expense.card ("Leandro"); para la propia, el nombre que se muestra
+  isOwn?: boolean; // la propia: matchea los consumos con card = null
+  label?: string | null;
+  kind?: string; // propia | adicional | acreedor
+  payee?: string | null;
+  closingDay: number;
+  dueDay: number;
+  variableEstimate?: number | null;
+}
+
+export interface CardRow {
+  id: string;
+  name: string;
+  isOwn: boolean;
+  label?: string | null;
+  kind?: string;
+  payee?: string | null;
+  closingDay: number;
+  dueDay: number;
+  variableEstimate?: number | null;
+}
+
+/** Clave de una tarjeta configurada en Expense.card (la propia = null). */
+const cardKey = (c: CardRow) => (c.isOwn ? null : c.name);
+
+const cardLabel = (key: string | null, conf?: CardRow) =>
+  conf?.label || (conf?.isOwn ? conf.name : null) || key || DEFAULT_CARD_LABEL;
+
+/** Ítem de un ciclo: consumo anotado, cuota o fijo (cargado o por venir). */
+export interface CycleItem {
+  id: string;
+  date: string;
+  amount: number;
+  description: string;
+  card: string | null;
+  pending: boolean; // todavía no está en el buffer: lo postea el cron
+  tipo: 'consumo' | 'cuota' | 'fijo' | 'estimado';
+  originalAmount?: number | null;
+  originalCurrency?: string | null;
+}
+
 export interface CardStatementDto {
   card: string | null; // null = la Visa propia
   amount?: number; // parte en pesos del resumen
   amountUsd?: number; // parte en dólares
   exchangeRate?: number; // cotización de la parte en dólares
-  date: string; // día del pago / vencimiento (puede ser futuro)
+  date?: string; // día del pago (puede ser futuro); default = próximo vencimiento de la tarjeta
   closingDate?: string; // cierre: salda los consumos del buffer hasta esta fecha (default = date)
   description?: string;
 }
@@ -801,7 +852,7 @@ export class ExpensesService {
    */
   async getMonthProjection(userId: string, month: string) {
     const today = getLocalDateString();
-    const [expenses, incomes, pendingIncomes, recurring, tarjetaPendiente] = await Promise.all([
+    const [expenses, incomes, pendingIncomes, recurring, tarjetaPendiente, cards] = await Promise.all([
       this.prisma.expense.findMany({
         where: {
           userId,
@@ -822,6 +873,7 @@ export class ExpensesService {
         where: { userId, source: 'tarjeta-pendiente' },
         orderBy: { date: 'asc' },
       }),
+      this.prisma.creditCard.findMany({ where: { userId } }),
     ]);
 
     const ejecutados = expenses.filter((e) => e.date <= today);
@@ -872,19 +924,18 @@ export class ExpensesService {
       ...recurrentesEnTarjeta,
     ].sort((a, b) => a.date.localeCompare(b.date));
 
-    // Meses futuros: el resumen de cada tarjeta que vence ese mes (consumos
-    // del mes anterior + cuotas/fijos con tarjeta) sale de la plata del mes,
-    // salvo que el pago del resumen ya esté cargado (gasto resumen-tarjeta).
-    const resumenesEstimados =
-      month > today.slice(0, 7)
-        ? this.estimateStatements(
-            month,
-            tarjetaPendiente,
-            recurring,
-            expenses.filter((e) => e.source === 'resumen-tarjeta'),
-            now,
-          )
-        : [];
+    // El resumen de cada tarjeta que vence este mes (su ciclo: consumos +
+    // cuotas/fijos con tarjeta) sale de la plata del mes, salvo que el pago
+    // ya esté cargado (gasto resumen-tarjeta).
+    const resumenesEstimados = this.estimateStatements(
+      month,
+      today,
+      tarjetaPendiente,
+      recurring,
+      expenses.filter((e) => e.source === 'resumen-tarjeta'),
+      cards,
+      now,
+    );
     const resumenesEstimadosTotal = resumenesEstimados.reduce(
       (a, g) => a + g.total,
       0,
@@ -944,62 +995,225 @@ export class ExpensesService {
     };
   }
 
+  /** Config de ciclo de una tarjeta (o la default si no está configurada). */
+  private cardConfig(cards: CardRow[], key: string | null) {
+    const conf = cards.find((c) => sameCard(cardKey(c), key));
+    const cfg: CardCycleConfig = conf
+      ? { closingDay: conf.closingDay, dueDay: conf.dueDay }
+      : DEFAULT_CYCLE;
+    return { conf, cfg };
+  }
+
   /**
-   * Resumen estimado por tarjeta que vence en `month`: lo consumido el mes
-   * anterior (buffer) + lo que los recurrentes con tarjeta cobran ese mes y
-   * todavía no postearon. Las tarjetas con el pago ya cargado no se estiman.
+   * Ítems de una tarjeta en un ciclo: lo anotado en el buffer entre el
+   * inicio y el cierre + lo que los recurrentes con esa tarjeta van a cobrar
+   * en ese rango y todavía no postearon. Con `variableEstimate`, completa los
+   * consumos variables hasta ese monto.
+   */
+  private cycleItems(
+    key: string | null,
+    cyc: CardCycle,
+    buffer: any[],
+    recurring: any[],
+    conf: CardRow | undefined,
+    now: Date,
+  ): CycleItem[] {
+    const recs = recurring.filter(
+      (r) => r.tarjeta && r.active !== false && sameCard(r.card, key),
+    );
+    const items: CycleItem[] = buffer
+      .filter(
+        (e) =>
+          sameCard(e.card, key) && e.date >= cyc.start && e.date <= cyc.closing,
+      )
+      .map((e) => {
+        const rec = e.recurringExpenseId
+          ? recurring.find((r) => r.id === e.recurringExpenseId)
+          : null;
+        return {
+          id: e.id,
+          date: e.date,
+          amount: e.amount,
+          description: e.description,
+          card: e.card,
+          pending: false,
+          tipo: !e.recurringExpenseId
+            ? 'consumo'
+            : rec?.totalInstallments
+              ? 'cuota'
+              : 'fijo',
+          originalAmount: e.originalAmount,
+          originalCurrency: e.originalCurrency,
+        };
+      });
+    const periods = [...new Set([cyc.start.slice(0, 7), cyc.closing.slice(0, 7)])];
+    for (const r of recs) {
+      for (const p of periods) {
+        const date = dayIn(p, r.dayOfMonth);
+        if (date < cyc.start || date > cyc.closing) continue;
+        // Ya posteado → está en el buffer (o ya se pagó)
+        if (r.lastPostedPeriod && r.lastPostedPeriod >= p) continue;
+        const { due, cuota } = installmentForPeriod(r, p, now);
+        if (!due) continue;
+        items.push({
+          id: r.id,
+          date,
+          amount: r.amount,
+          description:
+            r.description + (cuota ? ` (cuota ${cuota}/${r.totalInstallments})` : ''),
+          card: r.card,
+          pending: true,
+          tipo: r.totalInstallments ? 'cuota' : 'fijo',
+          originalAmount: r.originalAmount,
+          originalCurrency: r.originalCurrency,
+        });
+      }
+    }
+    if (conf?.variableEstimate) {
+      const variable = items
+        .filter((i) => i.tipo === 'consumo')
+        .reduce((a, i) => a + i.amount, 0);
+      const extra = round2(conf.variableEstimate - variable);
+      if (extra > 0) {
+        items.push({
+          id: `estimado-${conf.id}`,
+          date: cyc.closing,
+          amount: extra,
+          description: 'Consumos variables estimados',
+          card: key,
+          pending: true,
+          tipo: 'estimado',
+        });
+      }
+    }
+    return items.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  private cycleSummary(cycle: CardCycle, items: CycleItem[]) {
+    return {
+      cycle,
+      items,
+      total: round2(items.reduce((a, i) => a + i.amount, 0)),
+      totalUsd: round2(
+        items
+          .filter((i) => i.originalCurrency === 'USD')
+          .reduce((a, i) => a + (i.originalAmount || 0), 0),
+      ),
+    };
+  }
+
+  /**
+   * Resumen de cada tarjeta que vence en `month`. Tarjetas configuradas:
+   * su ciclo real, y en el mes en curso solo si todavía no venció (si ya
+   * venció y no está cargado, se asume pagado por fuera). Sin configurar:
+   * mes calendario anterior, solo meses futuros. Las que ya tienen el pago
+   * cargado ese mes no se estiman.
    */
   private estimateStatements(
     month: string,
-    buffer: { id: string; date: string; amount: number; description: string; card: string | null }[],
+    today: string,
+    buffer: any[],
     recurring: any[],
     paidStatements: { card: string | null }[],
+    cards: CardRow[],
     now: Date,
   ) {
-    const prev = addMonths(month, -1);
-    const items = [
-      ...buffer
-        .filter((e) => e.date.startsWith(prev))
-        .map((e) => ({ ...e, pending: false })),
-      ...recurring
-        .filter((r) => r.tarjeta && r.lastPostedPeriod !== prev)
-        .map((r) => ({ r, ...installmentForPeriod(r, prev, now) }))
-        .filter((x) => x.due)
-        .map(({ r, cuota }) => ({
-          id: r.id,
-          date: `${prev}-${String(r.dayOfMonth).padStart(2, '0')}`,
-          amount: r.amount,
-          description:
-            r.description +
-            (cuota ? ` (cuota ${cuota}/${r.totalInstallments})` : ''),
-          card: r.card as string | null,
-          pending: true,
-        })),
-    ].filter((i) => !paidStatements.some((st) => sameCard(st.card, i.card)));
-    // Un mismo nombre de tarjeta con distinta capitalización va al mismo grupo
-    const canon: string[] = [];
-    for (const i of items) {
-      if (!i.card) continue;
-      const c = canon.find((k) => sameCard(k, i.card));
-      if (c) i.card = c;
-      else canon.push(i.card);
+    const keys: (string | null)[] = [];
+    for (const k of [
+      ...cards.map(cardKey),
+      ...buffer.map((e) => e.card as string | null),
+      ...recurring.filter((r) => r.tarjeta).map((r) => r.card as string | null),
+    ]) {
+      if (!keys.some((x) => sameCard(x, k))) keys.push(k);
     }
-    return groupByCard(items);
+    const current = today.slice(0, 7);
+    const out: {
+      card: string | null;
+      label: string;
+      due: string;
+      closing: string;
+      total: number;
+      items: CycleItem[];
+    }[] = [];
+    for (const key of keys) {
+      const { conf, cfg } = this.cardConfig(cards, key);
+      if (!conf && month <= current) continue;
+      if (paidStatements.some((st) => sameCard(st.card, key))) continue;
+      const cyc = cycleDueIn(month, cfg);
+      if (month === current && cyc.due < today) continue;
+      const items = this.cycleItems(key, cyc, buffer, recurring, conf, now);
+      if (!items.length) continue;
+      out.push({
+        card: key,
+        label: cardLabel(key, conf),
+        due: cyc.due,
+        closing: cyc.closing,
+        total: round2(items.reduce((a, i) => a + i.amount, 0)),
+        items,
+      });
+    }
+    // La propia primero
+    return out.sort((a, b) =>
+      a.card === null ? -1 : b.card === null ? 1 : a.label.localeCompare(b.label),
+    );
   }
 
-  // ── Tarjetas: resumen y detalle ───────────────────────────
+  // ── Tarjetas: config, resumen y detalle ───────────────────
+
+  async getCards(userId: string) {
+    return this.prisma.creditCard.findMany({
+      where: { userId },
+      orderBy: [{ isOwn: 'desc' }, { name: 'asc' }],
+    });
+  }
+
+  /** Crea o actualiza la config de una tarjeta (una sola propia por usuario). */
+  async upsertCard(userId: string, dto: CardConfigDto) {
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('Falta el nombre de la tarjeta');
+    for (const d of [dto.closingDay, dto.dueDay]) {
+      if (!Number.isInteger(d) || d < 1 || d > 31) {
+        throw new BadRequestException('Los días de cierre y vencimiento van de 1 a 31');
+      }
+    }
+    const isOwn = !!dto.isOwn;
+    const existing = await this.prisma.creditCard.findFirst({
+      where: isOwn ? { userId, isOwn: true } : { userId, name },
+    });
+    const data = {
+      name,
+      isOwn,
+      label: dto.label === undefined ? undefined : dto.label?.trim() || null,
+      kind: dto.kind || (isOwn ? 'propia' : undefined),
+      payee: dto.payee === undefined ? undefined : dto.payee?.trim() || null,
+      closingDay: dto.closingDay,
+      dueDay: dto.dueDay,
+      variableEstimate:
+        dto.variableEstimate === undefined ? undefined : dto.variableEstimate || null,
+    };
+    if (existing) {
+      return this.prisma.creditCard.update({ where: { id: existing.id }, data });
+    }
+    return this.prisma.creditCard.create({
+      data: { ...data, userId, kind: data.kind || 'adicional' },
+    });
+  }
 
   /**
    * Carga el pago del resumen de una tarjeta: crea el gasto real (fechado al
    * pago, puede ser futuro) y salda los consumos del buffer de esa tarjeta
    * hasta el cierre. Los saldados quedan como detalle/historial
    * (tarjeta-saldada, fuera del balance) linkeados al pago por statementId.
+   * Sin fecha ni cierre, salen del próximo ciclo a pagar de la tarjeta.
    */
   async payCardStatement(userId: string, dto: CardStatementDto) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dto.date || '')) {
+    const cards = await this.prisma.creditCard.findMany({ where: { userId } });
+    const { conf, cfg } = this.cardConfig(cards, dto.card?.trim() || null);
+    const date = dto.date || nextDueCycle(getLocalDateString(), cfg).due;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new BadRequestException('Fecha de pago inválida (YYYY-MM-DD)');
     }
-    const closing = dto.closingDate || dto.date;
+    const closing = dto.closingDate || cycleDueIn(date.slice(0, 7), cfg).closing;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(closing)) {
       throw new BadRequestException('Fecha de cierre inválida (YYYY-MM-DD)');
     }
@@ -1018,18 +1232,19 @@ export class ExpensesService {
       orderBy: { date: 'asc' },
     });
     const ofCard = buffer.filter((e) => sameCard(e.card, dto.card));
-    // Nombre canónico: el que ya usan el buffer o los recurrentes
+    // Nombre canónico: el de la config, el buffer o los recurrentes
     let card = dto.card?.trim() || null;
     if (card) {
       const recs = await this.prisma.recurringExpense.findMany({
         where: { userId, tarjeta: true },
       });
       card =
+        (conf && !conf.isOwn ? conf.name : null) ||
         ofCard.find((e) => e.card)?.card ||
         recs.find((r) => sameCard(r.card, card))?.card ||
         card;
     }
-    const label = card ?? DEFAULT_CARD_LABEL;
+    const label = cardLabel(card, conf);
     const base = dto.description?.trim() || `Resumen tarjeta ${label}`;
 
     const created: any[] = [];
@@ -1038,7 +1253,7 @@ export class ExpensesService {
         await this.prisma.expense.create({
           data: {
             userId,
-            date: dto.date,
+            date,
             amount: ars,
             description: usd ? `${base} (pesos)` : base,
             source: 'resumen-tarjeta',
@@ -1052,7 +1267,7 @@ export class ExpensesService {
         await this.prisma.expense.create({
           data: {
             userId,
-            date: dto.date,
+            date,
             ...usd,
             description: `${base} (USD ${dto.amountUsd})`,
             source: 'resumen-tarjeta',
@@ -1074,6 +1289,8 @@ export class ExpensesService {
     return {
       card,
       label,
+      date,
+      closing,
       expenses: created,
       total,
       settled,
@@ -1093,9 +1310,9 @@ export class ExpensesService {
     });
   }
 
-  /** Tarjetas conocidas (buffer, recurrentes y resúmenes pagados). */
+  /** Tarjetas conocidas (config, buffer, recurrentes y resúmenes pagados). */
   async listCards(userId: string) {
-    const [buffer, recs, statements] = await Promise.all([
+    const [buffer, recs, statements, cards] = await Promise.all([
       this.prisma.expense.findMany({
         where: { userId, source: 'tarjeta-pendiente' },
       }),
@@ -1105,35 +1322,44 @@ export class ExpensesService {
       this.prisma.expense.findMany({
         where: { userId, source: 'resumen-tarjeta' },
       }),
+      this.prisma.creditCard.findMany({ where: { userId } }),
     ]);
-    const cards: (string | null)[] = [];
+    const keys: (string | null)[] = [];
     for (const c of [
+      ...cards.map(cardKey),
       ...buffer.map((e) => e.card),
       ...recs.map((r) => r.card),
       ...statements.map((e) => e.card),
     ]) {
-      if (!cards.some((k) => sameCard(k, c))) cards.push(c);
+      if (!keys.some((k) => sameCard(k, c))) keys.push(c);
     }
-    return cards.map((card) => ({
-      card,
-      label: card ?? DEFAULT_CARD_LABEL,
-      pendiente: buffer
-        .filter((e) => sameCard(e.card, card))
-        .reduce((a, e) => a + e.amount, 0),
-      mensual: recs
-        .filter((r) => sameCard(r.card, card))
-        .reduce((a, r) => a + r.amount, 0),
-    }));
+    return keys.map((card) => {
+      const { conf } = this.cardConfig(cards, card);
+      return {
+        card,
+        label: cardLabel(card, conf),
+        closingDay: conf?.closingDay ?? null,
+        dueDay: conf?.dueDay ?? null,
+        pendiente: buffer
+          .filter((e) => sameCard(e.card, card))
+          .reduce((a, e) => a + e.amount, 0),
+        mensual: recs
+          .filter((r) => sameCard(r.card, card))
+          .reduce((a, r) => a + r.amount, 0),
+      };
+    });
   }
 
   /**
-   * Todo lo de una tarjeta / persona (ej: la adicional del hermano): ítems
-   * (fijos y cuotas, cuántas faltan y cuándo terminan), lo que se debe hoy,
-   * los resúmenes ya pagados y cuánto lleva pagado cada ítem.
+   * Todo lo de una tarjeta / persona (ej: la adicional del hermano): config
+   * del ciclo, resumen a pagar y ciclo abierto (ARS + USD), ítems (fijos y
+   * cuotas, cuántas faltan y cuándo terminan, cuánto lleva pagado cada uno),
+   * consumos de ciclos ya vencidos sin saldar y resúmenes pagados.
    */
   async getCardDetail(userId: string, card: string | null) {
     const now = new Date();
-    const [recsAll, buffer, statementsAll] = await Promise.all([
+    const today = getLocalDateString();
+    const [recsAll, buffer, statementsAll, cards] = await Promise.all([
       this.prisma.recurringExpense.findMany({
         where: { userId, tarjeta: true },
         orderBy: [{ active: 'desc' }, { dayOfMonth: 'asc' }],
@@ -1146,7 +1372,9 @@ export class ExpensesService {
         where: { userId, source: 'resumen-tarjeta' },
         orderBy: { date: 'desc' },
       }),
+      this.prisma.creditCard.findMany({ where: { userId } }),
     ]);
+    const { conf, cfg } = this.cardConfig(cards, card);
     const recs = recsAll.filter((r) => sameCard(r.card, card));
     const pending = buffer.filter((e) => sameCard(e.card, card));
     const statements = statementsAll.filter((e) => sameCard(e.card, card));
@@ -1163,6 +1391,8 @@ export class ExpensesService {
         id: r.id,
         description: r.description,
         amount: r.amount,
+        originalAmount: r.originalAmount,
+        originalCurrency: r.originalCurrency,
         dayOfMonth: r.dayOfMonth,
         active: r.active,
         totalInstallments: r.totalInstallments,
@@ -1179,13 +1409,42 @@ export class ExpensesService {
         registros: posted.length,
       };
     });
+
+    // Ciclos: el próximo a pagar (puede estar cerrado esperando el
+    // vencimiento) y el abierto que sigue acumulando.
+    const aPagarCycle = nextDueCycle(today, cfg);
+    const abiertoCycle = nextCycle(aPagarCycle, cfg);
+    const paidThisCycle = statements.some((e) => e.date.startsWith(aPagarCycle.due.slice(0, 7)));
+    const aPagar = this.cycleSummary(
+      aPagarCycle,
+      this.cycleItems(card, aPagarCycle, pending, recs, conf, now),
+    );
+    const cicloAbierto = this.cycleSummary(
+      abiertoCycle,
+      this.cycleItems(card, abiertoCycle, pending, recs, conf, now),
+    );
+
     const label =
       card === null
-        ? DEFAULT_CARD_LABEL
-        : recs[0]?.card || pending[0]?.card || statements[0]?.card || card;
+        ? cardLabel(null, conf)
+        : conf?.label || recs[0]?.card || pending[0]?.card || statements[0]?.card || card;
     return {
-      card: card === null ? null : label,
+      card: card === null ? null : conf?.name || recs[0]?.card || pending[0]?.card || card,
       label,
+      config: conf
+        ? {
+            closingDay: conf.closingDay,
+            dueDay: conf.dueDay,
+            kind: conf.kind,
+            payee: conf.payee,
+            variableEstimate: conf.variableEstimate,
+          }
+        : null,
+      aPagar: { ...aPagar, yaCargado: paidThisCycle },
+      cicloAbierto,
+      vencidosSinSaldar: pending
+        .filter((e) => e.date < aPagarCycle.start)
+        .map((e) => ({ id: e.id, date: e.date, amount: e.amount, description: e.description })),
       items,
       mensualActivo: round2(
         items.filter((i) => i.active).reduce((a, i) => a + i.amount, 0),

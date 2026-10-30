@@ -70,6 +70,7 @@ model User {
   printSettings            PrintSettings?
   printOrders              PrintOrder[]
   printResellers           PrintReseller[]
+  creditCards              CreditCard[]
 
   @@map("users")
 }
@@ -923,6 +924,29 @@ model RecurringExpense {
   category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   @@map("recurring_expenses")
+}
+
+// Tarjeta de crédito / cuenta a pagar (la propia o la adicional del hermano):
+// ciclo de cierre y vencimiento. name = Expense.card / RecurringExpense.card;
+// la propia (isOwn) matchea los consumos con card = null.
+model CreditCard {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String
+  isOwn            Boolean  @default(false)
+  label            String? // nombre para mostrar (ej "Hermano (Leandro) – adicional Visa Santander 7809")
+  kind             String   @default("propia") // propia | adicional | acreedor
+  payee            String? // a quién se le paga (banco o persona)
+  closingDay       Int // día de cierre del ciclo
+  dueDay           Int // día de vencimiento
+  variableEstimate Float? // gasto variable estimado por ciclo (ej combustible); se suma a la proyección si los consumos no llegan
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("credit_cards")
 }
 
 // Ingresos (ventas impresion 3D u otros): amount = cobrado, cost = porcion
