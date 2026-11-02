@@ -11,6 +11,7 @@ import { isHiddenForReseller, ResellersService } from './resellers.service';
 import { photoUrl } from './photos.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import { pricingForProduct, PricingSettings } from './pricing';
+import { buildReceivables } from './receivables';
 import { assertPaletteColor } from './colors';
 
 export interface UpdatePrintSettingsDto {
@@ -587,7 +588,7 @@ export class PrintingService {
       this.prisma.filament.findMany({ where: { userId } }),
       this.prisma.printSale.findMany({
         where: { userId },
-        include: { settlements: true },
+        include: { settlements: true, product: true },
       }),
       this.getSettings(userId),
     ]);
@@ -641,6 +642,12 @@ export class PrintingService {
       salesCount: ventas.length,
       result,
       missingToCoverFilament,
+      receivables: buildReceivables(
+        (ventas as any[]).map((s) => ({
+          ...s,
+          ...this.settlements.settledInfo(s),
+        })),
+      ),
     };
   }
 

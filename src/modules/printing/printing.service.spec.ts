@@ -831,8 +831,8 @@ describe('PrintingService', () => {
       { kind: 'muestra', qty: 1, chargedUnit: 0, costUnit: 3000, status: 'a_liquidar' },
       { kind: 'muestra', qty: 1, chargedUnit: 0, costUnit: 11500, status: 'a_liquidar' },
       // 2 ventas de TETRIS x2, a liquidar
-      { kind: 'venta', qty: 2, chargedUnit: 17300, costUnit: 11500, status: 'a_liquidar' },
-      { kind: 'venta', qty: 2, chargedUnit: 17300, costUnit: 11500, status: 'a_liquidar' },
+      { kind: 'venta', date: '2026-08-01', qty: 2, chargedUnit: 17300, costUnit: 11500, status: 'a_liquidar' },
+      { kind: 'venta', date: '2026-08-02', qty: 2, chargedUnit: 17300, costUnit: 11500, status: 'a_liquidar' },
     ];
 
     beforeEach(() => {
@@ -868,6 +868,12 @@ describe('PrintingService', () => {
       expect(summary.missingToCoverFilament).toBe(
         Math.max(0, investedFilament - summary.profitSalesTotal),
       );
+    });
+
+    it('trae lo que falta cobrar, sin contar muestras', async () => {
+      const summary = await service.getSummary(userId);
+      expect(summary.receivables.total).toBe(69200);
+      expect(summary.receivables.salesCount).toBe(2);
     });
 
     it('sin ventas ni filamentos, el resumen no explota (funciona con el modulo vacio)', async () => {
