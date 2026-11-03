@@ -561,6 +561,67 @@ describe('OrdersService', () => {
       );
     });
 
+    it('venta directa (sin revendedor): el default es el precio al publico', async () => {
+      await service.createOrder(userId, {
+        resellerId: null,
+        customerName: 'Mel',
+        items: [{ productId: 'prod-1', qty: 2 }],
+      });
+      expect(prisma.printOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            customerName: 'Mel',
+            items: { create: [expect.objectContaining({ qty: 2, unitPrice: 11000 })] },
+          }),
+        }),
+      );
+    });
+
+    it('venta directa: respeta el precio que se cargue a mano', async () => {
+      await service.createOrder(userId, {
+        resellerId: null,
+        customerName: 'Mel',
+        items: [{ productId: 'prod-1', qty: 1, unitPrice: 9000 }],
+      });
+      expect(prisma.printOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            items: { create: [expect.objectContaining({ unitPrice: 9000 })] },
+          }),
+        }),
+      );
+    });
+
+    it('venta directa de un producto sin precio al publico: usa el de reventa', async () => {
+      prisma.printProduct.findMany.mockResolvedValue([{ ...product, publicPrice: null }]);
+      await service.createOrder(userId, {
+        resellerId: null,
+        customerName: 'Mel',
+        items: [{ productId: 'prod-1', qty: 1 }],
+      });
+      expect(prisma.printOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            items: { create: [expect.objectContaining({ unitPrice: 3900 })] },
+          }),
+        }),
+      );
+    });
+
+    it('con revendedor sigue siendo el precio de reventa', async () => {
+      await service.createOrder(userId, {
+        resellerId: 'res-1',
+        items: [{ productId: 'prod-1', qty: 1 }],
+      });
+      expect(prisma.printOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            items: { create: [expect.objectContaining({ unitPrice: 3900 })] },
+          }),
+        }),
+      );
+    });
+
     it('respeta un precio manual por item', async () => {
       await service.createOrder(userId, {
         items: [{ productId: 'prod-1', qty: 1, unitPrice: 5000 }],
@@ -600,6 +661,28 @@ describe('OrdersService', () => {
   });
 
   describe('updateOrder', () => {
+    it('pasar un pedido a venta directa sin precio a mano usa el precio al publico', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({ ...order, sales: [] });
+      await service.updateOrder(userId, 'order-1', {
+        resellerId: null,
+        customerName: 'Mel',
+        items: [{ productId: 'prod-1', qty: 1 }],
+      });
+      expect(prisma.printOrderItem.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ orderId: 'order-1', unitPrice: 11000 })],
+      });
+    });
+
+    it('editar los items de una venta directa ya cargada usa el precio al publico', async () => {
+      prisma.printOrder.findFirst.mockResolvedValue({ ...order, resellerId: null, sales: [] });
+      await service.updateOrder(userId, 'order-1', {
+        items: [{ productId: 'prod-1', qty: 1 }],
+      });
+      expect(prisma.printOrderItem.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ unitPrice: 11000 })],
+      });
+    });
+
     it('edita cliente y notas siempre', async () => {
       prisma.printOrder.findFirst.mockResolvedValue({ ...order, sales: [] });
       await service.updateOrder(userId, 'order-1', {

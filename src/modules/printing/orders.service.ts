@@ -281,8 +281,16 @@ export class OrdersService {
     return { resellerId: null, customerName: customerName?.trim() || 'Marcelito' };
   }
 
-  /** Valida items y resuelve el unitPrice (manual o precio de reventa). */
-  private async resolveOwnerItems(userId: string, items: OwnerOrderItemDto[]) {
+  /**
+   * Valida items y resuelve el unitPrice: el manual o, por defecto, el de reventa.
+   * En una venta directa (sin revendedor) nadie se queda con margen: el default
+   * es el precio al publico.
+   */
+  private async resolveOwnerItems(
+    userId: string,
+    items: OwnerOrderItemDto[],
+    ventaDirecta = false,
+  ) {
     if (!items?.length) {
       throw new BadRequestException('El pedido no tiene productos');
     }
@@ -308,9 +316,12 @@ export class OrdersService {
     return items.map((i) => {
       const product = byId.get(i.productId);
       if (!product) throw new BadRequestException('Producto no encontrado');
+      const reventa = settings
+        ? pricingForProduct(product, settings).priceToMarcelito
+        : 0;
       const unitPrice =
         i.unitPrice ??
-        (settings ? pricingForProduct(product, settings).priceToMarcelito : 0);
+        (ventaDirecta ? (product.publicPrice ?? reventa) : reventa);
       return { productId: i.productId, qty: Math.floor(i.qty), unitPrice };
     });
   }
@@ -352,7 +363,11 @@ export class OrdersService {
   async createOrder(userId: string, dto: CreateOwnerOrderDto) {
     const status: OrderStatus =
       dto.status && ORDER_STATUSES.includes(dto.status) ? dto.status : 'pedido';
-    const items = await this.resolveOwnerItems(userId, dto.items);
+    const items = await this.resolveOwnerItems(
+      userId,
+      dto.items,
+      dto.resellerId === null,
+    );
     const customer = await this.resolveOwnerCustomer(
       userId,
       dto.resellerId,
@@ -392,7 +407,13 @@ export class OrdersService {
           'El pedido ya genero ventas: los cambios de plata van por Ventas',
         );
       }
-      const items = await this.resolveOwnerItems(userId, dto.items);
+      const resellerFinal =
+        dto.resellerId !== undefined ? dto.resellerId : order.resellerId;
+      const items = await this.resolveOwnerItems(
+        userId,
+        dto.items,
+        resellerFinal === null,
+      );
       await this.prisma.printOrderItem.deleteMany({ where: { orderId: id } });
       await this.prisma.printOrderItem.createMany({
         data: items.map((i) => ({ ...i, orderId: id })),
