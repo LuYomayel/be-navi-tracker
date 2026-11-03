@@ -48,6 +48,7 @@ export function printerName(notes?: string | null): string | null {
   const serial = notes?.match(/Impresora (\S+)/)?.[1];
   if (!serial) return null;
   if (serial.startsWith('030')) return 'A1 Mini';
+  if (serial.startsWith('039')) return 'A1';
   if (serial.startsWith('01P')) return 'P1S';
   return serial;
 }

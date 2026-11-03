@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { StockService } from './stock.service';
+import { StockService, printerName } from './stock.service';
 import { PrismaService } from '../../config/prisma.service';
 import { PartsService } from './parts.service';
 
@@ -589,6 +589,14 @@ describe('StockService', () => {
       ]);
       expect(jobs[1].printer).toBe('P1S');
       expect(jobs[1].deducted).toEqual([]);
+    });
+  });
+
+  describe('printerName', () => {
+    it('reconoce las tres impresoras por su serie', () => {
+      expect(printerName('Impresora 0300GA5A1300999')).toBe('A1 Mini');
+      expect(printerName('Impresora 01P00C542000174')).toBe('P1S');
+      expect(printerName('Impresora 03919C451800330 · placa 1')).toBe('A1');
     });
   });
 
