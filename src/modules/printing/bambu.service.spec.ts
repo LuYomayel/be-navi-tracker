@@ -107,7 +107,7 @@ describe('BambuService', () => {
       expect(data.bambuConnectedAt).toEqual(new Date('2026-10-29T12:00:00Z'));
     });
 
-    it('conectar por primera vez o tras desconectar a mano arranca de cero', async () => {
+    it('la pantalla obliga a desconectar antes de pegar el token: tampoco se pierde lo impreso', async () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 200,
@@ -116,7 +116,27 @@ describe('BambuService', () => {
       prisma.printSettings.findUnique.mockResolvedValue({
         userId,
         bambuToken: null,
+        bambuConnectedAt: new Date('2026-08-18T12:00:00Z'),
         bambuLastSyncAt: new Date('2026-10-31T12:00:00Z'),
+      });
+
+      await service.connect(userId, { token: rawToken });
+
+      const data = prisma.printSettings.update.mock.calls[0][0].data;
+      expect(data.bambuConnectedAt).toEqual(new Date('2026-10-29T12:00:00Z'));
+    });
+
+    it('la primera conexion arranca de cero', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ total: 0, hits: [] }),
+      });
+      prisma.printSettings.findUnique.mockResolvedValue({
+        userId,
+        bambuToken: null,
+        bambuConnectedAt: null,
+        bambuLastSyncAt: null,
       });
       const antes = Date.now();
 

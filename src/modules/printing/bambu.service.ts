@@ -75,14 +75,15 @@ export class BambuService {
     // Verificar contra la API antes de guardar (1 request barato).
     await this.fetchTasks(token, region, 1);
 
-    // Conexion nueva: lo impreso ANTES de conectar no descuenta stock (se puede
-    // importar como historial, sin aplicar). Token vencido que se reemplaza (sigue
-    // guardado): lo impreso mientras estuvo cortado SI descuenta, desde 48 h antes
-    // del ultimo sync que anduvo (el dedup por externalId cubre el solape).
+    // Primera conexion: lo impreso ANTES de conectar no descuenta stock (se puede
+    // importar como historial, sin aplicar). Reconexion (token vencido; la pantalla
+    // obliga a desconectar antes de pegar el nuevo): lo impreso mientras estuvo
+    // cortado SI descuenta, desde 48 h antes del ultimo sync que anduvo (el dedup
+    // por externalId cubre el solape). bambuLastSyncAt solo avanza con sync exitoso.
     const prev = await this.prisma.printSettings.findUnique({
       where: { userId },
     });
-    const ultimoSync = prev?.bambuToken ? prev.bambuLastSyncAt : null;
+    const ultimoSync = prev?.bambuConnectedAt ? prev.bambuLastSyncAt : null;
     const desde = ultimoSync
       ? new Date(new Date(ultimoSync).getTime() - 48 * 3600 * 1000)
       : new Date();
