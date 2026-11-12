@@ -54,6 +54,7 @@ model User {
   dayScores                DayScore[]
   hydrationLogs            HydrationLog[]
   sleepLogs                SleepLog[]
+  dailyCounters            DailyCounter[]
   sweatTests               SweatTest[]
   shoppingLists            ShoppingList[]
   userPreferences          UserPreferences?
@@ -768,6 +769,24 @@ model SleepLog {
   @@unique([userId, date])
   @@index([userId, date])
   @@map("sleep_logs")
+}
+
+// Contadores diarios genéricos (ej. mensajes de venta del día) — pantalla /foco
+model DailyCounter {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date  String // YYYY-MM-DD
+  key   String // ej. "ventas-mensajes"
+  value Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date, key])
+  @@index([userId, date])
+  @@map("daily_counters")
 }
 
 // ==========================================

@@ -29,6 +29,7 @@ import { CalendarModule } from './modules/calendar/calendar.module';
 import { DayScoreModule } from './modules/day-score/day-score.module';
 import { HydrationModule } from './modules/hydration/hydration.module';
 import { SleepModule } from './modules/sleep/sleep.module';
+import { CountersModule } from './modules/counters/counters.module';
 import { SweatTestModule } from './modules/sweat-test/sweat-test.module';
 import { ShoppingListModule } from './modules/shopping-list/shopping-list.module';
 import { McpModule } from './modules/mcp/mcp.module';
@@ -64,6 +65,7 @@ import { PrintingModule } from './modules/printing/printing.module';
     DayScoreModule,
     HydrationModule,
     SleepModule,
+    CountersModule,
     SweatTestModule,
     ShoppingListModule,
     McpModule,
