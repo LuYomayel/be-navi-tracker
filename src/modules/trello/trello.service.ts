@@ -1,11 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-interface TrelloCard {
+export interface TrelloCard {
   name: string;
   url: string;
   list: string;
   due: string; // flag de vencimiento ('', '⚠ vencido Nd', '⏰ vence en Nd')
+  lastActivity: string; // ISO de la última actividad de la card
+  mine: boolean; // asignada a mí
 }
+
+const CACHE_MS = 2 * 60 * 1000;
 
 interface BoardCfg {
   code: string;
@@ -92,7 +96,7 @@ export class TrelloService {
         for (const l of lists) listName[l.id] = l.name;
 
         const cards = await this.api(
-          `/boards/${b.id}/cards?fields=name,due,dueComplete,idList,idMembers,shortUrl&filter=open`,
+          `/boards/${b.id}/cards?fields=name,due,dueComplete,idList,idMembers,shortUrl,dateLastActivity&filter=open`,
         );
 
         const buckets: Record<string, TrelloCard[]> = {
@@ -120,6 +124,8 @@ export class TrelloService {
             url: c.shortUrl,
             list: listName[c.idList] || '',
             due: dueFlag,
+            lastActivity: c.dateLastActivity || '',
+            mine: (c.idMembers || []).includes(myId),
           };
           buckets[bk].push(card);
           if (dueFlag) flagged.push({ code: b.code, ...card });
@@ -131,6 +137,17 @@ export class TrelloService {
     }
 
     return { configured: true, boards, flagged };
+  }
+
+  private cache: { at: number; data: Awaited<ReturnType<TrelloService['getMyTickets']>> } | null =
+    null;
+
+  /** Igual que getMyTickets pero con cache de 2 min (lo consulta /foco seguido). */
+  async getMyTicketsCached() {
+    if (this.cache && Date.now() - this.cache.at < CACHE_MS) return this.cache.data;
+    const data = await this.getMyTickets();
+    if (data.configured) this.cache = { at: Date.now(), data };
+    return data;
   }
 
   /** Resumen compacto en texto para el briefing / el tool MCP. */
