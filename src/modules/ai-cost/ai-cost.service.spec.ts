@@ -61,6 +61,14 @@ describe('AICostService', () => {
     });
   });
 
+  describe('calculateCost', () => {
+    it('cobra gpt-6-luna a su precio ($0.10 / $0.50 por 1M), no al de gpt-4o', () => {
+      // 1M input + 1M output
+      expect(service.calculateCost(1_000_000, 1_000_000, 'gpt-6-luna')).toBe(0.6);
+      expect(service.calculateCost(1_000_000, 1_000_000, 'gpt-4o')).toBe(12.5);
+    });
+  });
+
   describe('getStats', () => {
     it('should calculate cost statistics', async () => {
       const logs = [

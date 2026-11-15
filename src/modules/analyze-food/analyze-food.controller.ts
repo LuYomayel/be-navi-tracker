@@ -68,6 +68,8 @@ export class AnalyzeFoodController {
       };
     } catch (error) {
       this.logger.error('Error analyzing food:', error);
+      // Los errores del service ya traen status y mensaje para el usuario.
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         'Error analizando la comida',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -105,6 +107,8 @@ export class AnalyzeFoodController {
       };
     } catch (error) {
       this.logger.error('Error analyzing manual food:', error);
+      // Los errores del service ya traen status y mensaje para el usuario.
+      if (error instanceof HttpException) throw error;
       throw new HttpException(
         'Error analizando la comida manual',
         HttpStatus.INTERNAL_SERVER_ERROR,

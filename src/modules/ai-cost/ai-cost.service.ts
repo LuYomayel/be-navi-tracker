@@ -54,12 +54,15 @@ export class AICostService {
    * Calculate cost in USD based on model pricing.
    * GPT-4o: $2.50/1M input, $10.00/1M output
    * GPT-4o-mini: $0.15/1M input, $0.60/1M output
+   * GPT-6 Luna: $0.10/1M input, $0.50/1M output
    */
   calculateCost(promptTokens: number, completionTokens: number, model: string = 'gpt-4o'): number {
     const pricing: Record<string, { input: number; output: number }> = {
       'gpt-4o': { input: 2.5 / 1_000_000, output: 10.0 / 1_000_000 },
       'gpt-4o-mini': { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
       'gpt-4-turbo': { input: 10.0 / 1_000_000, output: 30.0 / 1_000_000 },
+      // developers.openai.com/api/docs/pricing (2026-11): $0.10 in / $0.50 out
+      'gpt-6-luna': { input: 0.1 / 1_000_000, output: 0.5 / 1_000_000 },
     };
     const rates = pricing[model] || pricing['gpt-4o'];
     return Number(((promptTokens * rates.input) + (completionTokens * rates.output)).toFixed(6));
