@@ -1,3 +1,5 @@
+import { AI_MODEL } from '../../common/ai/ai-model';
+
 /**
  * Logica PURA del analisis de comida con IA.
  *
@@ -8,7 +10,7 @@
  */
 
 /** Modelo para analizar comidas. Precio en `AICostService.calculateCost`. */
-export const FOOD_MODEL = 'gpt-6-luna';
+export const FOOD_MODEL = AI_MODEL;
 
 export const FOOD_CATEGORIES = [
   'protein',

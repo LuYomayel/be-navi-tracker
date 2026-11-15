@@ -13,6 +13,7 @@ import { AICostService } from '../ai-cost/ai-cost.service';
 import { EmailService } from './email.service';
 import { PushService } from '../device-tokens/push.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
+import { aiParams } from '../../common/ai/ai-model';
 
 /** Secciones estructuradas del briefing del dia. */
 export interface BriefingContent {
@@ -226,7 +227,7 @@ export class BriefingService {
     try {
       const datos = this.renderStructured(content);
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        ...aiParams(220, 'low'),
         messages: [
           {
             role: 'system',
@@ -235,8 +236,6 @@ export class BriefingService {
           },
           { role: 'user', content: `Datos del día:\n${datos}` },
         ],
-        temperature: 0.6,
-        max_tokens: 220,
       });
       const text = completion.choices?.[0]?.message?.content?.trim() || null;
       if (completion?.usage) {

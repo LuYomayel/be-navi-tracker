@@ -4,6 +4,7 @@ import { NutritionService } from '../nutrition/nutrition.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
 import OpenAI from 'openai';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 const PLATE_COMPONENTS = [
   'protein',
@@ -168,7 +169,7 @@ export class SavedMealsService {
 
   /**
    * Clasifica en un solo shot todas las comidas guardadas sin componente de
-   * plato (component=null): IA (gpt-4o-mini) por nombre, con fallback de
+   * plato (component=null): IA por nombre, con fallback de
    * heurística por keywords si OpenAI no está disponible. Pensado para migrar
    * las comidas viejas de prod que quedaron como "comida completa".
    */
@@ -188,9 +189,7 @@ export class SavedMealsService {
           .map((m) => `${m.id}: ${m.name}${m.description ? ` (${m.description})` : ''}`)
           .join('\n');
         const completion = await this.openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          temperature: 0,
-          max_tokens: 1000,
+          ...aiJsonParams(1000, 'low'),
           messages: [
             {
               role: 'user',

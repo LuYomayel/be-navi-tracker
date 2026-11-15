@@ -67,6 +67,7 @@ describe('ShoppingListService', () => {
           provide: AICostService,
           useValue: {
             logFromCompletion: jest.fn(),
+            calculateCost: jest.fn().mockReturnValue(0.0001),
           },
         },
       ],

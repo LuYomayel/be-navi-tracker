@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { AI_MODEL } from '../../common/ai/ai-model';
 
 @Injectable()
 export class AICostService {
@@ -21,13 +22,13 @@ export class AICostService {
 
   /**
    * Calculates cost and logs it in a single call.
-   * GPT-4o pricing: $2.50/1M input, $10.00/1M output
+   * Sin `model` usa el modelo unico de la app (AI_MODEL).
    */
   async logFromCompletion(
     userId: string,
     service: string,
     completion: { usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } },
-    model: string = 'gpt-4o',
+    model: string = AI_MODEL,
   ) {
     const usage = completion.usage;
     if (!usage) return;
@@ -56,7 +57,7 @@ export class AICostService {
    * GPT-4o-mini: $0.15/1M input, $0.60/1M output
    * GPT-6 Luna: $0.10/1M input, $0.50/1M output
    */
-  calculateCost(promptTokens: number, completionTokens: number, model: string = 'gpt-4o'): number {
+  calculateCost(promptTokens: number, completionTokens: number, model: string = AI_MODEL): number {
     const pricing: Record<string, { input: number; output: number }> = {
       'gpt-4o': { input: 2.5 / 1_000_000, output: 10.0 / 1_000_000 },
       'gpt-4o-mini': { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
@@ -64,7 +65,8 @@ export class AICostService {
       // developers.openai.com/api/docs/pricing (2026-11): $0.10 in / $0.50 out
       'gpt-6-luna': { input: 0.1 / 1_000_000, output: 0.5 / 1_000_000 },
     };
-    const rates = pricing[model] || pricing['gpt-4o'];
+    // Modelo sin precio cargado: se cobra al del modelo actual de la app.
+    const rates = pricing[model] || pricing[AI_MODEL];
     return Number(((promptTokens * rates.input) + (completionTokens * rates.output)).toFixed(6));
   }
 

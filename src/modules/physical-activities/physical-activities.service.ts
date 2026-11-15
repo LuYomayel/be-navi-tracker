@@ -6,6 +6,7 @@ import { OpenAI } from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
 import { AICostService } from '../ai-cost/ai-cost.service';
 import { getLocalDateString } from '../../common/utils/date.utils';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 @Injectable()
 export class PhysicalActivitiesService {
@@ -49,7 +50,7 @@ export class PhysicalActivitiesService {
       // Generar prompt especializado para análisis de comida
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
+        ...aiJsonParams(2000, 'low'),
         messages: [
           {
             role: 'system',
@@ -65,9 +66,9 @@ export class PhysicalActivitiesService {
               exerciseMinutes: number;
               standHours: number;
               aiConfidence: number;
-              screenshotUrl: string;
-              source: 'image';
             }
+            - Si un dato no aparece en la imagen, poné 0.
+            - Respondé SOLO el JSON, sin markdown.
             `,
           },
           {
@@ -87,8 +88,6 @@ export class PhysicalActivitiesService {
             ],
           },
         ],
-        max_tokens: 2000,
-        temperature: 0.2, // Muy conservador para análisis nutricional preciso
       });
 
       const response = completion.choices[0]?.message?.content;
@@ -103,24 +102,30 @@ export class PhysicalActivitiesService {
 
       // Extraer costo de la llamada
       const usage = completion.usage;
-      const costUsd = usage ? this.calculateCost(usage.prompt_tokens, usage.completion_tokens, 'gpt-4o') : null;
+      const costUsd = usage ? this.aiCostService.calculateCost(usage.prompt_tokens, usage.completion_tokens) : null;
 
-      const validatedResponse = JSON.parse(this.cleanOpenAIResponse(response));
+      const parsed = JSON.parse(this.cleanOpenAIResponse(response));
+      // Se exigen la fecha y las metricas (0 es un valor valido). La URL de la
+      // captura y el origen no los puede saber el modelo: los pone el server.
+      const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
       const isResponseValid =
-        validatedResponse.date &&
-        (validatedResponse.steps || validatedResponse.steps === 0) &&
-        (validatedResponse.distanceKm || validatedResponse.distanceKm === 0) &&
-        (validatedResponse.activeEnergyKcal ||
-          validatedResponse.activeEnergyKcal === 0) &&
-        (validatedResponse.exerciseMinutes ||
-          validatedResponse.exerciseMinutes === 0) &&
-        (validatedResponse.standHours || validatedResponse.standHours === 0) &&
-        validatedResponse.aiConfidence &&
-        validatedResponse.screenshotUrl &&
-        validatedResponse.source;
+        typeof parsed?.date === 'string' &&
+        [
+          parsed.steps,
+          parsed.distanceKm,
+          parsed.activeEnergyKcal,
+          parsed.exerciseMinutes,
+          parsed.standHours,
+        ].every(isNum);
       if (!isResponseValid) {
         throw new Error('La respuesta de OpenAI Vision no es válida');
       }
+      const validatedResponse = {
+        ...parsed,
+        aiConfidence: isNum(parsed.aiConfidence) ? parsed.aiConfidence : 0.8,
+        screenshotUrl: null,
+        source: 'image',
+      };
 
       return { ...validatedResponse, aiCostUsd: costUsd };
     } catch (error) {
@@ -130,15 +135,6 @@ export class PhysicalActivitiesService {
     }
   }
 
-  private calculateCost(promptTokens: number, completionTokens: number, model: string): number {
-    // GPT-4o pricing (as of 2024): $2.50/1M input, $10.00/1M output
-    const pricing: Record<string, { input: number; output: number }> = {
-      'gpt-4o': { input: 2.50 / 1_000_000, output: 10.00 / 1_000_000 },
-      'gpt-4o-mini': { input: 0.15 / 1_000_000, output: 0.60 / 1_000_000 },
-    };
-    const p = pricing[model] || pricing['gpt-4o'];
-    return Number(((promptTokens * p.input) + (completionTokens * p.output)).toFixed(6));
-  }
 
   private cleanOpenAIResponse(response: string): string {
     let cleaned = response.trim();

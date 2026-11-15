@@ -58,6 +58,53 @@ describe('PhysicalActivitiesService', () => {
     prisma = module.get<PrismaService>(PrismaService);
   });
 
+  describe('analyzeImagePhysicalActivity', () => {
+    const withModelAnswer = (answer: Record<string, unknown>) => {
+      (service as any).openai = {
+        chat: {
+          completions: {
+            create: jest.fn().mockResolvedValue({
+              choices: [{ message: { content: JSON.stringify(answer) } }],
+              usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+            }),
+          },
+        },
+      };
+    };
+    const metrics = {
+      date: '2026-11-14',
+      steps: 9842,
+      distanceKm: 7.3,
+      activeEnergyKcal: 512,
+      exerciseMinutes: 47,
+      standHours: 11,
+    };
+
+    it('acepta la lectura aunque el modelo no invente screenshotUrl ni source', async () => {
+      // El modelo no puede conocer la URL de la captura: no se le exige.
+      withModelAnswer({ ...metrics, aiConfidence: 0.9, screenshotUrl: null });
+
+      const r = await service.analyzeImagePhysicalActivity('AAAA', undefined, 'u1');
+
+      expect(r).toMatchObject({ ...metrics, source: 'image', aiConfidence: 0.9 });
+    });
+
+    it('acepta ceros reales (0 pasos, 0 horas de pie)', async () => {
+      withModelAnswer({ ...metrics, steps: 0, standHours: 0 });
+      const r = await service.analyzeImagePhysicalActivity('AAAA', undefined, 'u1');
+      expect(r?.steps).toBe(0);
+      expect(r?.aiConfidence).toBe(0.8);
+    });
+
+    it('rechaza una lectura a la que le falta una metrica', async () => {
+      const { steps: _steps, ...incomplete } = metrics;
+      withModelAnswer(incomplete);
+      expect(
+        await service.analyzeImagePhysicalActivity('AAAA', undefined, 'u1'),
+      ).toBeNull();
+    });
+  });
+
   describe('getAll', () => {
     it('should return all physical activities for user', async () => {
       (prisma.physicalActivity.findMany as jest.Mock).mockResolvedValue([

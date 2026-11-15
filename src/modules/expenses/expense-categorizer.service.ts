@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { PrismaService } from '../../config/prisma.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 /**
  * Categorización automática de gastos. Todo gasto que entra sin categoría
@@ -9,7 +10,7 @@ import { AICostService } from '../ai-cost/ai-cost.service';
  *   1. Reglas por comercio (gratis, instantáneo)
  *   2. Historial: un gasto previo parecido ya categorizado por Luciano
  *      (así el sistema aprende de sus correcciones)
- *   3. IA (gpt-4o-mini) con umbral de confianza — si duda, queda sin categoría
+ *   3. IA con umbral de confianza — si duda, queda sin categoría
  */
 
 // Reglas comercio/keyword → nombre canónico de categoría
@@ -142,8 +143,7 @@ export class ExpenseCategorizerService {
     if (!this.openai) return null;
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        temperature: 0,
+        ...aiJsonParams(200, 'low'),
         messages: [
           {
             role: 'system',
@@ -161,7 +161,6 @@ export class ExpenseCategorizerService {
           userId,
           'expense-categorizer',
           completion as any,
-          'gpt-4o-mini',
         );
       } catch {
         // no crítico

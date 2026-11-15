@@ -20,6 +20,7 @@ import { PreferencesService } from '../preferences/preferences.service';
 import OpenAI from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
 import { getLocalDateString } from '../../common/utils/date.utils';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 const DAY_KEYS: DayKey[] = [
   'monday',
@@ -151,8 +152,7 @@ export class MealPrepService {
       );
     }
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.1,
+      ...aiJsonParams(500, 'low'),
       messages: [
         {
           role: 'system',
@@ -706,7 +706,7 @@ export class MealPrepService {
 
   /**
    * Intenta reparar un JSON truncado cerrando llaves y corchetes faltantes.
-   * Útil cuando OpenAI corta la respuesta por max_tokens.
+   * Útil cuando OpenAI corta la respuesta por el límite de tokens.
    */
   private repairTruncatedJson(json: string): string {
     // Remover última propiedad/valor incompleto (ej: "name": "Pollo a)
@@ -824,15 +824,13 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 }`;
 
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
+      ...aiJsonParams(4000, 'medium'),
       messages: [
         {
           role: 'user',
           content: [{ type: 'text', text: prompt }, ...imageContents],
         },
       ],
-      max_tokens: 4000,
-      temperature: 0.1,
     });
 
     const content = completion.choices[0]?.message?.content;
@@ -954,7 +952,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 }`);
 
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
+      ...aiJsonParams(24000, 'low'),
       messages: [
         {
           role: 'system',
@@ -966,8 +964,6 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
           content: parts.join('\n'),
         },
       ],
-      max_tokens: 16000,
-      temperature: 0.3,
     });
 
     const content = completion.choices[0]?.message?.content;
@@ -982,7 +978,9 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
       return { week: parsed, completion };
     } catch (e) {
       // Intentar reparar JSON truncado: cerrar llaves/corchetes faltantes
-      this.logger.warn('JSON truncado, intentando reparar...');
+      this.logger.warn(
+        `JSON inválido (finish=${completion.choices[0]?.finish_reason}, tokens=${completion.usage?.completion_tokens}, razonamiento=${(completion.usage as any)?.completion_tokens_details?.reasoning_tokens}), intentando reparar...`,
+      );
       try {
         const repaired = this.repairTruncatedJson(cleaned);
         const parsed = JSON.parse(repaired) as MealPrepWeek;

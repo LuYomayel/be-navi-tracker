@@ -5,6 +5,7 @@ import { SaveDTO } from './dto/save-body-analysis.dto';
 import OpenAI from 'openai';
 import { resolveImageUrl } from '../../common/utils/image.utils';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 export enum BodyType {
   ECTOMORPH = 'ectomorph', // Delgado, dificultad para ganar peso
@@ -399,7 +400,7 @@ Si no puedes determinar un valor con certeza, usa estimaciones conservadoras y u
 Las calorías y macros deben ser coherentes con los datos personales y objetivos del usuario.`;
 
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
+      ...aiJsonParams(4000, 'low'),
       messages: [
         {
           role: 'user',
@@ -412,8 +413,6 @@ Las calorías y macros deben ser coherentes con los datos personales y objetivos
           ],
         },
       ],
-      max_tokens: 4000,
-      temperature: 0.3,
     });
 
     // Log AI cost

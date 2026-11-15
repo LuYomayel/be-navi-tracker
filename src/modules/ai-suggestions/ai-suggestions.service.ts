@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { aiJsonParams, aiParams } from '../../common/ai/ai-model';
 
 interface AISuggestionResponse {
   message: string;
@@ -137,10 +138,8 @@ Ejemplos de NO:
 
     try {
       const completion = await this.openai!.chat.completions.create({
-        model: 'gpt-4o',
+        ...aiParams(20, 'none'),
         messages: [{ role: 'user', content: intentPrompt }],
-        max_tokens: 10,
-        temperature: 0.1,
       });
 
       // Log AI cost
@@ -207,10 +206,8 @@ Reglas:
 
     try {
       const completion = await this.openai!.chat.completions.create({
-        model: 'gpt-4o',
+        ...aiJsonParams(500, 'low'),
         messages: [{ role: 'user', content: extractionPrompt }],
-        max_tokens: 500,
-        temperature: 0.3,
       });
 
       // Log AI cost
@@ -283,10 +280,8 @@ El usuario NO está pidiendo agregar un hábito, solo quiere consejos o informac
       ];
 
       const completion = await this.openai!.chat.completions.create({
-        model: 'gpt-4o',
+        ...aiParams(800, 'low'),
         messages: messages,
-        max_tokens: 800,
-        temperature: 0.7,
       });
 
       // Log AI cost

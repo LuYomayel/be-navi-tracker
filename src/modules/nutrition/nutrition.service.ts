@@ -20,6 +20,7 @@ import { CreateWeightEntryManualDto } from './dto/create-weight-entry.dto';
 import { AICostService } from '../ai-cost/ai-cost.service';
 import { XpService } from '../xp/xp.service';
 import { XpAction } from '../xp/dto/xp.dto';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 @Injectable()
 export class NutritionService {
@@ -716,7 +717,7 @@ export class NutritionService {
         'Analizame el screenshot de la balanza y me devuelvas los datos de la balanza';
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
+        ...aiJsonParams(2000, 'low'),
         messages: [
           {
             role: 'system',
@@ -759,8 +760,6 @@ export class NutritionService {
             ],
           },
         ],
-        max_tokens: 2000,
-        temperature: 0.2, // Muy conservador para análisis nutricional preciso
       });
 
       const response = completion.choices[0]?.message?.content;

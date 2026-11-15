@@ -11,6 +11,7 @@ import {
 } from './dto/skin-fold.dto';
 import OpenAI from 'openai';
 import { AICostService } from '../ai-cost/ai-cost.service';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 export interface AnthropometryAnalysis {
   basics: {
@@ -366,7 +367,7 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
+        ...aiJsonParams(4000, 'medium'),
         messages: [
           {
             role: 'user',
@@ -376,8 +377,6 @@ Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown):
             ],
           },
         ],
-        temperature: 0.1,
-        max_tokens: 4000,
       });
 
       // Log AI cost

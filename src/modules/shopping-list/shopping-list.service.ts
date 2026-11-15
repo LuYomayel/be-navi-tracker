@@ -9,6 +9,7 @@ import {
   UpdateShoppingItemDto,
   BulkCheckDto,
 } from './dto/shopping-list.dto';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 // OpenAI is an optional dependency
 let OpenAI: any;
@@ -188,7 +189,10 @@ export class ShoppingListService {
         source: 'meal_prep',
         mealPrepId: mealPrep.id,
         aiCostUsd: completion?.usage
-          ? this.estimateCost(completion.usage)
+          ? this.aiCostService.calculateCost(
+              completion.usage.prompt_tokens,
+              completion.usage.completion_tokens,
+            )
           : null,
         items: {
           create: items.map((item: any, index: number) => ({
@@ -332,9 +336,7 @@ Responde UNICAMENTE con JSON valido:
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        temperature: 0.1,
-        max_tokens: 2000,
+        ...aiJsonParams(2000, 'low'),
         messages: [
           {
             role: 'system',
@@ -371,10 +373,4 @@ Responde UNICAMENTE con JSON valido:
     });
   }
 
-  private estimateCost(usage: any): number {
-    // gpt-4o-mini pricing: $0.15/1M input, $0.60/1M output
-    const inputCost = (usage.prompt_tokens / 1_000_000) * 0.15;
-    const outputCost = (usage.completion_tokens / 1_000_000) * 0.6;
-    return Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000;
-  }
 }

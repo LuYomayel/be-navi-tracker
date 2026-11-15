@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { PrismaService } from '../../config/prisma.service';
 import { AICostService } from '../ai-cost/ai-cost.service';
 import { ExpenseCategorizerService } from './expense-categorizer.service';
+import { aiJsonParams } from '../../common/ai/ai-model';
 
 /**
  * Importador de resúmenes de tarjeta de crédito (mismo patrón que el plan
@@ -62,9 +63,7 @@ export class CardStatementService {
     }
 
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.1,
-      max_tokens: 4000,
+      ...aiJsonParams(4000, 'medium'),
       messages: [
         {
           role: 'system',
